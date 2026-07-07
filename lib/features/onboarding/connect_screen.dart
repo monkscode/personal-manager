@@ -5,64 +5,99 @@ import '../../core/theme.dart';
 import '../../data/app_controller.dart';
 import '../../widgets/ui.dart';
 
-class ConnectScreen extends ConsumerWidget {
+class ConnectScreen extends ConsumerStatefulWidget {
   const ConnectScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConnectScreen> createState() => _ConnectScreenState();
+}
+
+class _ConnectScreenState extends ConsumerState<ConnectScreen> {
+  late final TextEditingController _clientId;
+
+  @override
+  void initState() {
+    super.initState();
+    _clientId = TextEditingController(text: ref.read(appControllerProvider).gmailServerClientId);
+  }
+
+  @override
+  void dispose() {
+    _clientId.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final p = context.palette;
     final ctrl = ref.read(appControllerProvider.notifier);
     final scanError = ref.watch(appControllerProvider.select((s) => s.scanError));
-    return Padding(
+
+    return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 88,
-            height: 88,
-            decoration: BoxDecoration(
-              color: p.surface,
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: p.border),
-            ),
-            child: Icon(Icons.mail_outline_rounded, size: 40, color: p.textPrimary),
-          ),
-          const SizedBox(height: 24),
-          Text('Connect your Gmail',
-              textAlign: TextAlign.center,
-              style: jakarta(size: 22, weight: FontWeight.w800, height: 1.3, color: p.textPrimary)),
-          const SizedBox(height: 10),
-          Text("We'll ask Google for read-only access to scan for transaction emails.",
-              textAlign: TextAlign.center,
-              style: jakarta(size: 14, weight: FontWeight.w500, height: 1.6, color: p.textSecondary)),
-          const SizedBox(height: 24),
-          PrimaryButton(
-            label: 'Continue with Gmail',
-            onTap: ctrl.connectGmail,
-            icon: Icon(Icons.mail_outline_rounded, size: 18, color: AppColors.ink),
-          ),
-          if (scanError.isNotEmpty) ...[
-            const SizedBox(height: 16),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 120),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              width: 88,
+              height: 88,
               decoration: BoxDecoration(
-                color: AppColors.pink.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.pink.withValues(alpha: 0.3)),
+                color: p.surface,
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: p.border),
               ),
-              child: Text(scanError,
-                  textAlign: TextAlign.center,
-                  style: jakarta(size: 12, weight: FontWeight.w500, height: 1.5, color: p.textSecondary)),
+              child: Icon(Icons.mail_outline_rounded, size: 40, color: p.textPrimary),
+            ),
+            const SizedBox(height: 24),
+            Text('Connect your Gmail',
+                textAlign: TextAlign.center,
+                style: jakarta(size: 22, weight: FontWeight.w800, height: 1.3, color: p.textPrimary)),
+            const SizedBox(height: 10),
+            Text("We'll ask Google for read-only access to scan for transaction emails.",
+                textAlign: TextAlign.center,
+                style: jakarta(size: 14, weight: FontWeight.w500, height: 1.6, color: p.textSecondary)),
+            const SizedBox(height: 24),
+            // Android needs the Google Web OAuth client ID for sign-in.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FieldLabel('Google Web client ID (required on Android)'),
+            ),
+            AppTextField(
+              controller: _clientId,
+              hint: '1234...apps.googleusercontent.com',
+              fillAlt: true,
+              onChanged: ctrl.setGmailServerClientId,
+            ),
+            const SizedBox(height: 20),
+            PrimaryButton(
+              label: 'Continue with Gmail',
+              onTap: ctrl.connectGmail,
+              icon: Icon(Icons.mail_outline_rounded, size: 18, color: AppColors.ink),
+            ),
+            if (scanError.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.pink.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.pink.withValues(alpha: 0.3)),
+                ),
+                child: Text(scanError,
+                    textAlign: TextAlign.center,
+                    style: jakarta(size: 12, weight: FontWeight.w500, height: 1.5, color: p.textSecondary)),
+              ),
+            ],
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: ctrl.skipToApp,
+              child: Text('Use sample data instead',
+                  style: jakarta(size: 13, weight: FontWeight.w600, color: p.textTertiary)),
             ),
           ],
-          const SizedBox(height: 24),
-          GestureDetector(
-            onTap: ctrl.skipToApp,
-            child: Text('Use sample data instead',
-                style: jakarta(size: 13, weight: FontWeight.w600, color: p.textTertiary)),
-          ),
-        ],
+        ),
       ),
     );
   }

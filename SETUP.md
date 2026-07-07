@@ -18,15 +18,16 @@ Pick whichever is easier for you.
 ### Option 1 — Download a ready APK from GitHub (no tools to install)
 1. On GitHub, open the repo → **Actions** tab → **"Build Android APK"** workflow.
 2. Click **Run workflow** (on branch `claude/expense-insight-app-i0uo2x`) and wait ~5 min.
-3. Open the finished run → **Artifacts** → download **`expense-insight-debug-apk`**.
-4. Unzip it → you get **`app-debug.apk`**. Send it to your phone (Drive, email, USB…).
+3. Open the finished run → **Artifacts** → download **`expense-insight-apk`**.
+4. Unzip it → install **`app-arm64-v8a-release.apk`** (the small ~10-15 MB build
+   for any modern phone). Send it to your phone (Drive, email, USB…).
 5. On the phone, tap the APK. Allow **"Install unknown apps"** for your browser/files app when prompted, then install.
 
 ### Option 2 — Build it yourself (if you have Flutter)
 ```bash
 flutter pub get
-flutter build apk --debug
-# APK lands at: build/app/outputs/flutter-apk/app-debug.apk
+flutter build apk --release --split-per-abi
+# Small APK lands at: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 # Or, with the phone plugged in via USB debugging:
 flutter run
 ```
@@ -46,7 +47,7 @@ dataset. This needs **no Google setup at all** — great for reviewing the UX.
 
 Everything here is on Google's **free tier**. Do it once.
 
-**The two values you'll need:**
+**Values you'll need** (the Web client ID is created in step 5):
 - **Package name:** `com.expenseinsight.expense_insight`
 - **SHA-1 fingerprint:** `7E:F6:07:7C:E7:6E:A6:C5:CD:7E:1E:CA:3B:96:32:A5:5D:CE:7A:94`
 
@@ -68,8 +69,13 @@ Everything here is on Google's **free tier**. Do it once.
    - **SHA-1:** the fingerprint above.
    - Create. (There's **no file to download** for Android — it's matched by
      package + SHA-1.)
-5. Reinstall/open the app → **"Continue with Gmail"** → pick your account →
-   approve read-only Gmail access. You may see an **"unverified app"** warning —
+5. **Create a Web OAuth client too** (Android's sign-in needs its ID): Credentials
+   → **Create credentials** → **OAuth client ID** → Application type **Web
+   application** → Create. **Copy its Client ID** (looks like
+   `1234…apps.googleusercontent.com`). You don't need the secret.
+6. Open the app → **Connect your Gmail** → paste that **Web client ID** into the
+   **"Google Web client ID"** field → **Continue with Gmail** → pick your account
+   → approve read-only Gmail access. You may see an **"unverified app"** warning —
    that's expected for your own testing app; continue. The app scans recent
    mail on the phone and shows the bills it found for you to **confirm**.
 
@@ -80,8 +86,14 @@ Everything here is on Google's **free tier**. Do it once.
 ---
 
 ## Troubleshooting
+- **"serverClientId must be provided on Android"** → you haven't pasted the **Web**
+  client ID into the Connect screen. Create a Web OAuth client (Part C step 5) and
+  paste its Client ID.
 - **`DEVELOPER_ERROR` / sign-in closes instantly** → the SHA-1 or package name in
   the Android OAuth client doesn't match. Re-check Part C step 4.
+- **AI/Vertex not used (falls back to on-device)** → check the project has the
+  **Vertex AI API enabled** and the service account has the **"Vertex AI User"**
+  role, and the region is right. The app auto-falls back to rules on any AI error.
 - **"Access blocked / app not verified" and you can't continue** → your Gmail
   address isn't added as a **Test user** (Part C step 3).
 - **Signed in but "No bills detected"** → the parser is conservative; add missed

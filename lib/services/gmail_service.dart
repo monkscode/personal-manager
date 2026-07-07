@@ -58,6 +58,7 @@ class GmailService {
   Future<GmailScanResult> scan({
     void Function(int done, int total)? onProgress,
     Future<List<ParsedBill>> Function(List<RawEmail>)? aiExtract,
+    String? serverClientId,
   }) async {
     final signIn = GoogleSignIn.instance;
     if (!signIn.supportsAuthenticate()) {
@@ -65,9 +66,16 @@ class GmailService {
           GmailFailure.unsupported, 'Gmail sign-in isn\'t available on this device.');
     }
 
+    // Android's Credential Manager sign-in requires the Google **Web** OAuth
+    // client ID (serverClientId). Fail early with a clear message if missing.
+    if (serverClientId == null || serverClientId.trim().isEmpty) {
+      throw const GmailScanException(GmailFailure.notConfigured,
+          'Add your Google Web OAuth client ID below (Android needs it). See SETUP.md, Part C.');
+    }
+
     if (!_initialized) {
       try {
-        await signIn.initialize();
+        await signIn.initialize(serverClientId: serverClientId.trim());
         _initialized = true;
       } catch (e) {
         throw GmailScanException(GmailFailure.notConfigured,

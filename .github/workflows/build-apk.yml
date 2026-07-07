@@ -31,11 +31,15 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --debug
 
-      - name: Upload APK
+      # Release + per-ABI splits keep the APK small (~10-15 MB for arm64 vs a
+      # ~50 MB universal debug build). Signed with the committed debug key, so
+      # the OAuth SHA-1 is unchanged. Install app-arm64-v8a-release.apk.
+      - run: flutter build apk --release --split-per-abi
+
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: expense-insight-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: expense-insight-apk
+          path: build/app/outputs/flutter-apk/*-release.apk
           if-no-files-found: error
