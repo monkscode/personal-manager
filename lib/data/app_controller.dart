@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/gmail_service.dart';
 import 'app_state.dart';
 import 'insights.dart';
 import 'models.dart';
+import 'parsed_bill.dart';
+import 'seed_data.dart';
 
 const _prefsKey = 'expense_insight_state_v1';
 
@@ -23,11 +26,10 @@ final insightsProvider = Provider<Insights>(
 );
 
 class AppController extends Notifier<AppState> {
-  Timer? _scanTimer;
+  final GmailService _gmail = GmailService();
 
   @override
   AppState build() {
-    ref.onDispose(() => _scanTimer?.cancel());
     final prefs = ref.read(sharedPrefsProvider);
     final saved = prefs.getString(_prefsKey);
     if (saved != null) {
@@ -69,24 +71,75 @@ class AppController extends Notifier<AppState> {
   void toggleNotif() => _update(state.copyWith(notifOn: !state.notifOn));
   void setTheme(String theme) => _update(state.copyWith(theme: theme));
 
-  // ---- Gmail "scan" simulation ---------------------------------------------
-  // A later phase replaces this with a real Gmail read-only scan; for now it
-  // animates progress and then reveals the seeded dataset.
+  // ---- Real on-device Gmail scan -------------------------------------------
+  // Reads Gmail read-only on the device, parses bills locally, and moves to the
+  // review stage. Nothing leaves the phone. Errors fall back to the connect
+  // screen with a message; "Use sample data" remains available.
 
-  void connectGmail() {
-    _scanTimer?.cancel();
-    state = state.copyWith(stage: 'scanning', scanProgress: 0, scanCount: 0);
-    _scanTimer = Timer.periodic(const Duration(milliseconds: 130), (timer) {
-      final p = (state.scanProgress + 5).clamp(0, 100);
-      final c = (p / 100 * 247).round();
-      state = state.copyWith(scanProgress: p, scanCount: c);
-      if (p >= 100) {
-        timer.cancel();
-        Timer(const Duration(milliseconds: 500), () {
-          _update(state.copyWith(stage: 'app'));
-        });
-      }
-    });
+  Future<void> connectGmail() async {
+    state = state.copyWith(stage: 'scanning', scanProgress: 0, scanCount: 0, scanError: '');
+    try {
+      final result = await _gmail.scan(onProgress: (done, total) {
+        final pct = total == 0 ? 100 : (done / total * 100).round();
+        state = state.copyWith(scanProgress: pct.clamp(0, 100), scanCount: done);
+      });
+      _update(state.copyWith(
+        stage: 'review',
+        candidates: result.candidates,
+        gmailEmail: result.account.email,
+        scanProgress: 100,
+        scanCount: result.scanned,
+      ));
+    } on GmailScanException catch (e) {
+      // Cancellation returns quietly; real failures surface a message.
+      state = state.copyWith(
+        stage: 'connect',
+        scanError: e.failure == GmailFailure.cancelled ? '' : e.message,
+      );
+    } catch (e) {
+      state = state.copyWith(stage: 'connect', scanError: 'Something went wrong: $e');
+    }
+  }
+
+  /// Turn the confirmed candidates into obligations and enter the app.
+  void confirmCandidates(List<ParsedBill> selected) {
+    final entries = selected.map(_toExpense).toList();
+    _update(state.copyWith(
+      manualTx: [...entries, ...state.manualTx],
+      candidates: const [],
+      stage: 'app',
+      tab: 'home',
+    ));
+  }
+
+  void skipReview() =>
+      _update(state.copyWith(stage: 'app', tab: 'home', candidates: const []));
+
+  /// Disconnects Gmail and returns to onboarding so the user can start over.
+  void signOut() {
+    _gmail.disconnect();
+    _update(state.copyWith(
+      stage: 'onboard',
+      onboardStep: 0,
+      gmailEmail: '',
+      candidates: const [],
+      scanError: '',
+    ));
+  }
+
+  ExpenseEntry _toExpense(ParsedBill b) {
+    final cat = kCatsNext.firstWhere((c) => c.key == b.categoryKey,
+        orElse: () => kCatsNext.firstWhere((c) => c.key == 'other'));
+    final name = b.merchant.trim().isEmpty ? 'Bill' : b.merchant.trim();
+    return ExpenseEntry(
+      name: name,
+      category: cat.name,
+      categoryKey: cat.key,
+      amount: b.amount,
+      initial: name.substring(0, name.length >= 2 ? 2 : name.length).toUpperCase(),
+      color: cat.color,
+      recurring: b.isRecurring,
+    );
   }
 
   // ---- Income & investment plan --------------------------------------------

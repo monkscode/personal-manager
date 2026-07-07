@@ -9,6 +9,7 @@ import 'features/onboarding/income_screen.dart';
 import 'features/onboarding/invest_plan_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/privacy_screen.dart';
+import 'features/onboarding/review_screen.dart';
 import 'features/onboarding/scanning_screen.dart';
 
 class ExpenseInsightApp extends ConsumerWidget {
@@ -40,6 +41,7 @@ class _Root extends ConsumerWidget {
       'investPlan' => const InvestPlanScreen(),
       'connect' => const ConnectScreen(),
       'scanning' => const ScanningScreen(),
+      'review' => const ReviewScreen(),
       _ => const OnboardingScreen(),
     };
 

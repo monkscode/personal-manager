@@ -12,6 +12,7 @@ class ConnectScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final ctrl = ref.read(appControllerProvider.notifier);
+    final scanError = ref.watch(appControllerProvider.select((s) => s.scanError));
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
       child: Column(
@@ -41,6 +42,20 @@ class ConnectScreen extends ConsumerWidget {
             onTap: ctrl.connectGmail,
             icon: Icon(Icons.mail_outline_rounded, size: 18, color: AppColors.ink),
           ),
+          if (scanError.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.pink.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.pink.withValues(alpha: 0.3)),
+              ),
+              child: Text(scanError,
+                  textAlign: TextAlign.center,
+                  style: jakarta(size: 12, weight: FontWeight.w500, height: 1.5, color: p.textSecondary)),
+            ),
+          ],
           const SizedBox(height: 24),
           GestureDetector(
             onTap: ctrl.skipToApp,

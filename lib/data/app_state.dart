@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'models.dart';
+import 'parsed_bill.dart';
 
 /// The full immutable application state. Mirrors the `state` object of the
 /// design prototype's `Component` class. Ephemeral fields (scan progress) are
@@ -25,6 +26,9 @@ class AppState {
     this.fdRoundoffChoice = '',
     this.customPlans = const [],
     this.theme = 'dark',
+    this.candidates = const [],
+    this.gmailEmail = '',
+    this.scanError = '',
   });
 
   final String stage;
@@ -45,6 +49,11 @@ class AppState {
   final String fdRoundoffChoice; // '' | 'yes' | 'no'
   final List<CustomPlan> customPlans;
   final String theme; // 'dark' | 'light'
+
+  // Gmail scan (transient — not persisted).
+  final List<ParsedBill> candidates;
+  final String gmailEmail; // '' when not connected via Gmail
+  final String scanError; // '' when no error
 
   bool get isDark => theme != 'light';
   bool get isApp => stage == 'app';
@@ -68,6 +77,9 @@ class AppState {
     String? fdRoundoffChoice,
     List<CustomPlan>? customPlans,
     String? theme,
+    List<ParsedBill>? candidates,
+    String? gmailEmail,
+    String? scanError,
   }) {
     return AppState(
       stage: stage ?? this.stage,
@@ -88,6 +100,9 @@ class AppState {
       fdRoundoffChoice: fdRoundoffChoice ?? this.fdRoundoffChoice,
       customPlans: customPlans ?? this.customPlans,
       theme: theme ?? this.theme,
+      candidates: candidates ?? this.candidates,
+      gmailEmail: gmailEmail ?? this.gmailEmail,
+      scanError: scanError ?? this.scanError,
     );
   }
 

@@ -19,10 +19,23 @@ android {
         applicationId = "com.expenseinsight.expense_insight"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // google_sign_in v7 (Credential Manager) requires API 23+.
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    // A committed debug keystore so every build (CI, or any laptop) shares one
+    // SHA-1 — the value you register in the Google Cloud OAuth client. This is a
+    // debug key only (well-known password); it is NOT a release signing secret.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

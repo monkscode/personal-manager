@@ -31,7 +31,8 @@ class ProfileScreen extends ConsumerWidget {
             const SizedBox(height: 10),
             Text('Aarav Mehta', style: jakarta(size: 18, weight: FontWeight.w800, color: p.textPrimary)),
             const SizedBox(height: 2),
-            Text('aarav.mehta@gmail.com', style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary)),
+            Text(s.gmailEmail.isEmpty ? 'aarav.mehta@gmail.com' : s.gmailEmail,
+                style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary)),
           ],
         ),
         const SizedBox(height: 22),
@@ -52,7 +53,10 @@ class ProfileScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-              Text('Disconnect', style: jakarta(size: 12, weight: FontWeight.w700, color: AppColors.pink)),
+              GestureDetector(
+                onTap: ctrl.signOut,
+                child: Text('Disconnect', style: jakarta(size: 12, weight: FontWeight.w700, color: AppColors.pink)),
+              ),
             ],
           ),
         ),
@@ -84,14 +88,17 @@ class ProfileScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 22),
         // Sign out
-        Container(
-          height: 52,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.pink.withValues(alpha: 0.35)),
+        GestureDetector(
+          onTap: ctrl.signOut,
+          child: Container(
+            height: 52,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.pink.withValues(alpha: 0.35)),
+            ),
+            child: Text('Sign out', style: jakarta(size: 14, weight: FontWeight.w700, color: AppColors.pink)),
           ),
-          child: Text('Sign out', style: jakarta(size: 14, weight: FontWeight.w700, color: AppColors.pink)),
         ),
       ],
     );
