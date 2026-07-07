@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #05060A; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+    a { color: #2DD4BF; }
+    a:hover { color: #5EEAD4; }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: radial-gradient(circle at 50% 0%, {{ themeBg }} 0%, #05060A 70%); padding: 48px 16px;">
+
+  <div style="font: 600 12px/1 'Plus Jakarta Sans', sans-serif; color: {{ textTertiaryColor }}; letter-spacing: 0.08em; text-transform: uppercase;">Flutter prototype &middot; Android</div>
+
+  <div style="width: 412px; height: 892px; border-radius: 46px; border: 10px solid #14161C; background: {{ themeBg }}; box-shadow: 0 40px 100px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03); overflow: hidden; display: flex; flex-direction: column; position: relative;">
+
+    <div style="background: {{ themeBg }};">
+      <x-import component-from-global-scope="AndroidStatusBar" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="100%,40px"></x-import>
+    </div>
+
+    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: {{ themeBg }}; position: relative;">
+      <div style="flex: 1; overflow-y: auto;">
+
+        <!-- ONBOARDING -->
+        <sc-if value="{{ isOnboard }}" hint-placeholder-val="{{ false }}">
+          <div style="height: 100%; display: flex; flex-direction: column; padding: 28px 28px 40px;">
+            <div style="display: flex; justify-content: flex-end;">
+              <div onClick="{{ skipToApp }}" style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; cursor: pointer; padding: 8px;">Skip</div>
+            </div>
+
+            <sc-if value="{{ onboardStep0 }}" hint-placeholder-val="{{ true }}">
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px;">
+                <div style="width: 120px; height: 120px; border-radius: 32px; background: rgba(45,212,191,0.12); display: flex; align-items: center; justify-content: center;">
+                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="#2DD4BF" stroke-width="1.6"/><path d="M3 7l9 6 9-6" stroke="#2DD4BF" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </div>
+                <div>
+                  <div style="font: 800 26px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">Your inbox already knows your expenses</div>
+                  <div style="font: 500 15px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">We read the receipts, bills &amp; payment emails already sitting in Gmail &mdash; no manual entry.</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ onboardStep1 }}" hint-placeholder-val="{{ false }}">
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px;">
+                <div style="width: 120px; height: 120px; border-radius: 32px; background: rgba(245,166,35,0.12); display: flex; align-items: center; justify-content: center;">
+                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none"><path d="M12 3v10" stroke="#F5A623" stroke-width="1.6" stroke-linecap="round"/><path d="M5 10a7 7 0 1014 0" stroke="#F5A623" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </div>
+                <div>
+                  <div style="font: 800 26px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">See next month before it arrives</div>
+                  <div style="font: 500 15px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Annual premiums, renewals &amp; one-off bills get flagged early, so nothing surprises your balance.</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ onboardStep2 }}" hint-placeholder-val="{{ false }}">
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px;">
+                <div style="width: 120px; height: 120px; border-radius: 32px; background: rgba(74,222,128,0.12); display: flex; align-items: center; justify-content: center;">
+                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="#4ADE80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div>
+                  <div style="font: 800 26px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">Always know what to keep in the bank</div>
+                  <div style="font: 500 15px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">One number, updated automatically: what you need set aside before it's due.</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="display: flex; flex-direction: column; gap: 20px; align-items: center;">
+              <div style="display: flex; gap: 8px;">
+                <div style="width: {{ dot0Width }}; height: 8px; border-radius: 4px; background: {{ dot0Color }}; transition: all .2s;"></div>
+                <div style="width: {{ dot1Width }}; height: 8px; border-radius: 4px; background: {{ dot1Color }}; transition: all .2s;"></div>
+                <div style="width: {{ dot2Width }}; height: 8px; border-radius: 4px; background: {{ dot2Color }}; transition: all .2s;"></div>
+              </div>
+              <div onClick="{{ nextOnboard }}" style="width: 100%; height: 56px; border-radius: 18px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; font: 700 16px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer;">{{ onboardBtnLabel }}</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- PRIVACY -->
+        <sc-if value="{{ isPrivacy }}" hint-placeholder-val="{{ false }}">
+          <div style="height: 100%; display: flex; flex-direction: column; padding: 28px 28px 40px;">
+            <div style="width: 64px; height: 64px; border-radius: 20px; background: rgba(45,212,191,0.12); display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z" stroke="#2DD4BF" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="font: 800 24px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 8px;">Private by design</div>
+            <div style="font: 500 14px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }}; margin-bottom: 28px;">Here's exactly what happens when you connect Gmail.</div>
+
+            <div style="display: flex; flex-direction: column; gap: 14px; flex: 1;">
+              <div style="display: flex; gap: 14px; padding: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 16px;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:2px;"><path d="M4 12l5 5L20 6" stroke="#4ADE80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div><div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 3px;">Only transaction emails</div><div style="font: 500 13px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">We scan for receipts, invoices &amp; payment alerts &mdash; nothing else is read.</div></div>
+              </div>
+              <div style="display: flex; gap: 14px; padding: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 16px;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:2px;"><path d="M4 12l5 5L20 6" stroke="#4ADE80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div><div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 3px;">Numbers stay on your device</div><div style="font: 500 13px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Amounts &amp; categories are processed locally, never uploaded to a server.</div></div>
+              </div>
+              <div style="display: flex; gap: 14px; padding: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 16px;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:2px;"><path d="M4 12l5 5L20 6" stroke="#4ADE80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div><div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 3px;">Revoke anytime</div><div style="font: 500 13px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Disconnect from Profile in one tap &mdash; we delete cached data immediately.</div></div>
+              </div>
+            </div>
+
+            <div onClick="{{ goIncome }}" style="width: 100%; height: 56px; border-radius: 18px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; font: 700 16px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer; margin-top: 20px;">Continue</div>
+          </div>
+        </sc-if>
+
+        <!-- INCOME & BALANCE -->
+        <sc-if value="{{ isIncome }}" hint-placeholder-val="{{ false }}">
+          <div style="height: 100%; display: flex; flex-direction: column; padding: 28px 28px 40px;">
+            <div style="display: flex; justify-content: flex-end;">
+              <div onClick="{{ skipToApp }}" style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; cursor: pointer; padding: 8px;">Skip</div>
+            </div>
+            <div style="width: 64px; height: 64px; border-radius: 20px; background: rgba(45,212,191,0.12); display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="#2DD4BF" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </div>
+            <div style="font: 800 24px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 8px;">Your income &amp; balance</div>
+            <div style="font: 500 14px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }}; margin-bottom: 24px;">So we can tell you exactly if you'll be short, or have room to spare.</div>
+
+            <div style="display: flex; flex-direction: column; gap: 16px; flex: 1;">
+              <div>
+                <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Monthly take-home salary (₹)</div>
+                <input value="{{ salary }}" onChange="{{ setSalary }}" placeholder="85000" style="width: 100%; height: 50px; border-radius: 14px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 16px; font: 600 16px 'IBM Plex Mono'; outline: none;" />
+              </div>
+              <div>
+                <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Current bank balance (₹)</div>
+                <input value="{{ currentBalance }}" onChange="{{ setCurrentBalance }}" placeholder="38000" style="width: 100%; height: 50px; border-radius: 14px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 16px; font: 600 16px 'IBM Plex Mono'; outline: none;" />
+              </div>
+            </div>
+
+            <div onClick="{{ goInvestPlan }}" style="width: 100%; height: 56px; border-radius: 18px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; font: 700 16px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer; margin-top: 20px;">Continue</div>
+          </div>
+        </sc-if>
+
+        <!-- INVESTMENT PLAN -->
+        <sc-if value="{{ isInvestPlan }}" hint-placeholder-val="{{ false }}">
+          <div style="height: 100%; display: flex; flex-direction: column; padding: 28px 28px 40px;">
+            <div style="display: flex; justify-content: flex-end;">
+              <div onClick="{{ skipToApp }}" style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; cursor: pointer; padding: 8px;">Skip</div>
+            </div>
+            <div style="font: 800 24px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 8px;">Plan your investments</div>
+            <div style="font: 500 14px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }}; margin-bottom: 20px;">Tell us how you contribute to NPS &amp; PPF, so we can flag the exact month you'll need extra cash.</div>
+
+            <div style="display: flex; flex-direction: column; gap: 16px; overflow-y: auto; flex: 1;">
+              <div style="padding: 16px; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                  <div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">NPS</div>
+                  <div onClick="{{ toggleNps }}" style="width: 42px; height: 24px; border-radius: 12px; background: {{ npsTrackColor }}; position: relative; cursor: pointer;">
+                    <div style="width: 18px; height: 18px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: {{ npsThumbLeft }}px; transition: left .15s;"></div>
+                  </div>
+                </div>
+                <sc-if value="{{ npsEnabled }}" hint-placeholder-val="{{ true }}">
+                  <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div>
+                      <div style="font: 600 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Contribution amount (₹)</div>
+                      <input value="{{ npsAmount }}" onChange="{{ setNpsAmount }}" placeholder="5000" style="width: 100%; height: 44px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 14px 'IBM Plex Mono'; outline: none;" />
+                    </div>
+                    <div style="display: flex; padding: 4px; border-radius: 12px; background: {{ surfaceAltColor }};">
+                      <div onClick="{{ setNpsMonthly }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ npsMonthlyBg }}; color: {{ npsMonthlyColor }};">Monthly</div>
+                      <div onClick="{{ setNpsLumpsum }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ npsLumpsumBg }}; color: {{ npsLumpsumColor }};">All in one month</div>
+                    </div>
+                    <sc-if value="{{ npsIsLumpsum }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <sc-for list="{{ npsMonthChips }}" as="m" hint-placeholder-count="12">
+                          <div onClick="{{ m.onClick }}" style="padding: 6px 10px; border-radius: 8px; font: 600 11px 'Plus Jakarta Sans'; cursor: pointer; background: {{ m.bg }}; color: {{ m.color }};">{{ m.label }}</div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </div>
+
+              <div style="padding: 16px; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                  <div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">PPF</div>
+                  <div onClick="{{ togglePpf }}" style="width: 42px; height: 24px; border-radius: 12px; background: {{ ppfTrackColor }}; position: relative; cursor: pointer;">
+                    <div style="width: 18px; height: 18px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: {{ ppfThumbLeft }}px; transition: left .15s;"></div>
+                  </div>
+                </div>
+                <sc-if value="{{ ppfEnabled }}" hint-placeholder-val="{{ true }}">
+                  <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div>
+                      <div style="font: 600 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Contribution amount (₹)</div>
+                      <input value="{{ ppfAmount }}" onChange="{{ setPpfAmount }}" placeholder="100000" style="width: 100%; height: 44px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 14px 'IBM Plex Mono'; outline: none;" />
+                    </div>
+                    <div style="display: flex; padding: 4px; border-radius: 12px; background: {{ surfaceAltColor }};">
+                      <div onClick="{{ setPpfMonthly }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ ppfMonthlyBg }}; color: {{ ppfMonthlyColor }};">Monthly</div>
+                      <div onClick="{{ setPpfLumpsum }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ ppfLumpsumBg }}; color: {{ ppfLumpsumColor }};">All in one month</div>
+                    </div>
+                    <sc-if value="{{ ppfIsLumpsum }}" hint-placeholder-val="{{ true }}">
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <sc-for list="{{ ppfMonthChips }}" as="m" hint-placeholder-count="12">
+                          <div onClick="{{ m.onClick }}" style="padding: 6px 10px; border-radius: 8px; font: 600 11px 'Plus Jakarta Sans'; cursor: pointer; background: {{ m.bg }}; color: {{ m.color }};">{{ m.label }}</div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </div>
+
+              <div style="padding: 16px; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                  <div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Mutual Fund</div>
+                  <div onClick="{{ toggleMf }}" style="width: 42px; height: 24px; border-radius: 12px; background: {{ mfTrackColor }}; position: relative; cursor: pointer;">
+                    <div style="width: 18px; height: 18px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: {{ mfThumbLeft }}px; transition: left .15s;"></div>
+                  </div>
+                </div>
+                <sc-if value="{{ mfEnabled }}" hint-placeholder-val="{{ true }}">
+                  <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div>
+                      <div style="font: 600 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Contribution amount (₹)</div>
+                      <input value="{{ mfAmount }}" onChange="{{ setMfAmount }}" placeholder="10000" style="width: 100%; height: 44px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 14px 'IBM Plex Mono'; outline: none;" />
+                    </div>
+                    <div style="display: flex; padding: 4px; border-radius: 12px; background: {{ surfaceAltColor }};">
+                      <div onClick="{{ setMfMonthly }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ mfMonthlyBg }}; color: {{ mfMonthlyColor }};">Monthly SIP</div>
+                      <div onClick="{{ setMfLumpsum }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ mfLumpsumBg }}; color: {{ mfLumpsumColor }};">All in one month</div>
+                    </div>
+                    <sc-if value="{{ mfIsLumpsum }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <sc-for list="{{ mfMonthChips }}" as="m" hint-placeholder-count="12">
+                          <div onClick="{{ m.onClick }}" style="padding: 6px 10px; border-radius: 8px; font: 600 11px 'Plus Jakarta Sans'; cursor: pointer; background: {{ m.bg }}; color: {{ m.color }};">{{ m.label }}</div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </div>
+
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px;">
+                  <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Anything else?</div>
+                </div>
+                <div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 12px;">Add any other recurring investment or contribution — Sukanya Samriddhi, ELSS, crypto SIP, anything — and we'll plan around it too.</div>
+
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                  <sc-for list="{{ customPlans }}" as="p" hint-placeholder-count="0">
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+                      <div style="width: 8px; height: 8px; border-radius: 50%; background: {{ p.color }}; flex-shrink: 0;"></div>
+                      <div style="flex: 1; min-width: 0;">
+                        <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">{{ p.name }}</div>
+                        <div style="font: 500 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ p.freqLabel }}</div>
+                      </div>
+                      <div style="font: 600 13px 'IBM Plex Mono'; color: {{ textSecondaryColor }};">{{ p.amountLabel }}</div>
+                      <div onClick="{{ p.onRemove }}" style="width: 26px; height: 26px; border-radius: 50%; background: {{ surfaceAltColor }}; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="{{ textTertiaryColor }}" stroke-width="2" stroke-linecap="round"/></svg>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <sc-if value="{{ customDraftClosed }}" hint-placeholder-val="{{ true }}">
+                  <div onClick="{{ openCustomDraft }}" style="margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px dashed {{ borderStrong }}; text-align: center; font: 700 13px 'Plus Jakarta Sans'; color: #2DD4BF; cursor: pointer;">+ Add another</div>
+                </sc-if>
+                <sc-if value="{{ customDraftOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top: 10px; padding: 16px; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; display: flex; flex-direction: column; gap: 12px;">
+                    <div>
+                      <div style="font: 600 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Name</div>
+                      <input value="{{ customName }}" onChange="{{ setCustomName }}" placeholder="e.g. Sukanya Samriddhi" style="width: 100%; height: 44px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 500 13px 'Plus Jakarta Sans'; outline: none;" />
+                    </div>
+                    <div>
+                      <div style="font: 600 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Amount (₹)</div>
+                      <input value="{{ customAmount }}" onChange="{{ setCustomAmount }}" placeholder="2000" style="width: 100%; height: 44px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 14px 'IBM Plex Mono'; outline: none;" />
+                    </div>
+                    <div style="display: flex; padding: 4px; border-radius: 12px; background: {{ surfaceAltColor }};">
+                      <div onClick="{{ setCustomMonthly }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ customMonthlyBg }}; color: {{ customMonthlyColor }};">Monthly</div>
+                      <div onClick="{{ setCustomLumpsum }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ customLumpsumBg }}; color: {{ customLumpsumColor }};">All in one month</div>
+                    </div>
+                    <sc-if value="{{ customIsLumpsum }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <sc-for list="{{ customMonthChips }}" as="m" hint-placeholder-count="12">
+                          <div onClick="{{ m.onClick }}" style="padding: 6px 10px; border-radius: 8px; font: 600 11px 'Plus Jakarta Sans'; cursor: pointer; background: {{ m.bg }}; color: {{ m.color }};">{{ m.label }}</div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                    <div style="display: flex; gap: 8px;">
+                      <div onClick="{{ closeCustomDraft }}" style="flex: 1; text-align: center; padding: 10px 0; border-radius: 11px; border: 1px solid {{ borderStrong }}; font: 700 12px 'Plus Jakarta Sans'; color: {{ textSecondaryColor }}; cursor: pointer;">Cancel</div>
+                      <div onClick="{{ addCustomPlan }}" style="flex: 1; text-align: center; padding: 10px 0; border-radius: 11px; background: #2DD4BF; font: 700 12px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer;">Add</div>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+
+            <div onClick="{{ goConnect }}" style="width: 100%; height: 56px; border-radius: 18px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; font: 700 16px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer; margin-top: 20px;">Continue</div>
+          </div>
+        </sc-if>
+
+        <!-- CONNECT -->
+        <sc-if value="{{ isConnect }}" hint-placeholder-val="{{ false }}">
+          <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 28px 32px; gap: 24px;">
+            <div style="width: 88px; height: 88px; border-radius: 26px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; display: flex; align-items: center; justify-content: center;">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none"><rect x="2.5" y="5" width="19" height="14" rx="2.5" stroke="{{ textPrimaryColor }}" stroke-width="1.5"/><path d="M3 6.5l9 6.5 9-6.5" stroke="{{ textPrimaryColor }}" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+              <div style="font: 800 22px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 10px;">Connect your Gmail</div>
+              <div style="font: 500 14px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">We'll ask Google for read-only access to scan for transaction emails.</div>
+            </div>
+            <div onClick="{{ connectGmail }}" style="width: 100%; height: 56px; border-radius: 18px; background: {{ textPrimaryColor }}; display: flex; align-items: center; justify-content: center; gap: 10px; font: 700 15px 'Plus Jakarta Sans'; color: {{ themeBg }}; cursor: pointer;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="2.5" y="5" width="19" height="14" rx="2.5" stroke="{{ themeBg }}" stroke-width="1.6"/><path d="M3 6.5l9 6.5 9-6.5" stroke="{{ themeBg }}" stroke-width="1.6" stroke-linecap="round"/></svg>
+              Continue with Gmail
+            </div>
+            <div onClick="{{ skipToApp }}" style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; cursor: pointer;">Use sample data instead</div>
+          </div>
+        </sc-if>
+
+        <!-- SCANNING -->
+        <sc-if value="{{ isScanning }}" hint-placeholder-val="{{ false }}">
+          <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 28px 32px; gap: 24px;">
+            <div style="width: 96px; height: 96px; border-radius: 50%; border: 3px solid rgba(45,212,191,0.15); display: flex; align-items: center; justify-content: center; position: relative;">
+              <div style="position: absolute; inset: -3px; border-radius: 50%; border: 3px solid transparent; border-top-color: #2DD4BF; transform: rotate({{ scanSpin }}deg);"></div>
+              <span style="font: 700 20px 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ scanPct }}%</span>
+            </div>
+            <div>
+              <div style="font: 800 20px/1.3 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 8px;">Scanning your inbox&hellip;</div>
+              <div style="font: 500 14px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};"><span style="font-family: 'IBM Plex Mono'; color: #2DD4BF;">{{ scanCount }}</span> transactions found so far</div>
+            </div>
+            <div style="width: 100%; height: 6px; border-radius: 3px; background: {{ surfaceAltColor }}; overflow: hidden;">
+              <div style="height: 100%; border-radius: 3px; background: #2DD4BF; width: {{ scanPct }}%;"></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- APP: HOME -->
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 4px;">Welcome back</div>
+                <div style="font: 800 21px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Aarav Mehta</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div onClick="{{ openAbout }}" style="width: 34px; height: 34px; border-radius: 50%; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="{{ textSecondaryColor }}" stroke-width="1.6"/><path d="M12 11v6" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1" fill="{{ textSecondaryColor }}"/></svg>
+                </div>
+                <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(45,212,191,0.14); display: flex; align-items: center; justify-content: center; font: 700 14px 'Plus Jakarta Sans'; color: #2DD4BF; flex-shrink: 0;">AM</div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; align-self: flex-start; padding: 7px 14px; border-radius: 20px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #4ADE80;"></div>
+              <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Synced 2 min ago &middot; Gmail</div>
+            </div>
+
+            <div style="background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 22px; padding: 20px;">
+              <div style="display: flex; padding: 4px; border-radius: 14px; background: {{ surfaceAltColor }}; margin-bottom: 18px;">
+                <div onClick="{{ setMonthCurrent }}" style="flex: 1; text-align: center; padding: 9px 0; border-radius: 11px; font: 700 13px 'Plus Jakarta Sans'; cursor: pointer; background: {{ curTabBg }}; color: {{ curTabColor }};">This month</div>
+                <div onClick="{{ setMonthNext }}" style="flex: 1; text-align: center; padding: 9px 0; border-radius: 11px; font: 700 13px 'Plus Jakarta Sans'; cursor: pointer; background: {{ nextTabBg }}; color: {{ nextTabColor }};">Next month</div>
+              </div>
+
+              <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">{{ heroLabel }}</div>
+              <div style="font: 800 38px 'IBM Plex Mono'; color: {{ textPrimaryColor }}; letter-spacing: -0.5px; margin-bottom: 10px;">{{ heroAmount }}</div>
+              <div style="font: 600 13px 'Plus Jakarta Sans'; color: {{ heroSubColor }}; margin-bottom: 18px;">{{ heroSubText }}</div>
+
+              <div style="display: flex; align-items: flex-end; gap: 6px; height: 56px;">
+                <sc-for list="{{ heroTrendBars }}" as="bar" hint-placeholder-count="7">
+                  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                    <div style="width: 100%; border-radius: 3px; height: {{ bar.h }}px; background: {{ bar.color }};"></div>
+                    <div style="font: 600 9px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ bar.label }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 20px; padding: 18px;">
+              <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">Balance check &middot; {{ balanceCheckLabel }}</div>
+              <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; font: 500 12px 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};"><span>Available by then</span><span style="font-family: 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ balanceAvailable }}</span></div>
+                <div style="display: flex; justify-content: space-between; font: 500 12px 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};"><span>Required spend</span><span style="font-family: 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ balanceRequired }}</span></div>
+              </div>
+              <div style="height: 1px; background: {{ borderColor }}; margin-bottom: 12px;"></div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ balanceResultColor }};">{{ balanceResultLabel }}</div>
+                <div style="font: 800 20px 'IBM Plex Mono'; color: {{ balanceResultColor }};">{{ balanceResultAmount }}</div>
+              </div>
+            </div>
+
+            <div onClick="{{ goInsights }}" style="display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 18px; background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.25); cursor: pointer;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M12 3v10" stroke="#F5A623" stroke-width="1.8" stroke-linecap="round"/><path d="M5 10a7 7 0 1014 0" stroke="#F5A623" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <div style="flex: 1; font: 600 13px/1.5 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Insurance premium <span style="font-family: 'IBM Plex Mono'; color: #F5A623;">₹47,000</span> due Feb 14 &mdash; set aside <span style="font-family:'IBM Plex Mono'">₹11,750</span>/week</div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M9 6l6 6-6 6" stroke="#F5A623" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+
+            <div onClick="{{ goInvestments }}" style="display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 18px; background: rgba(45,212,191,0.08); border: 1px solid rgba(45,212,191,0.25); cursor: pointer;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M3 17l6-6 4 4 8-8" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h6v6" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div style="flex: 1; font: 600 13px/1.5 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">HDFC FD matures {{ fdMaturityDate }} &mdash; <span style="font-family: 'IBM Plex Mono'; color: #2DD4BF;">{{ fdMaturityValue }}</span> incoming, incl. interest</div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M9 6l6 6-6 6" stroke="#2DD4BF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+                <div style="font: 700 15px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">February breakdown</div>
+                <div onClick="{{ goInsights }}" style="font: 600 12px 'Plus Jakarta Sans'; color: #2DD4BF; cursor: pointer;">View all</div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 14px;">
+                <sc-for list="{{ categoriesTop }}" as="cat" hint-placeholder-count="5">
+                  <div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 8px; height: 8px; border-radius: 50%; background: {{ cat.color }};"></div>
+                        <div style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">{{ cat.name }}</div>
+                      </div>
+                      <div style="font: 600 13px 'IBM Plex Mono'; color: {{ textSecondaryColor }};">{{ cat.amount }}</div>
+                    </div>
+                    <div style="height: 6px; border-radius: 3px; background: {{ surfaceAltColor }}; overflow: hidden;">
+                      <div style="height: 100%; border-radius: 3px; background: {{ cat.color }}; width: {{ cat.pct }}%;"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div>
+              <div style="font: 700 15px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">Upcoming bills</div>
+              <div style="display: flex; flex-direction: column;">
+                <sc-for list="{{ upcomingBills }}" as="bill" hint-placeholder-count="5">
+                  <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid {{ borderColor }};">
+                    <div style="width: 36px; height: 36px; border-radius: 11px; background: {{ bill.bgColor }}; display: flex; align-items: center; justify-content: center; font: 700 12px 'Plus Jakarta Sans'; color: {{ bill.color }}; flex-shrink: 0;">{{ bill.initial }}</div>
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">{{ bill.name }}</div>
+                      <div style="font: 500 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ bill.due }}</div>
+                    </div>
+                    <div style="font: 600 13px 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ bill.amount }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- APP: TRANSACTIONS -->
+        <sc-if value="{{ isTransactions }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 18px;">
+            <div>
+              <div style="font: 800 21px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 4px;">Transactions</div>
+              <div style="font: 500 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ txCountLabel }}</div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="{{ textTertiaryColor }}" stroke-width="1.8"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="{{ textTertiaryColor }}" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <div style="font: 500 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">Search transactions</div>
+            </div>
+
+            <div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;">
+              <sc-for list="{{ txFilters }}" as="f" hint-placeholder-count="6">
+                <div onClick="{{ f.onClick }}" style="flex-shrink: 0; padding: 8px 14px; border-radius: 12px; font: 600 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ f.bg }}; color: {{ f.color }};">{{ f.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+              <sc-for list="{{ dateGroups }}" as="grp" hint-placeholder-count="4">
+                <div>
+                  <div style="font: 700 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;">{{ grp.date }}</div>
+                  <div style="display: flex; flex-direction: column;">
+                    <sc-for list="{{ grp.items }}" as="tx" hint-placeholder-count="3">
+                      <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid {{ borderColor }};">
+                        <div style="width: 38px; height: 38px; border-radius: 50%; background: {{ tx.bgColor }}; display: flex; align-items: center; justify-content: center; font: 700 13px 'Plus Jakarta Sans'; color: {{ tx.color }}; flex-shrink: 0;">{{ tx.initial }}</div>
+                        <div style="flex: 1; min-width: 0;">
+                          <div style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">{{ tx.name }}</div>
+                          <div style="font: 500 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ tx.category }}</div>
+                        </div>
+                        <div style="font: 600 13px 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ tx.amount }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- APP: INSIGHTS -->
+        <sc-if value="{{ isInsights }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 20px;">
+            <div style="font: 800 21px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Forecast &amp; insights</div>
+
+            <div style="background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 20px; padding: 20px 16px;">
+              <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 16px;">Monthly total, last 6 months + forecast</div>
+              <div style="display: flex; align-items: flex-end; gap: 8px; height: 140px;">
+                <sc-for list="{{ chartBars }}" as="bar" hint-placeholder-count="7">
+                  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end;">
+                    <div style="font: 600 9px 'IBM Plex Mono'; color: {{ bar.color }};">{{ bar.tag }}</div>
+                    <div style="width: 100%; border-radius: 4px; height: {{ bar.h }}px; background: {{ bar.color }};"></div>
+                    <div style="font: 600 10px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ bar.label }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 20px; padding: 20px 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px;">
+                <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">12-month outlook</div>
+                <div style="font: 600 11px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">Peak: {{ peakMonthLabel }}</div>
+              </div>
+              <div style="display: flex; align-items: flex-end; gap: 4px; height: 120px; overflow-x: auto;">
+                <sc-for list="{{ yearForecast }}" as="bar" hint-placeholder-count="12">
+                  <div style="flex: 1; min-width: 20px; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end;">
+                    <div style="width: 100%; border-radius: 3px; height: {{ bar.h }}px; background: {{ bar.color }};"></div>
+                    <div style="font: 600 9px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ bar.month }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="height: 1px; background: {{ borderColor }}; margin: 16px 0 12px;"></div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Projected total this year</div>
+                <div style="font: 700 15px 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ yearTotalLabel }}</div>
+              </div>
+            </div>
+
+            <div style="background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.25); border-radius: 18px; padding: 18px;">
+              <div style="font: 700 13px 'Plus Jakarta Sans'; color: #F5A623; margin-bottom: 8px;">Why February is higher</div>
+              <div style="font: 800 26px 'IBM Plex Mono'; color: {{ textPrimaryColor }}; margin-bottom: 8px;">{{ driverAmount }}</div>
+              <div style="font: 500 13px/1.6 'Plus Jakarta Sans'; color: #C7CCD6;">{{ driverText }}</div>
+            </div>
+
+            <div>
+              <div style="font: 700 15px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">February breakdown &mdash; full</div>
+              <div style="display: flex; flex-direction: column; gap: 14px;">
+                <sc-for list="{{ categoriesFull }}" as="cat" hint-placeholder-count="7">
+                  <div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 8px; height: 8px; border-radius: 50%; background: {{ cat.color }};"></div>
+                        <div style="font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">{{ cat.name }}</div>
+                      </div>
+                      <div style="font: 600 13px 'IBM Plex Mono'; color: {{ textSecondaryColor }};">{{ cat.amount }} &middot; {{ cat.pct }}%</div>
+                    </div>
+                    <div style="height: 6px; border-radius: 3px; background: {{ surfaceAltColor }}; overflow: hidden;">
+                      <div style="height: 100%; border-radius: 3px; background: {{ cat.color }}; width: {{ cat.pct }}%;"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div>
+              <div style="font: 700 15px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 12px;">Alerts</div>
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <sc-for list="{{ alertCards }}" as="al" hint-placeholder-count="2">
+                  <div style="display: flex; gap: 12px; padding: 14px; border-radius: 16px; background: {{ al.bg }}; border: 1px solid {{ al.border }};">
+                    <sc-if value="{{ al.isPositive }}" hint-placeholder-val="{{ false }}">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:1px;"><path d="M4 12l5 5L20 6" stroke="#4ADE80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </sc-if>
+                    <sc-if value="{{ al.isAlert }}" hint-placeholder-val="{{ true }}">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:1px;"><path d="M12 9v4" stroke="{{ al.iconColor }}" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="16.2" r="0.9" fill="{{ al.iconColor }}"/><path d="M10.6 3.9a1.6 1.6 0 012.8 0l7.6 13.6c.6 1-.2 2.3-1.4 2.3H4.4c-1.2 0-2-1.3-1.4-2.3l7.6-13.6z" stroke="{{ al.iconColor }}" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                    </sc-if>
+                    <div style="font: 500 13px/1.5 'Plus Jakarta Sans'; color: #E3E6EA;">{{ al.text }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- APP: PROFILE -->
+        <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 22px;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0 4px;">
+              <div style="width: 68px; height: 68px; border-radius: 50%; background: rgba(45,212,191,0.14); display: flex; align-items: center; justify-content: center; font: 700 20px 'Plus Jakarta Sans'; color: #2DD4BF;">AM</div>
+              <div style="font: 800 18px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Aarav Mehta</div>
+              <div style="font: 500 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">aarav.mehta@gmail.com</div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><rect x="2.5" y="5" width="19" height="14" rx="2.5" stroke="{{ textPrimaryColor }}" stroke-width="1.5"/><path d="M3 6.5l9 6.5 9-6.5" stroke="{{ textPrimaryColor }}" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <div style="flex: 1;">
+                <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Gmail connected</div>
+                <div style="font: 500 12px 'Plus Jakarta Sans'; color: #4ADE80;">● Active &middot; last synced 2 min ago</div>
+              </div>
+              <div style="font: 700 12px 'Plus Jakarta Sans'; color: #FB7185; cursor: pointer;">Disconnect</div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; overflow: hidden;">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 15px 16px; border-bottom: 1px solid {{ borderColor }};">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 3v10" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/><path d="M18 8a6 6 0 11-12 0" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/><path d="M9 21h6" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div style="flex: 1; font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Notifications</div>
+                <div onClick="{{ toggleNotif }}" style="width: 42px; height: 24px; border-radius: 12px; background: {{ notifTrackColor }}; position: relative; cursor: pointer; transition: background .15s;">
+                  <div style="width: 18px; height: 18px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: {{ notifThumbLeft }}px; transition: left .15s;"></div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 15px 16px; border-bottom: 1px solid {{ borderColor }};">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 8h16M4 8a2 2 0 012-2h12a2 2 0 012 2M4 8v9a2 2 0 002 2h12a2 2 0 002-2V8" stroke="{{ textSecondaryColor }}" stroke-width="1.6"/></svg>
+                <div style="flex: 1; font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Currency</div>
+                <div style="font: 500 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">₹ INR</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 15px 16px; border-bottom: 1px solid {{ borderColor }};">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="{{ textSecondaryColor }}" stroke-width="1.6"/><path d="M12 7v5l3.5 2" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div style="flex: 1; font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Scan frequency</div>
+                <div style="font: 500 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">Every 6 hrs</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 15px 16px; border-bottom: 1px solid {{ borderColor }};">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="{{ textSecondaryColor }}" stroke-width="1.6"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8L6 18M18 6l1.8-1.8" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div style="flex: 1; font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Theme</div>
+                <div style="display: flex; padding: 3px; border-radius: 10px; background: {{ surfaceAltColor }};">
+                  <div onClick="{{ setThemeDark }}" style="padding: 6px 12px; border-radius: 8px; font: 700 11px 'Plus Jakarta Sans'; cursor: pointer; background: {{ themeDarkBg }}; color: {{ themeDarkColor }};">Dark</div>
+                  <div onClick="{{ setThemeLight }}" style="padding: 6px 12px; border-radius: 8px; font: 700 11px 'Plus Jakarta Sans'; cursor: pointer; background: {{ themeLightBg }}; color: {{ themeLightColor }};">Light</div>
+                </div>
+              </div>
+              <div onClick="{{ openAbout }}" style="display: flex; align-items: center; gap: 12px; padding: 15px 16px; border-bottom: 1px solid {{ borderColor }}; cursor: pointer;">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="{{ textSecondaryColor }}" stroke-width="1.6"/><path d="M12 11v6" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1" fill="{{ textSecondaryColor }}"/></svg>
+                <div style="flex: 1; font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">About this app</div>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="{{ textTertiaryColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 15px 16px;">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z" stroke="{{ textSecondaryColor }}" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                <div style="flex: 1; font: 600 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Data &amp; privacy</div>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="{{ textTertiaryColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+
+            <div style="width: 100%; height: 52px; border-radius: 16px; border: 1px solid rgba(251,113,133,0.35); display: flex; align-items: center; justify-content: center; font: 700 14px 'Plus Jakarta Sans'; color: #FB7185; cursor: pointer;">Sign out</div>
+          </div>
+        </sc-if>
+
+        <!-- APP: INVESTMENTS -->
+        <sc-if value="{{ isInvestments }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 20px;">
+            <div>
+              <div style="font: 800 21px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 4px;">Investments</div>
+              <div style="font: 500 13px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">FDs, PPF &amp; recurring deposits</div>
+            </div>
+
+            <div style="background: {{ surfaceColor }}; border: 1px solid {{ borderColor }}; border-radius: 20px; padding: 20px;">
+              <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Total invested</div>
+              <div style="font: 800 32px 'IBM Plex Mono'; color: {{ textPrimaryColor }}; letter-spacing: -0.5px;">{{ investTotal }}</div>
+            </div>
+
+            <sc-if value="{{ showRoundoffPrompt }}" hint-placeholder-val="{{ true }}">
+              <div style="padding: 18px; border-radius: 18px; background: rgba(45,212,191,0.08); border: 1px solid rgba(45,212,191,0.25); display: flex; flex-direction: column; gap: 12px;">
+                <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">HDFC FD matures {{ fdMaturityDate }}</div>
+                <div style="font: 500 13px/1.6 'Plus Jakarta Sans'; color: #C7CCD6;">Payout will be <span style="font-family:'IBM Plex Mono'; color:#2DD4BF;">{{ fdMaturityValue }}</span>. Round up to <span style="font-family:'IBM Plex Mono'; color:#2DD4BF;">{{ fdRenewTarget }}</span> by saving <span style="font-family:'IBM Plex Mono'; color:#2DD4BF;">{{ fdTopUpAmount }}</span> before then? We'll spread it as <span style="font-family:'IBM Plex Mono'; color:#2DD4BF;">{{ fdMonthlyPlanAmount }}</span>/month for {{ fdTopUpMonths }} months and add it to your forecast.</div>
+                <div style="display: flex; gap: 10px;">
+                  <div onClick="{{ chooseRoundoffYes }}" style="flex: 1; text-align: center; padding: 11px 0; border-radius: 12px; background: #2DD4BF; font: 700 13px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer;">Yes, add the plan</div>
+                  <div onClick="{{ chooseRoundoffNo }}" style="flex: 1; text-align: center; padding: 11px 0; border-radius: 12px; background: transparent; border: 1px solid {{ borderStrong }}; font: 700 13px 'Plus Jakarta Sans'; color: {{ textSecondaryColor }}; cursor: pointer;">No, skip</div>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ showRoundoffDone }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 16px; border-radius: 16px; background: {{ roundoffDoneBg }}; border: 1px solid {{ roundoffDoneBorder }}; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 12px; align-items: center;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><path d="M4 12l5 5L20 6" stroke="{{ roundoffDoneColor }}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <div style="font: 600 13px/1.5 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; flex: 1;">{{ roundoffDoneText }}</div>
+                </div>
+                <div onClick="{{ resetRoundoff }}" style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; cursor: pointer; align-self: flex-start;">Change my mind</div>
+              </div>
+            </sc-if>
+
+            <div style="padding: 16px; border-radius: 18px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">PPF &middot; FY contribution</div>
+                <div style="font: 600 12px 'IBM Plex Mono'; color: {{ textSecondaryColor }};">₹90,000 / ₹1,50,000</div>
+              </div>
+              <div style="height: 6px; border-radius: 3px; background: {{ surfaceAltColor }}; overflow: hidden; margin-bottom: 10px;">
+                <div style="height: 100%; border-radius: 3px; background: #8B7CF6; width: 60%;"></div>
+              </div>
+              <div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Contribute the remaining ₹60,000 before Mar 31 to maximize this year's 80C deduction.</div>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+                <div style="font: 700 15px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">All investments</div>
+                <div onClick="{{ openAddInvestmentModal }}" style="font: 600 12px 'Plus Jakarta Sans'; color: #2DD4BF; cursor: pointer;">+ Add</div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <sc-for list="{{ investments }}" as="inv" hint-placeholder-count="4">
+                  <div style="padding: 16px; border-radius: 16px; background: {{ surfaceColor }}; border: 1px solid {{ borderColor }};">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 34px; height: 34px; border-radius: 10px; background: {{ inv.bgColor }}; display: flex; align-items: center; justify-content: center; font: 700 11px 'Plus Jakarta Sans'; color: {{ inv.color }};">{{ inv.type }}</div>
+                        <div>
+                          <div style="font: 700 14px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">{{ inv.institution }}</div>
+                          <div style="font: 500 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">{{ inv.rate }} &middot; matures {{ inv.maturity }}</div>
+                        </div>
+                      </div>
+                      <div style="font: 600 10px 'Plus Jakarta Sans'; padding: 4px 9px; border-radius: 8px; background: {{ inv.statusBg }}; color: {{ inv.statusColor }}; flex-shrink: 0;">{{ inv.status }}</div>
+                    </div>
+                    <div style="font: 700 18px 'IBM Plex Mono'; color: {{ textPrimaryColor }};">{{ inv.principal }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+      </div>
+
+      <!-- BOTTOM TAB BAR -->
+      <sc-if value="{{ isApp }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; justify-content: space-around; padding: 10px 8px 4px; background: {{ themeBg }}; border-top: 1px solid {{ borderColor }}; flex-shrink: 0;">
+          <div onClick="{{ setTabHome }}" style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer;">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" style="color: {{ homeColor }};"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V10.5z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            <div style="font: 600 9.5px 'Plus Jakarta Sans'; color: {{ homeColor }};">Home</div>
+          </div>
+          <div onClick="{{ setTabTransactions }}" style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer;">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" style="color: {{ txColor }};"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="1.7"/><line x1="8" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="8" y1="16" x2="13" y2="16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <div style="font: 600 9.5px 'Plus Jakarta Sans'; color: {{ txColor }};">Activity</div>
+          </div>
+          <div onClick="{{ setTabInsights }}" style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer;">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" style="color: {{ insColor }};"><line x1="5" y1="20" x2="5" y2="12" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><line x1="12" y1="20" x2="12" y2="5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><line x1="19" y1="20" x2="19" y2="14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+            <div style="font: 600 9.5px 'Plus Jakarta Sans'; color: {{ insColor }};">Insights</div>
+          </div>
+          <div onClick="{{ setTabInvestments }}" style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer;">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" style="color: {{ investColor }};"><path d="M3 17l6-6 4 4 8-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h6v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="font: 600 9.5px 'Plus Jakarta Sans'; color: {{ investColor }};">Invest</div>
+          </div>
+          <div onClick="{{ setTabProfile }}" style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; cursor: pointer;">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" style="color: {{ profColor }};"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.7"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <div style="font: 600 9.5px 'Plus Jakarta Sans'; color: {{ profColor }};">Profile</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ fabVisible }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ fabAction }}" style="position: absolute; right: 20px; bottom: 92px; width: 56px; height: 56px; border-radius: 18px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(45,212,191,0.35); cursor: pointer; z-index: 5;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="#05060A" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.6); z-index: 10; display: flex; align-items: flex-end;">
+          <div onClick="{{ closeModal }}" style="position: absolute; inset: 0;"></div>
+          <div style="position: relative; width: 100%; max-height: 82%; overflow-y: auto; background: {{ surfaceColor }}; border-radius: 24px 24px 0 0; padding: 20px 20px 28px; display: flex; flex-direction: column; gap: 18px; border-top: 1px solid {{ borderColor }};">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="font: 800 17px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">Add manually</div>
+              <div onClick="{{ closeModal }}" style="width: 30px; height: 30px; border-radius: 50%; background: {{ surfaceAltColor }}; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="{{ textSecondaryColor }}" stroke-width="2" stroke-linecap="round"/></svg>
+              </div>
+            </div>
+
+            <div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textTertiaryColor }};">Didn't catch something in your inbox? Add it here so your forecast stays accurate.</div>
+
+            <div style="display: flex; padding: 4px; border-radius: 14px; background: {{ surfaceAltColor }};">
+              <div onClick="{{ setModalTypeExpense }}" style="flex: 1; text-align: center; padding: 9px 0; border-radius: 11px; font: 700 13px 'Plus Jakarta Sans'; cursor: pointer; background: {{ typeExpBg }}; color: {{ typeExpColor }};">Expense / Bill</div>
+              <div onClick="{{ setModalTypeInvestment }}" style="flex: 1; text-align: center; padding: 9px 0; border-radius: 11px; font: 700 13px 'Plus Jakarta Sans'; cursor: pointer; background: {{ typeInvBg }}; color: {{ typeInvColor }};">Investment</div>
+            </div>
+
+            <sc-if value="{{ isModalExpense }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; flex-direction: column; gap: 14px;">
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Name</div>
+                  <input value="{{ formName }}" onChange="{{ setFormName }}" placeholder="e.g. Car insurance" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 500 14px 'Plus Jakarta Sans'; outline: none;" />
+                </div>
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Amount (₹)</div>
+                  <input value="{{ formAmount }}" onChange="{{ setFormAmount }}" placeholder="0" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 15px 'IBM Plex Mono'; outline: none;" />
+                </div>
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 8px;">Category</div>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <sc-for list="{{ formCategoryChips }}" as="c" hint-placeholder-count="7">
+                      <div onClick="{{ c.onClick }}" style="padding: 8px 13px; border-radius: 11px; font: 600 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ c.bg }}; color: {{ c.color }};">{{ c.label }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 8px;">Recurrence</div>
+                  <div style="display: flex; padding: 4px; border-radius: 14px; background: {{ surfaceAltColor }};">
+                    <div onClick="{{ setRecurOnetime }}" style="flex: 1; text-align: center; padding: 9px 0; border-radius: 11px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ recurOnetimeBg }}; color: {{ recurOnetimeColor }};">One-time</div>
+                    <div onClick="{{ setRecurMonthly }}" style="flex: 1; text-align: center; padding: 9px 0; border-radius: 11px; font: 700 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ recurMonthlyBg }}; color: {{ recurMonthlyColor }};">Monthly recurring</div>
+                  </div>
+                </div>
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">{{ dateFieldLabel }}</div>
+                  <input value="{{ formDate }}" onChange="{{ setFormDate }}" placeholder="{{ dateFieldPlaceholder }}" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 500 14px 'Plus Jakarta Sans'; outline: none;" />
+                </div>
+                <div onClick="{{ saveExpense }}" style="width: 100%; height: 52px; border-radius: 16px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; font: 700 14px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer; margin-top: 4px;">Save</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ isModalInvestment }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column; gap: 14px;">
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 8px;">Type</div>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <sc-for list="{{ formInvTypeChips }}" as="t" hint-placeholder-count="4">
+                      <div onClick="{{ t.onClick }}" style="padding: 8px 13px; border-radius: 11px; font: 600 12px 'Plus Jakarta Sans'; cursor: pointer; background: {{ t.bg }}; color: {{ t.color }};">{{ t.label }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Institution</div>
+                  <input value="{{ formInstitution }}" onChange="{{ setFormInstitution }}" placeholder="e.g. HDFC Bank" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 500 14px 'Plus Jakarta Sans'; outline: none;" />
+                </div>
+                <div style="display: flex; gap: 12px;">
+                  <div style="flex: 1;">
+                    <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Principal (₹)</div>
+                    <input value="{{ formPrincipal }}" onChange="{{ setFormPrincipal }}" placeholder="0" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 14px 'IBM Plex Mono'; outline: none;" />
+                  </div>
+                  <div style="flex: 1;">
+                    <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Rate</div>
+                    <input value="{{ formRate }}" onChange="{{ setFormRate }}" placeholder="e.g. 7.1%" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 600 14px 'IBM Plex Mono'; outline: none;" />
+                  </div>
+                </div>
+                <div>
+                  <div style="font: 600 12px 'Plus Jakarta Sans'; color: {{ textTertiaryColor }}; margin-bottom: 6px;">Maturity date</div>
+                  <input value="{{ formMaturity }}" onChange="{{ setFormMaturity }}" placeholder="e.g. Mar 2027" style="width: 100%; height: 46px; border-radius: 12px; background: {{ surfaceAltColor }}; border: 1px solid {{ borderColor }}; color: {{ textPrimaryColor }}; padding: 0 14px; font: 500 14px 'Plus Jakarta Sans'; outline: none;" />
+                </div>
+                <div onClick="{{ saveInvestment }}" style="width: 100%; height: 52px; border-radius: 16px; background: #2DD4BF; display: flex; align-items: center; justify-content: center; font: 700 14px 'Plus Jakarta Sans'; color: #05060A; cursor: pointer; margin-top: 4px;">Save</div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ aboutOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.6); z-index: 10; display: flex; align-items: flex-end;">
+          <div onClick="{{ closeAbout }}" style="position: absolute; inset: 0;"></div>
+          <div style="position: relative; width: 100%; max-height: 82%; overflow-y: auto; background: {{ surfaceColor }}; border-radius: 24px 24px 0 0; padding: 24px 20px 32px; display: flex; flex-direction: column; gap: 18px; border-top: 1px solid {{ borderColor }};">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="font: 800 18px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }};">About this app</div>
+              <div onClick="{{ closeAbout }}" style="width: 30px; height: 30px; border-radius: 50%; background: {{ surfaceAltColor }}; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="{{ textSecondaryColor }}" stroke-width="2" stroke-linecap="round"/></svg>
+              </div>
+            </div>
+            <div style="font: 500 14px/1.6 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">This app reads the transaction emails already in your Gmail, then uses that history to tell you what's coming &mdash; so a bill like an annual insurance premium never catches your bank balance off guard.</div>
+
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; gap: 14px; padding: 14px; border-radius: 14px; background: {{ surfaceAltColor }};">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:1px;"><rect x="3" y="5" width="18" height="14" rx="2" stroke="#2DD4BF" stroke-width="1.6"/><path d="M3 7l9 6 9-6" stroke="#2DD4BF" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div><div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 2px;">Automatic detection</div><div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Scans Gmail for receipts &amp; bills — no manual entry needed, though you can always add what it misses.</div></div>
+              </div>
+              <div style="display: flex; gap: 14px; padding: 14px; border-radius: 14px; background: {{ surfaceAltColor }};">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:1px;"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="#F5A623" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div><div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 2px;">12-month forecast</div><div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Projects every month ahead, not just the next one, so lumpy costs like premiums or lump-sum investments show up early.</div></div>
+              </div>
+              <div style="display: flex; gap: 14px; padding: 14px; border-radius: 14px; background: {{ surfaceAltColor }};">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:1px;"><path d="M3 17l6-6 4 4 8-8" stroke="#8B7CF6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h6v6" stroke="#8B7CF6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div><div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 2px;">Investment planning</div><div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Tracks NPS, PPF, Mutual Funds, FDs &amp; anything else you add, and folds contributions into the forecast.</div></div>
+              </div>
+              <div style="display: flex; gap: 14px; padding: 14px; border-radius: 14px; background: {{ surfaceAltColor }};">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0; margin-top:1px;"><path d="M4 12l5 5L20 6" stroke="#4ADE80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div><div style="font: 700 13px 'Plus Jakarta Sans'; color: {{ textPrimaryColor }}; margin-bottom: 2px;">Balance check</div><div style="font: 500 12px/1.5 'Plus Jakarta Sans'; color: {{ textSecondaryColor }};">Compares your salary &amp; balance against what's due, so you always know if you'll be short.</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <div style="background: {{ themeBg }};">
+      <x-import component-from-global-scope="AndroidNavBar" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="100%,24px"></x-import>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const INR = n => '₹' + Math.round(n).toLocaleString('en-IN');
+
+const TREND = [
+  { label: 'Aug', v: 43200 },
+  { label: 'Sep', v: 47800 },
+  { label: 'Oct', v: 45100 },
+  { label: 'Nov', v: 48900 },
+  { label: 'Dec', v: 46200 },
+  { label: 'Jan', v: 46700 },
+  { label: 'Feb', v: 94800 },
+];
+
+const CATS_NEXT = [
+  { key: 'insurance', name: 'Insurance', color: '#F5A623', amount: 47000 },
+  { key: 'housing', name: 'Housing', color: '#38BDF8', amount: 18000 },
+  { key: 'other', name: 'Other', color: '#94A3B8', amount: 9100 },
+  { key: 'groceries', name: 'Groceries', color: '#4ADE80', amount: 9500 },
+  { key: 'transport', name: 'Transport', color: '#22D3EE', amount: 3800 },
+  { key: 'subscriptions', name: 'Subscriptions', color: '#C084FC', amount: 3200 },
+  { key: 'utilities', name: 'Utilities', color: '#FB7185', amount: 4200 },
+];
+
+const BILLS = [
+  { name: 'Life Insurance Premium', due: 'Due Feb 14 · Annual', amount: 47000, initial: 'LI', color: '#F5A623', bgColor: 'rgba(245,166,35,0.14)' },
+  { name: 'House Rent', due: 'Due Feb 1 · Recurring', amount: 18000, initial: 'HR', color: '#38BDF8', bgColor: 'rgba(56,189,248,0.14)' },
+  { name: 'Netflix + Spotify + iCloud', due: 'Due Feb 3–18 · Recurring', amount: 3200, initial: 'SU', color: '#C084FC', bgColor: 'rgba(192,132,252,0.14)' },
+  { name: 'Electricity Board', due: 'Due Feb 10 · Recurring', amount: 2100, initial: 'EB', color: '#FB7185', bgColor: 'rgba(251,113,133,0.14)' },
+  { name: 'Broadband', due: 'Due Feb 5 · Recurring', amount: 1100, initial: 'BB', color: '#FB7185', bgColor: 'rgba(251,113,133,0.14)' },
+];
+
+const TX = [
+  { date: 'Today', items: [
+    { name: 'Swiggy', category: 'Groceries', amount: 450, key: 'groceries', initial: 'SW', color: '#4ADE80', bgColor: 'rgba(74,222,128,0.14)' },
+    { name: 'Uber', category: 'Transport', amount: 220, key: 'transport', initial: 'UB', color: '#22D3EE', bgColor: 'rgba(34,211,238,0.14)' },
+  ]},
+  { date: 'Yesterday', items: [
+    { name: 'Netflix', category: 'Subscriptions', amount: 649, key: 'subscriptions', initial: 'NF', color: '#C084FC', bgColor: 'rgba(192,132,252,0.14)' },
+    { name: 'Big Bazaar', category: 'Groceries', amount: 1850, key: 'groceries', initial: 'BB', color: '#4ADE80', bgColor: 'rgba(74,222,128,0.14)' },
+  ]},
+  { date: 'Jan 17', items: [
+    { name: 'Electricity Board', category: 'Utilities', amount: 2100, key: 'utilities', initial: 'EB', color: '#FB7185', bgColor: 'rgba(251,113,133,0.14)' },
+    { name: 'Amazon', category: 'Other', amount: 1299, key: 'other', initial: 'AM', color: '#94A3B8', bgColor: 'rgba(148,163,184,0.14)' },
+  ]},
+  { date: 'Jan 15', items: [
+    { name: 'House Rent', category: 'Housing', amount: 18000, key: 'housing', initial: 'HR', color: '#38BDF8', bgColor: 'rgba(56,189,248,0.14)' },
+    { name: 'Spotify', category: 'Subscriptions', amount: 119, key: 'subscriptions', initial: 'SP', color: '#C084FC', bgColor: 'rgba(192,132,252,0.14)' },
+  ]},
+  { date: 'Jan 12', items: [
+    { name: 'Petrol Pump', category: 'Transport', amount: 1500, key: 'transport', initial: 'PP', color: '#22D3EE', bgColor: 'rgba(34,211,238,0.14)' },
+    { name: 'Local Store', category: 'Other', amount: 680, key: 'other', initial: 'LS', color: '#94A3B8', bgColor: 'rgba(148,163,184,0.14)' },
+  ]},
+  { date: 'Jan 8', items: [
+    { name: 'Zomato', category: 'Groceries', amount: 380, key: 'groceries', initial: 'ZM', color: '#4ADE80', bgColor: 'rgba(74,222,128,0.14)' },
+    { name: 'Gym Membership', category: 'Subscriptions', amount: 1200, key: 'subscriptions', initial: 'GY', color: '#C084FC', bgColor: 'rgba(192,132,252,0.14)' },
+  ]},
+];
+
+const INVESTMENTS = [
+  { id: 'fd-hdfc', type: 'FD', institution: 'HDFC Bank', principal: 165000, maturityValue: 182000, rate: '7.1%', maturity: 'Apr 18, 2026', status: 'Maturing soon' },
+  { id: 'fd-sbi', type: 'FD', institution: 'SBI', principal: 150000, maturityValue: 160200, rate: '6.8%', maturity: 'Dec 4, 2026', status: 'Active' },
+  { id: 'ppf-po', type: 'PPF', institution: 'Post Office', principal: 485000, maturityValue: 485000, rate: '7.1%', maturity: 'Mar 2032', status: 'Active' },
+  { id: 'rd-icici', type: 'RD', institution: 'ICICI Bank', principal: 60000, maturityValue: 60000, rate: '6.5%', maturity: 'Jan 2027', status: 'Active' },
+];
+
+const TYPE_COLORS = { FD: '#38BDF8', PPF: '#8B7CF6', RD: '#22D3EE', MF: '#FB923C', Other: '#94A3B8' };
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const FILTER_DEFS = [
+  { key: 'all', label: 'All' },
+  { key: 'insurance', label: 'Insurance' },
+  { key: 'housing', label: 'Housing' },
+  { key: 'subscriptions', label: 'Subscriptions' },
+  { key: 'groceries', label: 'Groceries' },
+  { key: 'utilities', label: 'Utilities' },
+  { key: 'transport', label: 'Transport' },
+];
+
+class Component extends DCLogic {
+  state = {
+    stage: 'onboard',
+    onboardStep: 0,
+    tab: 'home',
+    monthView: 'next',
+    txFilter: 'all',
+    scanProgress: 0,
+    scanCount: 0,
+    notifOn: true,
+    manualTx: [],
+    manualInvestments: [],
+    modalOpen: false,
+    modalType: 'expense',
+    formName: '', formAmount: '', formDate: '', formCategory: 'groceries', formRecurrence: 'onetime',
+    formInvType: 'FD', formInstitution: '', formPrincipal: '', formRate: '', formMaturity: '',
+    salary: '85000', currentBalance: '38000',
+    npsEnabled: true, npsAmount: '5000', npsFrequency: 'monthly', npsMonth: 'Feb',
+    ppfEnabled: true, ppfAmount: '100000', ppfFrequency: 'lumpsum', ppfMonth: 'Feb',
+    mfEnabled: true, mfAmount: '10000', mfFrequency: 'monthly', mfMonth: 'Feb',
+    fdRoundoffChoice: '',
+    customPlans: [],
+    customDraftOpen: false, customName: '', customAmount: '', customFrequency: 'monthly', customMonth: 'Feb',
+    theme: 'dark',
+    aboutOpen: false,
+  };
+
+  componentWillUnmount() {
+    if (this._scanTimer) clearInterval(this._scanTimer);
+  }
+
+  nextOnboard = () => {
+    if (this.state.onboardStep < 2) {
+      this.setState(s => ({ onboardStep: s.onboardStep + 1 }));
+    } else {
+      this.setState({ stage: 'privacy' });
+    }
+  };
+
+  skipToApp = () => this.setState({ stage: 'app', tab: 'home' });
+  goIncome = () => this.setState({ stage: 'income' });
+  goInvestPlan = () => this.setState({ stage: 'investPlan' });
+  goConnect = () => this.setState({ stage: 'connect' });
+  goInsights = () => this.setState({ stage: 'app', tab: 'insights' });
+
+  setSalary = e => this.setState({ salary: e.target.value });
+  setCurrentBalance = e => this.setState({ currentBalance: e.target.value });
+  toggleNps = () => this.setState(s => ({ npsEnabled: !s.npsEnabled }));
+  togglePpf = () => this.setState(s => ({ ppfEnabled: !s.ppfEnabled }));
+  setNpsAmount = e => this.setState({ npsAmount: e.target.value });
+  setPpfAmount = e => this.setState({ ppfAmount: e.target.value });
+  setNpsMonthly = () => this.setState({ npsFrequency: 'monthly' });
+  setNpsLumpsum = () => this.setState({ npsFrequency: 'lumpsum' });
+  setPpfMonthly = () => this.setState({ ppfFrequency: 'monthly' });
+  setPpfLumpsum = () => this.setState({ ppfFrequency: 'lumpsum' });
+  toggleMf = () => this.setState(s => ({ mfEnabled: !s.mfEnabled }));
+  setMfAmount = e => this.setState({ mfAmount: e.target.value });
+  setMfMonthly = () => this.setState({ mfFrequency: 'monthly' });
+  setMfLumpsum = () => this.setState({ mfFrequency: 'lumpsum' });
+  chooseRoundoffYes = () => this.setState({ fdRoundoffChoice: 'yes' });
+  chooseRoundoffNo = () => this.setState({ fdRoundoffChoice: 'no' });
+  resetRoundoff = () => this.setState({ fdRoundoffChoice: '' });
+
+  openCustomDraft = () => this.setState({ customDraftOpen: true });
+  closeCustomDraft = () => this.setState({ customDraftOpen: false, customName: '', customAmount: '' });
+  setCustomName = e => this.setState({ customName: e.target.value });
+  setCustomAmount = e => this.setState({ customAmount: e.target.value });
+  setCustomMonthly = () => this.setState({ customFrequency: 'monthly' });
+  setCustomLumpsum = () => this.setState({ customFrequency: 'lumpsum' });
+  addCustomPlan = () => {
+    const s = this.state;
+    if (!s.customName || !s.customAmount) return;
+    const plan = {
+      id: 'cp-' + Date.now(), name: s.customName, amount: Number(s.customAmount) || 0,
+      frequency: s.customFrequency, month: s.customMonth,
+    };
+    this.setState(prev => ({
+      customPlans: [...prev.customPlans, plan],
+      customDraftOpen: false, customName: '', customAmount: '', customFrequency: 'monthly', customMonth: 'Feb',
+    }));
+  };
+  removeCustomPlan = id => this.setState(prev => ({ customPlans: prev.customPlans.filter(p => p.id !== id) }));
+
+  setThemeDark = () => this.setState({ theme: 'dark' });
+  setThemeLight = () => this.setState({ theme: 'light' });
+  openAbout = () => this.setState({ aboutOpen: true });
+  closeAbout = () => this.setState({ aboutOpen: false });
+
+  connectGmail = () => {
+    this.setState({ stage: 'scanning', scanProgress: 0, scanCount: 0 });
+    if (this._scanTimer) clearInterval(this._scanTimer);
+    this._scanTimer = setInterval(() => {
+      this.setState(s => {
+        const p = Math.min(100, s.scanProgress + 5);
+        const c = Math.round((p / 100) * 247);
+        if (p >= 100) {
+          clearInterval(this._scanTimer);
+          setTimeout(() => this.setState({ stage: 'app' }), 500);
+        }
+        return { scanProgress: p, scanCount: c };
+      });
+    }, 130);
+  };
+
+  setMonthCurrent = () => this.setState({ monthView: 'current' });
+  setMonthNext = () => this.setState({ monthView: 'next' });
+  setTabHome = () => this.setState({ tab: 'home' });
+  setTabTransactions = () => this.setState({ tab: 'transactions' });
+  setTabInsights = () => this.setState({ tab: 'insights' });
+  setTabProfile = () => this.setState({ tab: 'profile' });
+  toggleNotif = () => this.setState(s => ({ notifOn: !s.notifOn }));
+  setTabInvestments = () => this.setState({ tab: 'investments' });
+  goInvestments = () => this.setState({ stage: 'app', tab: 'investments' });
+
+  openAddModal = () => this.setState({ modalOpen: true, modalType: 'expense' });
+  openAddInvestmentModal = () => this.setState({ modalOpen: true, modalType: 'investment' });
+  closeModal = () => this.setState({ modalOpen: false });
+  setModalTypeExpense = () => this.setState({ modalType: 'expense' });
+  setModalTypeInvestment = () => this.setState({ modalType: 'investment' });
+  setRecurOnetime = () => this.setState({ formRecurrence: 'onetime' });
+  setRecurMonthly = () => this.setState({ formRecurrence: 'monthly' });
+
+  setFormName = e => this.setState({ formName: e.target.value });
+  setFormAmount = e => this.setState({ formAmount: e.target.value });
+  setFormDate = e => this.setState({ formDate: e.target.value });
+  setFormInstitution = e => this.setState({ formInstitution: e.target.value });
+  setFormPrincipal = e => this.setState({ formPrincipal: e.target.value });
+  setFormRate = e => this.setState({ formRate: e.target.value });
+  setFormMaturity = e => this.setState({ formMaturity: e.target.value });
+
+  saveExpense = () => {
+    const s = this.state;
+    const cat = CATS_NEXT.find(c => c.key === s.formCategory) || CATS_NEXT[0];
+    const entry = {
+      name: s.formName || 'New expense', category: cat.name, key: cat.key,
+      amount: Number(s.formAmount) || 0, initial: (s.formName || 'NE').slice(0, 2).toUpperCase(),
+      color: cat.color, bgColor: cat.color + '22', recurring: s.formRecurrence === 'monthly',
+    };
+    this.setState(prev => ({
+      manualTx: [entry, ...prev.manualTx],
+      modalOpen: false, formName: '', formAmount: '', formDate: '',
+    }));
+  };
+
+  saveInvestment = () => {
+    const s = this.state;
+    const entry = {
+      type: s.formInvType || 'FD', institution: s.formInstitution || 'New institution',
+      principal: Number(s.formPrincipal) || 0, rate: s.formRate || '—',
+      maturity: s.formMaturity || 'TBD', status: 'Active',
+    };
+    this.setState(prev => ({
+      manualInvestments: [entry, ...prev.manualInvestments],
+      modalOpen: false, formInstitution: '', formPrincipal: '', formRate: '', formMaturity: '',
+    }));
+  };
+
+  renderVals() {
+    const s = this.state;
+    const teal = '#2DD4BF', amber = '#F5A623', ink = '#0B0E16';
+    const isDark = s.theme !== 'light';
+    const themeBg = isDark ? '#0B0E16' : '#F5F6F8';
+    const surfaceColor = isDark ? '#12161F' : '#FFFFFF';
+    const surfaceAltColor = isDark ? '#171C27' : '#EEF0F4';
+    const textPrimaryColor = isDark ? '#F3F5F8' : '#0B0E16';
+    const textSecondaryColor = isDark ? '#96A0B2' : '#5B6472';
+    const textTertiaryColor = isDark ? '#5C6579' : '#8A93A3';
+    const borderColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
+    const borderStrong = isDark ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.15)';
+    const muted = textSecondaryColor;
+
+    // onboarding
+    const dotColors = [0, 1, 2].map(i => (i === s.onboardStep ? teal : '#242A36'));
+    const dotWidths = [0, 1, 2].map(i => (i === s.onboardStep ? '24px' : '8px'));
+
+    // scanning
+    const scanPct = s.scanProgress;
+
+    // dynamic NPS / PPF contribution landing in February
+    const npsAmt = Number(s.npsAmount) || 0;
+    const ppfAmt = Number(s.ppfAmount) || 0;
+    const npsFebContribution = !s.npsEnabled ? 0 : (s.npsFrequency === 'monthly' ? npsAmt : (s.npsMonth === 'Feb' ? npsAmt : 0));
+    const ppfFebContribution = !s.ppfEnabled ? 0 : (s.ppfFrequency === 'monthly' ? ppfAmt : (s.ppfMonth === 'Feb' ? ppfAmt : 0));
+    const mfAmt = Number(s.mfAmount) || 0;
+    const mfFebContribution = !s.mfEnabled ? 0 : (s.mfFrequency === 'monthly' ? mfAmt : (s.mfMonth === 'Feb' ? mfAmt : 0));
+
+    // FD round-off savings plan (Feb sits inside the Jan→Apr window before maturity)
+    const fdTopUpMonths = 3;
+    const fdMonthlyPlanAmount = Math.ceil((200000 - 182000) / fdTopUpMonths);
+    const fdTopupFebContribution = s.fdRoundoffChoice === 'yes' ? fdMonthlyPlanAmount : 0;
+
+    // custom recurring plans the user has added
+    const CUSTOM_COLORS = ['#F472B6', '#FDE047', '#67E8F9', '#FCA5A5', '#A78BFA', '#FDBA74'];
+    const customContributions = s.customPlans.map((p, i) => ({
+      ...p, color: CUSTOM_COLORS[i % CUSTOM_COLORS.length],
+      feb: p.frequency === 'monthly' ? p.amount : (p.month === 'Feb' ? p.amount : 0),
+    }));
+    const customPlansFebContribution = customContributions.reduce((a, c) => a + c.feb, 0);
+
+    const febBaseTotal = CATS_NEXT.reduce((a, c) => a + c.amount, 0);
+    const febRequired = febBaseTotal + npsFebContribution + ppfFebContribution + mfFebContribution + fdTopupFebContribution + customPlansFebContribution;
+    const janRequired = 46700, janSpentSoFar = 32450;
+    const janRemaining = janRequired - janSpentSoFar;
+
+    // hero trend bars (max 56px) — Feb bar reflects the dynamic total
+    const trendDynamic = TREND.map(t => (t.label === 'Feb' ? { ...t, v: febRequired } : t));
+    const maxTrend = Math.max(...trendDynamic.map(t => t.v));
+    const heroTrendBars = trendDynamic.map(t => ({
+      label: t.label,
+      h: Math.max(4, Math.round((t.v / maxTrend) * 56)),
+      color: t.label === 'Feb' ? amber : 'rgba(45,212,191,0.5)',
+    }));
+
+    // 12-month rolling forecast, driven by every setup choice above
+    const RECURRING_BASELINE = 47800; // housing + groceries + utilities + transport + subscriptions + other
+    const yearMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const yearForecastRaw = yearMonths.map(m => {
+      if (m === 'Jan') return { month: m, total: janRequired, isActual: true };
+      let total = RECURRING_BASELINE;
+      if (m === 'Feb') total += 47000;
+      if (s.npsEnabled) total += (s.npsFrequency === 'monthly' ? npsAmt : (s.npsMonth === m ? npsAmt : 0));
+      if (s.ppfEnabled) total += (s.ppfFrequency === 'monthly' ? ppfAmt : (s.ppfMonth === m ? ppfAmt : 0));
+      if (s.mfEnabled) total += (s.mfFrequency === 'monthly' ? mfAmt : (s.mfMonth === m ? mfAmt : 0));
+      if (s.fdRoundoffChoice === 'yes' && (m === 'Feb' || m === 'Mar' || m === 'Apr')) total += fdMonthlyPlanAmount;
+      customContributions.forEach(c => { total += (c.frequency === 'monthly' ? c.amount : (c.month === m ? c.amount : 0)); });
+      return { month: m, total, isActual: false };
+    });
+    const yearMax = Math.max(...yearForecastRaw.map(y => y.total));
+    const yearTotal = yearForecastRaw.reduce((a, y) => a + y.total, 0);
+    const peakMonthEntry = yearForecastRaw.reduce((max, y) => (y.total > max.total ? y : max), yearForecastRaw[0]);
+    const yearForecast = yearForecastRaw.map(y => ({
+      month: y.month,
+      h: Math.max(6, Math.round((y.total / yearMax) * 120)),
+      color: y.isActual ? 'rgba(45,212,191,0.5)' : (y.month === peakMonthEntry.month ? amber : (isDark ? '#3A4150' : '#9AA3B2')),
+    }));
+    const yearTotalLabel = INR(yearTotal);
+    const peakMonthLabel = peakMonthEntry.month + ' \u00b7 ' + INR(peakMonthEntry.total);
+
+    // insights chart bars (max 140px)
+    const chartBars = trendDynamic.map(t => ({
+      label: t.label,
+      tag: t.label === 'Feb' ? 'proj' : '',
+      h: Math.max(6, Math.round((t.v / maxTrend) * 140)),
+      color: t.label === 'Feb' ? amber : '#3A4150',
+    }));
+
+    // categories (NPS / PPF appended when they land in February)
+    const catsNextDynamic = [...CATS_NEXT];
+    if (ppfFebContribution > 0) catsNextDynamic.push({ name: 'PPF', color: '#8B7CF6', amount: ppfFebContribution });
+    if (npsFebContribution > 0) catsNextDynamic.push({ name: 'NPS', color: '#A3E635', amount: npsFebContribution });
+    if (mfFebContribution > 0) catsNextDynamic.push({ name: 'Mutual Fund', color: '#FB923C', amount: mfFebContribution });
+    if (fdTopupFebContribution > 0) catsNextDynamic.push({ name: 'FD top-up savings', color: '#5EEAD4', amount: fdTopupFebContribution });
+    customContributions.forEach(c => { if (c.feb > 0) catsNextDynamic.push({ name: c.name, color: c.color, amount: c.feb }); });
+    const maxCat = Math.max(...catsNextDynamic.map(c => c.amount));
+    const sortedCats = [...catsNextDynamic].sort((a, b) => b.amount - a.amount);
+    const categoriesTop = sortedCats.slice(0, 5).map(c => ({
+      name: c.name, color: c.color, amount: INR(c.amount),
+      pct: Math.round((c.amount / maxCat) * 100),
+    }));
+    const categoriesFull = sortedCats.map(c => ({
+      name: c.name, color: c.color, amount: INR(c.amount),
+      pct: Math.round((c.amount / maxCat) * 100),
+    }));
+
+    // balance check
+    const salaryNum = Number(s.salary) || 85000;
+    const balanceNum = Number(s.currentBalance) || 38000;
+    const janAvailable = balanceNum;
+    const janResult = janAvailable - janRemaining;
+    const febAvailable = balanceNum + salaryNum - janRemaining;
+    const febResult = febAvailable - febRequired;
+    const resultVal = s.monthView === 'current' ? janResult : febResult;
+    const balanceCheckLabel = s.monthView === 'current' ? 'this month' : 'next month';
+    const balanceAvailable = INR(s.monthView === 'current' ? janAvailable : febAvailable);
+    const balanceRequired = INR(s.monthView === 'current' ? janRemaining : febRequired);
+    const balanceResultLabel = resultVal >= 0 ? 'Projected surplus' : 'Projected shortfall';
+    const balanceResultColor = resultVal >= 0 ? '#4ADE80' : '#FB7185';
+    const balanceResultAmount = (resultVal >= 0 ? '+' : '-') + INR(Math.abs(resultVal));
+
+    // bills (manually-added recurring ones surface first)
+    const manualBills = s.manualTx.filter(e => e.recurring).map(e => ({
+      name: e.name, due: 'Monthly · added manually', amount: INR(e.amount),
+      initial: e.initial, color: e.color, bgColor: e.bgColor,
+    }));
+    const upcomingBills = [...manualBills, ...BILLS.map(b => ({ ...b, amount: INR(b.amount) }))];
+
+    // investments
+    const fdMaturityDate = 'Apr 18';
+    const fdMaturityValue = INR(182000);
+    const fdRenewTarget = INR(200000);
+    const fdTopUpAmount = INR(200000 - 182000);
+    const showRoundoffPrompt = s.fdRoundoffChoice === '';
+    const showRoundoffDone = s.fdRoundoffChoice !== '';
+    const roundoffDoneText = s.fdRoundoffChoice === 'yes'
+      ? `Savings plan active — ${INR(fdMonthlyPlanAmount)}/month for ${fdTopUpMonths} months gets you to ${fdRenewTarget} by maturity. Added to your forecast.`
+      : `Skipped — you'll take the ${fdMaturityValue} payout as-is at maturity.`;
+    const roundoffDoneColor = s.fdRoundoffChoice === 'yes' ? '#4ADE80' : '#96A0B2';
+    const roundoffDoneBg = s.fdRoundoffChoice === 'yes' ? 'rgba(74,222,128,0.08)' : '#12161F';
+    const roundoffDoneBorder = s.fdRoundoffChoice === 'yes' ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.07)';
+
+    const baseInvestments = INVESTMENTS;
+    const mfEntry = s.mfEnabled ? [{
+      id: 'mf-sip', type: 'MF', institution: s.mfFrequency === 'monthly' ? 'Index Fund SIP' : 'Index Fund (lump sum)',
+      principal: mfAmt, rate: '~12% avg', maturity: s.mfFrequency === 'monthly' ? 'Ongoing SIP' : `Planned ${s.mfMonth}`, status: 'Active',
+    }] : [];
+
+    const customInvestEntries = customContributions.map(c => ({
+      id: c.id, type: 'Other', institution: c.name, principal: c.amount, rate: '—',
+      maturity: c.frequency === 'monthly' ? 'Ongoing' : `Planned ${c.month}`, status: 'Active',
+    }));
+    const investments = baseInvestments.concat(mfEntry, customInvestEntries, s.manualInvestments).map(inv => {
+      const c = TYPE_COLORS[inv.type] || TYPE_COLORS.Other;
+      const soon = inv.status === 'Maturing soon';
+      const withdrawn = inv.status === 'Withdrawn';
+      return {
+        type: inv.type, institution: inv.institution, principal: INR(inv.principal),
+        rate: inv.rate, maturity: inv.maturity, status: inv.status,
+        color: c, bgColor: c + '22',
+        statusColor: soon ? amber : (withdrawn ? '#5C6579' : '#4ADE80'),
+        statusBg: soon ? 'rgba(245,166,35,0.15)' : (withdrawn ? 'rgba(92,101,121,0.18)' : 'rgba(74,222,128,0.12)'),
+      };
+    });
+    const investTotal = INR(baseInvestments.concat(mfEntry, customInvestEntries, s.manualInvestments).reduce((a, b) => a + b.principal, 0));
+
+    // add-manually form chips
+    const formCategoryChips = CATS_NEXT.map(c => ({
+      label: c.name,
+      bg: s.formCategory === c.key ? c.color : '#171C27',
+      color: s.formCategory === c.key ? ink : muted,
+      onClick: () => this.setState({ formCategory: c.key }),
+    }));
+    const formInvTypeChips = ['FD', 'PPF', 'RD', 'Other'].map(t => ({
+      label: t,
+      bg: s.formInvType === t ? (TYPE_COLORS[t] || TYPE_COLORS.Other) : '#171C27',
+      color: s.formInvType === t ? ink : muted,
+      onClick: () => this.setState({ formInvType: t }),
+    }));
+
+    // transactions filters
+    const txFilters = FILTER_DEFS.map(f => ({
+      key: f.key, label: f.label,
+      bg: s.txFilter === f.key ? teal : '#12161F',
+      color: s.txFilter === f.key ? ink : muted,
+      onClick: () => this.setState({ txFilter: f.key }),
+    }));
+
+    // date groups filtered (manually-added entries surface as their own group)
+    const manualGroup = s.manualTx.length ? [{
+      date: 'Added manually',
+      items: s.manualTx.filter(it => s.txFilter === 'all' || it.key === s.txFilter)
+        .map(it => ({ ...it, category: it.category, amount: '-' + INR(it.amount) })),
+    }] : [];
+    const dateGroups = manualGroup.concat(TX.map(g => ({
+      date: g.date,
+      items: g.items.filter(it => s.txFilter === 'all' || it.key === s.txFilter)
+        .map(it => ({ ...it, amount: '-' + INR(it.amount) })),
+    }))).filter(g => g.items.length > 0);
+
+    const txCountLabel = s.txFilter === 'all' ? '247 scanned from Gmail' : 'Filtered view';
+
+    // hero
+    const heroLabel = s.monthView === 'current' ? 'Spent so far · January' : 'Projected total · February';
+    const heroAmount = s.monthView === 'current' ? INR(32450) : INR(febRequired);
+    const febDelta = febRequired - janRequired;
+    const deltaParts = ['insurance'];
+    if (ppfFebContribution > 0) deltaParts.push('PPF');
+    if (npsFebContribution > 0) deltaParts.push('NPS');
+    if (mfFebContribution > 0) deltaParts.push('mutual fund SIP');
+    if (fdTopupFebContribution > 0) deltaParts.push('FD top-up plan');
+    customContributions.forEach(c => { if (c.feb > 0) deltaParts.push(c.name); });
+    const heroSubText = s.monthView === 'current'
+      ? 'On pace for ' + INR(46700) + ' by month end'
+      : '▲ ' + INR(febDelta) + ' more than January — mainly ' + deltaParts.join(' & ');
+    const heroSubColor = s.monthView === 'current' ? muted : amber;
+
+    // "why February is higher" driver breakdown, kept in sync with the dynamic delta
+    const driverAmount = '+' + INR(febDelta);
+    const namedDrivers = [`your annual life insurance premium (${INR(47000)})`];
+    if (ppfFebContribution > 0) namedDrivers.push(`your PPF contribution (${INR(ppfFebContribution)})`);
+    if (npsFebContribution > 0) namedDrivers.push(`your NPS contribution (${INR(npsFebContribution)})`);
+    if (mfFebContribution > 0) namedDrivers.push(`your Mutual Fund SIP (${INR(mfFebContribution)})`);
+    if (fdTopupFebContribution > 0) namedDrivers.push(`your FD top-up savings plan (${INR(fdTopupFebContribution)})`);
+    customContributions.forEach(c => { if (c.feb > 0) namedDrivers.push(`${c.name} (${INR(c.feb)})`); });
+    const namedTotal = 47000 + ppfFebContribution + npsFebContribution + mfFebContribution + fdTopupFebContribution + customPlansFebContribution;
+    const residual = febDelta - (namedTotal - 0); // vs January's base categories (insurance already 0 in Jan)
+    const driverText = namedDrivers.length > 1
+      ? `Driven by ${namedDrivers.slice(0, -1).join(', ')} and ${namedDrivers[namedDrivers.length - 1]}. Everything else is up only ~${INR(Math.max(residual, 0))} combined.`
+      : `Driven almost entirely by ${namedDrivers[0]}, due Feb 14. Everything else is up only ~${INR(Math.max(residual, 0))} combined.`;
+
+    // alerts
+    const alertCards = [
+      {
+        text: febResult >= 0
+          ? `Even after insurance, NPS & PPF, you're projected to have a ${INR(febResult)} surplus in February.`
+          : `You'll be short by ${INR(Math.abs(febResult))} in February once insurance, NPS & PPF land — move money in ahead of time.`,
+        bg: febResult >= 0 ? 'rgba(74,222,128,0.08)' : 'rgba(251,113,133,0.08)',
+        border: febResult >= 0 ? 'rgba(74,222,128,0.25)' : 'rgba(251,113,133,0.3)',
+        isAlert: febResult < 0, isPositive: febResult >= 0, iconColor: '#FB7185',
+      },
+      { text: 'Insurance premium due Feb 14 — this single charge is ~46× your average category spend.', bg: 'rgba(245,166,35,0.08)', border: 'rgba(245,166,35,0.25)', isAlert: true, isPositive: false, iconColor: '#F5A623' },
+      { text: 'Groceries trending 3% below last month\'s average — nice work.', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)', isAlert: false, isPositive: true },
+    ];
+
+    return {
+      isOnboard: s.stage === 'onboard',
+      isPrivacy: s.stage === 'privacy',
+      isConnect: s.stage === 'connect',
+      isScanning: s.stage === 'scanning',
+      isApp: s.stage === 'app',
+      isHome: s.stage === 'app' && s.tab === 'home',
+      isTransactions: s.stage === 'app' && s.tab === 'transactions',
+      isInsights: s.stage === 'app' && s.tab === 'insights',
+      isProfile: s.stage === 'app' && s.tab === 'profile',
+      isInvestments: s.stage === 'app' && s.tab === 'investments',
+      isIncome: s.stage === 'income',
+      isInvestPlan: s.stage === 'investPlan',
+      goIncome: this.goIncome,
+      goInvestPlan: this.goInvestPlan,
+      salary: s.salary, setSalary: this.setSalary,
+      currentBalance: s.currentBalance, setCurrentBalance: this.setCurrentBalance,
+
+      npsEnabled: s.npsEnabled, toggleNps: this.toggleNps,
+      npsTrackColor: s.npsEnabled ? teal : '#242A36', npsThumbLeft: s.npsEnabled ? 21 : 3,
+      npsAmount: s.npsAmount, setNpsAmount: this.setNpsAmount,
+      setNpsMonthly: this.setNpsMonthly, setNpsLumpsum: this.setNpsLumpsum,
+      npsIsLumpsum: s.npsFrequency === 'lumpsum',
+      npsMonthlyBg: s.npsFrequency === 'monthly' ? teal : 'transparent',
+      npsMonthlyColor: s.npsFrequency === 'monthly' ? ink : muted,
+      npsLumpsumBg: s.npsFrequency === 'lumpsum' ? teal : 'transparent',
+      npsLumpsumColor: s.npsFrequency === 'lumpsum' ? ink : muted,
+      npsMonthChips: MONTHS.map(m => ({
+        label: m, bg: s.npsMonth === m ? teal : '#171C27', color: s.npsMonth === m ? ink : muted,
+        onClick: () => this.setState({ npsMonth: m }),
+      })),
+
+      ppfEnabled: s.ppfEnabled, togglePpf: this.togglePpf,
+      ppfTrackColor: s.ppfEnabled ? teal : '#242A36', ppfThumbLeft: s.ppfEnabled ? 21 : 3,
+      ppfAmount: s.ppfAmount, setPpfAmount: this.setPpfAmount,
+      setPpfMonthly: this.setPpfMonthly, setPpfLumpsum: this.setPpfLumpsum,
+      ppfIsLumpsum: s.ppfFrequency === 'lumpsum',
+      ppfMonthlyBg: s.ppfFrequency === 'monthly' ? teal : 'transparent',
+      ppfMonthlyColor: s.ppfFrequency === 'monthly' ? ink : muted,
+      ppfLumpsumBg: s.ppfFrequency === 'lumpsum' ? teal : 'transparent',
+      ppfLumpsumColor: s.ppfFrequency === 'lumpsum' ? ink : muted,
+      ppfMonthChips: MONTHS.map(m => ({
+        label: m, bg: s.ppfMonth === m ? teal : '#171C27', color: s.ppfMonth === m ? ink : muted,
+        onClick: () => this.setState({ ppfMonth: m }),
+      })),
+
+      balanceCheckLabel, balanceAvailable, balanceRequired, balanceResultLabel, balanceResultColor, balanceResultAmount,
+      driverAmount, driverText,
+
+      mfEnabled: s.mfEnabled, toggleMf: this.toggleMf,
+      mfTrackColor: s.mfEnabled ? teal : '#242A36', mfThumbLeft: s.mfEnabled ? 21 : 3,
+      mfAmount: s.mfAmount, setMfAmount: this.setMfAmount,
+      setMfMonthly: this.setMfMonthly, setMfLumpsum: this.setMfLumpsum,
+      mfIsLumpsum: s.mfFrequency === 'lumpsum',
+      mfMonthlyBg: s.mfFrequency === 'monthly' ? teal : 'transparent',
+      mfMonthlyColor: s.mfFrequency === 'monthly' ? ink : muted,
+      mfLumpsumBg: s.mfFrequency === 'lumpsum' ? teal : 'transparent',
+      mfLumpsumColor: s.mfFrequency === 'lumpsum' ? ink : muted,
+      mfMonthChips: MONTHS.map(m => ({
+        label: m, bg: s.mfMonth === m ? teal : '#171C27', color: s.mfMonth === m ? ink : muted,
+        onClick: () => this.setState({ mfMonth: m }),
+      })),
+
+      showRoundoffPrompt, showRoundoffDone, roundoffDoneText, roundoffDoneColor, roundoffDoneBg, roundoffDoneBorder,
+      fdMaturityDate, fdMaturityValue, fdTopUpAmount, fdRenewTarget, fdMonthlyPlanAmount: INR(fdMonthlyPlanAmount), fdTopUpMonths,
+      chooseRoundoffYes: this.chooseRoundoffYes, chooseRoundoffNo: this.chooseRoundoffNo, resetRoundoff: this.resetRoundoff,
+
+      customPlans: customContributions.map(c => ({
+        name: c.name, color: c.color,
+        freqLabel: c.frequency === 'monthly' ? 'Monthly' : `Lump sum · ${c.month}`,
+        amountLabel: INR(c.amount) + (c.frequency === 'monthly' ? '/mo' : ''),
+        onRemove: () => this.removeCustomPlan(c.id),
+      })),
+      customDraftClosed: !s.customDraftOpen, customDraftOpen: s.customDraftOpen,
+      openCustomDraft: this.openCustomDraft, closeCustomDraft: this.closeCustomDraft,
+      customName: s.customName, setCustomName: this.setCustomName,
+      customAmount: s.customAmount, setCustomAmount: this.setCustomAmount,
+      setCustomMonthly: this.setCustomMonthly, setCustomLumpsum: this.setCustomLumpsum,
+      customIsLumpsum: s.customFrequency === 'lumpsum',
+      customMonthlyBg: s.customFrequency === 'monthly' ? teal : 'transparent',
+      customMonthlyColor: s.customFrequency === 'monthly' ? ink : muted,
+      customLumpsumBg: s.customFrequency === 'lumpsum' ? teal : 'transparent',
+      customLumpsumColor: s.customFrequency === 'lumpsum' ? ink : muted,
+      customMonthChips: MONTHS.map(m => ({
+        label: m, bg: s.customMonth === m ? teal : '#171C27', color: s.customMonth === m ? ink : muted,
+        onClick: () => this.setState({ customMonth: m }),
+      })),
+      addCustomPlan: this.addCustomPlan,
+
+      isDark, themeBg, surfaceColor, surfaceAltColor, textPrimaryColor, textSecondaryColor, textTertiaryColor, borderColor, borderStrong,
+      setThemeDark: this.setThemeDark, setThemeLight: this.setThemeLight,
+      themeDarkBg: isDark ? teal : 'transparent', themeDarkColor: isDark ? ink : muted,
+      themeLightBg: !isDark ? teal : 'transparent', themeLightColor: !isDark ? ink : muted,
+
+      aboutOpen: s.aboutOpen, openAbout: this.openAbout, closeAbout: this.closeAbout,
+
+      yearForecast, yearTotalLabel, peakMonthLabel,
+
+      onboardStep0: s.onboardStep === 0,
+      onboardStep1: s.onboardStep === 1,
+      onboardStep2: s.onboardStep === 2,
+      onboardBtnLabel: s.onboardStep === 2 ? 'Get started' : 'Next',
+      dot0Color: dotColors[0], dot1Color: dotColors[1], dot2Color: dotColors[2],
+      dot0Width: dotWidths[0], dot1Width: dotWidths[1], dot2Width: dotWidths[2],
+      nextOnboard: this.nextOnboard,
+      skipToApp: this.skipToApp,
+      goConnect: this.goConnect,
+      connectGmail: this.connectGmail,
+      goInsights: this.goInsights,
+
+      scanPct: Math.round(scanPct),
+      scanSpin: Math.round(scanPct * 3.6),
+      scanCount: s.scanCount,
+
+      setMonthCurrent: this.setMonthCurrent,
+      setMonthNext: this.setMonthNext,
+      curTabBg: s.monthView === 'current' ? teal : 'transparent',
+      curTabColor: s.monthView === 'current' ? ink : muted,
+      nextTabBg: s.monthView === 'next' ? teal : 'transparent',
+      nextTabColor: s.monthView === 'next' ? ink : muted,
+      heroLabel, heroAmount, heroSubText, heroSubColor,
+      heroTrendBars,
+
+      categoriesTop, categoriesFull, chartBars,
+      upcomingBills,
+
+      setTabHome: this.setTabHome,
+      setTabTransactions: this.setTabTransactions,
+      setTabInsights: this.setTabInsights,
+      setTabProfile: this.setTabProfile,
+      homeColor: s.tab === 'home' ? teal : '#5C6579',
+      txColor: s.tab === 'transactions' ? teal : '#5C6579',
+      insColor: s.tab === 'insights' ? teal : '#5C6579',
+      profColor: s.tab === 'profile' ? teal : '#5C6579',
+      investColor: s.tab === 'investments' ? teal : '#5C6579',
+      setTabInvestments: this.setTabInvestments,
+      goInvestments: this.goInvestments,
+
+      txFilters, dateGroups, txCountLabel,
+      alertCards,
+      investments, investTotal,
+
+      notifOn: s.notifOn,
+      toggleNotif: this.toggleNotif,
+      notifTrackColor: s.notifOn ? teal : '#242A36',
+      notifThumbLeft: s.notifOn ? 21 : 3,
+
+      fabVisible: s.stage === 'app' && (s.tab === 'home' || s.tab === 'transactions' || s.tab === 'investments'),
+      fabAction: s.tab === 'investments' ? this.openAddInvestmentModal : this.openAddModal,
+      openAddModal: this.openAddModal,
+      openAddInvestmentModal: this.openAddInvestmentModal,
+      closeModal: this.closeModal,
+      modalOpen: s.modalOpen,
+      isModalExpense: s.modalType === 'expense',
+      isModalInvestment: s.modalType === 'investment',
+      setModalTypeExpense: this.setModalTypeExpense,
+      setModalTypeInvestment: this.setModalTypeInvestment,
+      typeExpBg: s.modalType === 'expense' ? teal : 'transparent',
+      typeExpColor: s.modalType === 'expense' ? ink : muted,
+      typeInvBg: s.modalType === 'investment' ? teal : 'transparent',
+      typeInvColor: s.modalType === 'investment' ? ink : muted,
+
+      formName: s.formName, setFormName: this.setFormName,
+      formAmount: s.formAmount, setFormAmount: this.setFormAmount,
+      formDate: s.formDate, setFormDate: this.setFormDate,
+      formCategoryChips,
+      setRecurOnetime: this.setRecurOnetime, setRecurMonthly: this.setRecurMonthly,
+      recurOnetimeBg: s.formRecurrence === 'onetime' ? teal : 'transparent',
+      recurOnetimeColor: s.formRecurrence === 'onetime' ? ink : muted,
+      recurMonthlyBg: s.formRecurrence === 'monthly' ? teal : 'transparent',
+      recurMonthlyColor: s.formRecurrence === 'monthly' ? ink : muted,
+      dateFieldLabel: s.formRecurrence === 'monthly' ? 'Day of month' : 'Date',
+      dateFieldPlaceholder: s.formRecurrence === 'monthly' ? 'e.g. 5th' : 'e.g. Aug 5',
+      saveExpense: this.saveExpense,
+
+      formInvTypeChips,
+      formInstitution: s.formInstitution, setFormInstitution: this.setFormInstitution,
+      formPrincipal: s.formPrincipal, setFormPrincipal: this.setFormPrincipal,
+      formRate: s.formRate, setFormRate: this.setFormRate,
+      formMaturity: s.formMaturity, setFormMaturity: this.setFormMaturity,
+      saveInvestment: this.saveInvestment,
+    };
+  }
+}
+
+</script>
+</body>
+</html>
