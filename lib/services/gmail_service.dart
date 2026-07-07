@@ -102,13 +102,20 @@ class GmailService {
     }
 
     try {
-      final ids = await _listMessageIds(headers);
+      final ids = (await _listMessageIds(headers)).take(_maxMessages).toList();
+      final total = ids.length;
       final emails = <RawEmail>[];
-      final total = ids.length.clamp(0, _maxMessages);
-      for (var i = 0; i < total; i++) {
-        final raw = await _getMessage(headers, ids[i]);
-        if (raw != null) emails.add(raw);
-        onProgress?.call(i + 1, total);
+      // Fetch message bodies in parallel batches — far faster than serial.
+      const batchSize = 8;
+      var done = 0;
+      for (var start = 0; start < ids.length; start += batchSize) {
+        final batch = ids.skip(start).take(batchSize);
+        final results = await Future.wait(batch.map((id) => _getMessage(headers, id)));
+        for (final r in results) {
+          if (r != null) emails.add(r);
+        }
+        done += results.length;
+        onProgress?.call(done, total);
       }
       List<ParsedBill> candidates;
       if (aiExtract != null) {

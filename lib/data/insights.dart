@@ -168,9 +168,10 @@ class Insights {
   final String driverTitle; // e.g. "Why February is higher"
 
   static Insights compute(AppState s) {
-    // Once the user has real confirmed obligations, drive the whole forecast
-    // from them (real calendar dates); otherwise show the demo scenario.
-    if (s.manualTx.isNotEmpty) return computeRealInsights(s);
+    // Once the user has real data (confirmed obligations, or a connected Gmail
+    // account), drive the whole forecast from it on the real calendar. The demo
+    // scenario is shown only in pure "sample data" mode.
+    if (s.manualTx.isNotEmpty || s.gmailEmail.isNotEmpty) return computeRealInsights(s);
 
     final isDark = s.isDark;
     const amber = AppColors.amber;

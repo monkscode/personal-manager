@@ -297,7 +297,7 @@ Insights computeRealInsights(AppState s, {DateTime? nowOverride}) {
   return Insights(
     febRequired: nextTotal,
     janRemaining: thisTotal,
-    heroLabel: 'Projected total · $selMonthName',
+    heroLabel: isCurrent ? 'Due this month · $selMonthName' : 'Projected total · $selMonthName',
     heroAmount: inr(selTotal),
     heroSubText: heroSubText,
     heroSubColor: isCurrent ? muted : (delta >= 0 ? amber : AppColors.green),

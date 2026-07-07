@@ -29,10 +29,11 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     final candidates = ref.watch(appControllerProvider.select((s) => s.candidates));
     final ctrl = ref.read(appControllerProvider.notifier);
 
-    // Default every detected bill to selected the first time we see them.
+    // Pre-select only the confident detections the first time we see them;
+    // weaker guesses stay visible but unchecked, so only solid data flows in.
     if (!_seeded) {
       _seeded = true;
-      _selected.addAll(candidates.map((c) => c.sourceId));
+      _selected.addAll(candidates.where((c) => c.confidence >= 0.6).map((c) => c.sourceId));
     }
 
     if (candidates.isEmpty) {

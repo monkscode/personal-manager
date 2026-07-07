@@ -83,4 +83,45 @@ void main() {
       expect(i.upcomingBills.length, 2);
     });
   });
+
+  group('calculation edge cases', () {
+    ExpenseEntry bill(double amt, String rec, {DateTime? due}) => ExpenseEntry(
+          name: 'X',
+          category: 'Other',
+          categoryKey: 'other',
+          amount: amt,
+          initial: 'XX',
+          color: AppColors.slate,
+          recurrence: rec,
+          dueDate: due,
+        );
+
+    test('a one-time bill due this month counts this month, not next', () {
+      final b = bill(5000, 'onetime', due: DateTime(2026, 7, 20));
+      expect(computeRealInsights(_stateWith([b], monthView: 'current'), nowOverride: _now).heroAmount, '₹5,000');
+      expect(computeRealInsights(_stateWith([b], monthView: 'next'), nowOverride: _now).heroAmount, '₹0');
+    });
+
+    test('a monthly bill appears in every month of the outlook', () {
+      final i = computeRealInsights(_stateWith([bill(18000, 'monthly')]), nowOverride: _now);
+      expect(i.yearTotalLabel, '₹2,16,000'); // 18000 * 12
+    });
+
+    test('an undated one-off is planned into next month', () {
+      final i = computeRealInsights(_stateWith([bill(3000, 'onetime')]), nowOverride: _now);
+      expect(i.heroAmount, '₹3,000'); // next-month view by default
+    });
+
+    test('connected Gmail with no bills yet renders an empty forecast, not the demo', () {
+      final s = const AppState().copyWith(
+        gmailEmail: 'me@gmail.com',
+        nps: const ContribPlan(enabled: false, amount: '0', frequency: 'monthly', month: 'Feb'),
+        ppf: const ContribPlan(enabled: false, amount: '0', frequency: 'lumpsum', month: 'Feb'),
+        mf: const ContribPlan(enabled: false, amount: '0', frequency: 'monthly', month: 'Feb'),
+      );
+      final i = computeRealInsights(s, nowOverride: _now);
+      expect(i.heroAmount, '₹0');
+      expect(i.upcomingBills, isEmpty);
+    });
+  });
 }
