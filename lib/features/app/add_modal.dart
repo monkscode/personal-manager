@@ -59,7 +59,8 @@ class _AddSheetState extends ConsumerState<_AddSheet> {
           amount: double.tryParse(_amount.text.trim()) ?? 0,
           initial: (name.isEmpty ? 'NE' : name).substring(0, name.length >= 2 ? 2 : name.length).toUpperCase(),
           color: cat.color,
-          recurring: _recurrence == 'monthly',
+          recurrence: _recurrence == 'monthly' ? 'monthly' : 'onetime',
+          dueDate: DateTime.tryParse(_date.text.trim()),
         ));
     Navigator.of(context).pop();
   }

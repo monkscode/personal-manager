@@ -6,6 +6,7 @@ import '../core/format.dart';
 import '../core/theme.dart';
 import 'app_state.dart';
 import 'models.dart';
+import 'real_insights.dart';
 import 'seed_data.dart';
 
 // ---- View-model types rendered by the screens -------------------------------
@@ -125,6 +126,8 @@ class Insights {
     required this.fdMonthlyPlanAmount,
     required this.fdTopUpMonths,
     required this.roundoffDoneText,
+    required this.breakdownMonthLabel,
+    required this.driverTitle,
   });
 
   final double febRequired;
@@ -161,8 +164,14 @@ class Insights {
   final String fdMonthlyPlanAmount;
   final int fdTopUpMonths;
   final String roundoffDoneText;
+  final String breakdownMonthLabel; // e.g. "February" / "August"
+  final String driverTitle; // e.g. "Why February is higher"
 
   static Insights compute(AppState s) {
+    // Once the user has real confirmed obligations, drive the whole forecast
+    // from them (real calendar dates); otherwise show the demo scenario.
+    if (s.manualTx.isNotEmpty) return computeRealInsights(s);
+
     final isDark = s.isDark;
     const amber = AppColors.amber;
     const teal = AppColors.teal;
@@ -497,6 +506,8 @@ class Insights {
       fdMonthlyPlanAmount: inr(fdMonthlyPlan),
       fdTopUpMonths: fdTopUpMonths,
       roundoffDoneText: roundoffDoneText,
+      breakdownMonthLabel: 'February',
+      driverTitle: 'Why February is higher',
     );
   }
 }

@@ -174,7 +174,8 @@ class AppController extends Notifier<AppState> {
       amount: b.amount,
       initial: name.substring(0, name.length >= 2 ? 2 : name.length).toUpperCase(),
       color: cat.color,
-      recurring: b.isRecurring,
+      recurrence: b.recurrence,
+      dueDate: b.dueDate,
     );
   }
 

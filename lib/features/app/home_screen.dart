@@ -149,7 +149,7 @@ class HomeScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('February breakdown', style: jakarta(size: 15, weight: FontWeight.w700, color: p.textPrimary)),
+            Text('${i.breakdownMonthLabel} breakdown', style: jakarta(size: 15, weight: FontWeight.w700, color: p.textPrimary)),
             GestureDetector(
               onTap: ctrl.goInsights,
               child: Text('View all', style: jakarta(size: 12, weight: FontWeight.w600, color: AppColors.teal)),

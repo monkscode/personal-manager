@@ -99,7 +99,7 @@ class InsightsScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Why February is higher', style: jakarta(size: 13, weight: FontWeight.w700, color: AppColors.amber)),
+              Text(i.driverTitle, style: jakarta(size: 13, weight: FontWeight.w700, color: AppColors.amber)),
               const SizedBox(height: 8),
               Text(i.driverAmount, style: mono(size: 26, weight: FontWeight.w800, color: p.textPrimary)),
               const SizedBox(height: 8),
@@ -109,7 +109,7 @@ class InsightsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 20),
         // Full breakdown
-        Text('February breakdown — full', style: jakarta(size: 15, weight: FontWeight.w700, color: p.textPrimary)),
+        Text('${i.breakdownMonthLabel} breakdown — full', style: jakarta(size: 15, weight: FontWeight.w700, color: p.textPrimary)),
         const SizedBox(height: 12),
         for (final c in i.categoriesFull) ...[
           CategoryProgress(name: c.name, color: c.color, amount: '${c.amount} · ${c.pct.round()}%', pct: c.pct),

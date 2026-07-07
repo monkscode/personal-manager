@@ -79,7 +79,8 @@ class CustomPlan {
       );
 }
 
-/// A manually-added expense/bill entry.
+/// A confirmed bill/expense obligation (from Gmail or added manually). Carries
+/// a due date and recurrence so the forecast can place it on the calendar.
 class ExpenseEntry {
   const ExpenseEntry({
     required this.name,
@@ -88,7 +89,8 @@ class ExpenseEntry {
     required this.amount,
     required this.initial,
     required this.color,
-    required this.recurring,
+    this.recurrence = 'onetime', // onetime | monthly | quarterly | annual
+    this.dueDate,
   });
 
   final String name;
@@ -97,8 +99,10 @@ class ExpenseEntry {
   final double amount;
   final String initial;
   final Color color;
-  final bool recurring;
+  final String recurrence;
+  final DateTime? dueDate;
 
+  bool get recurring => recurrence != 'onetime';
   Color get bgColor => color.withValues(alpha: 0.13);
 
   Map<String, dynamic> toJson() => {
@@ -108,7 +112,8 @@ class ExpenseEntry {
         'amount': amount,
         'initial': initial,
         'color': color.toARGB32(),
-        'recurring': recurring,
+        'recurrence': recurrence,
+        'dueDate': dueDate?.toIso8601String(),
       };
 
   factory ExpenseEntry.fromJson(Map<String, dynamic> j) => ExpenseEntry(
@@ -118,7 +123,10 @@ class ExpenseEntry {
         amount: (j['amount'] as num).toDouble(),
         initial: j['initial'] as String,
         color: Color(j['color'] as int),
-        recurring: j['recurring'] as bool? ?? false,
+        // Back-compat: older payloads stored a `recurring` bool.
+        recurrence: j['recurrence'] as String? ??
+            ((j['recurring'] as bool? ?? false) ? 'monthly' : 'onetime'),
+        dueDate: j['dueDate'] != null ? DateTime.tryParse(j['dueDate'] as String) : null,
       );
 }
 
