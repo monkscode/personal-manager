@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/ai_resolver.dart';
 import '../services/gmail_service.dart';
 import 'app_state.dart';
 import 'insights.dart';
@@ -71,6 +72,13 @@ class AppController extends Notifier<AppState> {
   void toggleNotif() => _update(state.copyWith(notifOn: !state.notifOn));
   void setTheme(String theme) => _update(state.copyWith(theme: theme));
 
+  // ---- Optional AI extraction settings -------------------------------------
+  void setAiApiKey(String v) => _update(state.copyWith(aiApiKey: v));
+  void setAiModel(String v) => _update(state.copyWith(aiModel: v));
+  void setAiEndpoint(String v) => _update(state.copyWith(aiEndpoint: v));
+  void setAiServiceAccount(String v) => _update(state.copyWith(aiServiceAccount: v));
+  void setAiRegion(String v) => _update(state.copyWith(aiRegion: v));
+
   // ---- Real on-device Gmail scan -------------------------------------------
   // Reads Gmail read-only on the device, parses bills locally, and moves to the
   // review stage. Nothing leaves the phone. Errors fall back to the connect
@@ -78,11 +86,37 @@ class AppController extends Notifier<AppState> {
 
   Future<void> connectGmail() async {
     state = state.copyWith(stage: 'scanning', scanProgress: 0, scanCount: 0, scanError: '');
+
+    // If the user configured an AI key, use Gemini for extraction; otherwise the
+    // service falls back to the on-device rule parser.
+    final model = state.aiModel.trim().isEmpty ? 'gemini-2.5-flash' : state.aiModel.trim();
+    Future<List<ParsedBill>> Function(List<RawEmail>)? aiExtract;
+    if (state.aiServiceAccount.trim().isNotEmpty) {
+      // Vertex AI via a service-account key (credentials.json).
+      aiExtract = VertexResolver(
+        serviceAccountJson: state.aiServiceAccount.trim(),
+        region: state.aiRegion.trim().isEmpty ? 'us-central1' : state.aiRegion.trim(),
+        model: model,
+      ).extract;
+    } else if (state.aiApiKey.trim().isNotEmpty) {
+      // Gemini / Vertex Express via an API key.
+      aiExtract = GeminiResolver(
+        apiKey: state.aiApiKey.trim(),
+        model: model,
+        endpointBase: state.aiEndpoint.trim().isEmpty
+            ? 'https://generativelanguage.googleapis.com/v1beta'
+            : state.aiEndpoint.trim(),
+      ).extract;
+    }
+
     try {
-      final result = await _gmail.scan(onProgress: (done, total) {
-        final pct = total == 0 ? 100 : (done / total * 100).round();
-        state = state.copyWith(scanProgress: pct.clamp(0, 100), scanCount: done);
-      });
+      final result = await _gmail.scan(
+        aiExtract: aiExtract,
+        onProgress: (done, total) {
+          final pct = total == 0 ? 100 : (done / total * 100).round();
+          state = state.copyWith(scanProgress: pct.clamp(0, 100), scanCount: done);
+        },
+      );
       _update(state.copyWith(
         stage: 'review',
         candidates: result.candidates,

@@ -29,6 +29,11 @@ class AppState {
     this.candidates = const [],
     this.gmailEmail = '',
     this.scanError = '',
+    this.aiApiKey = '',
+    this.aiModel = 'gemini-2.5-flash',
+    this.aiEndpoint = 'https://generativelanguage.googleapis.com/v1beta',
+    this.aiServiceAccount = '',
+    this.aiRegion = 'us-central1',
   });
 
   final String stage;
@@ -55,7 +60,15 @@ class AppState {
   final String gmailEmail; // '' when not connected via Gmail
   final String scanError; // '' when no error
 
+  // Optional AI extraction (Gemini/Vertex). Empty key => on-device rules only.
+  final String aiApiKey;
+  final String aiModel;
+  final String aiEndpoint;
+  final String aiServiceAccount; // Vertex service-account key JSON (on-device only)
+  final String aiRegion; // Vertex region, e.g. us-central1
+
   bool get isDark => theme != 'light';
+  bool get aiEnabled => aiApiKey.trim().isNotEmpty || aiServiceAccount.trim().isNotEmpty;
   bool get isApp => stage == 'app';
 
   AppState copyWith({
@@ -80,6 +93,11 @@ class AppState {
     List<ParsedBill>? candidates,
     String? gmailEmail,
     String? scanError,
+    String? aiApiKey,
+    String? aiModel,
+    String? aiEndpoint,
+    String? aiServiceAccount,
+    String? aiRegion,
   }) {
     return AppState(
       stage: stage ?? this.stage,
@@ -103,6 +121,11 @@ class AppState {
       candidates: candidates ?? this.candidates,
       gmailEmail: gmailEmail ?? this.gmailEmail,
       scanError: scanError ?? this.scanError,
+      aiApiKey: aiApiKey ?? this.aiApiKey,
+      aiModel: aiModel ?? this.aiModel,
+      aiEndpoint: aiEndpoint ?? this.aiEndpoint,
+      aiServiceAccount: aiServiceAccount ?? this.aiServiceAccount,
+      aiRegion: aiRegion ?? this.aiRegion,
     );
   }
 
@@ -121,6 +144,11 @@ class AppState {
         'fdRoundoffChoice': fdRoundoffChoice,
         'customPlans': customPlans.map((e) => e.toJson()).toList(),
         'theme': theme,
+        'aiApiKey': aiApiKey,
+        'aiModel': aiModel,
+        'aiEndpoint': aiEndpoint,
+        'aiServiceAccount': aiServiceAccount,
+        'aiRegion': aiRegion,
       };
 
   factory AppState.fromJson(Map<String, dynamic> j) {
@@ -145,6 +173,11 @@ class AppState {
       fdRoundoffChoice: j['fdRoundoffChoice'] as String? ?? '',
       customPlans: parseList('customPlans', CustomPlan.fromJson),
       theme: j['theme'] as String? ?? 'dark',
+      aiApiKey: j['aiApiKey'] as String? ?? '',
+      aiModel: j['aiModel'] as String? ?? 'gemini-2.5-flash',
+      aiEndpoint: j['aiEndpoint'] as String? ?? 'https://generativelanguage.googleapis.com/v1beta',
+      aiServiceAccount: j['aiServiceAccount'] as String? ?? '',
+      aiRegion: j['aiRegion'] as String? ?? 'us-central1',
     );
   }
 

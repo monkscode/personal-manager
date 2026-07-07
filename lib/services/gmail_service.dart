@@ -52,7 +52,13 @@ class GmailService {
       'newer_than:6m (due OR premium OR invoice OR bill OR payment OR emi OR statement OR subscription OR renewal OR recharge OR policy)';
 
   /// Runs the full flow: sign in → authorize → fetch → parse.
-  Future<GmailScanResult> scan({void Function(int done, int total)? onProgress}) async {
+  ///
+  /// When [aiExtract] is supplied (the user configured an AI key), it is used to
+  /// extract bills; if it throws, we fall back to the on-device rule parser.
+  Future<GmailScanResult> scan({
+    void Function(int done, int total)? onProgress,
+    Future<List<ParsedBill>> Function(List<RawEmail>)? aiExtract,
+  }) async {
     final signIn = GoogleSignIn.instance;
     if (!signIn.supportsAuthenticate()) {
       throw const GmailScanException(
@@ -96,7 +102,17 @@ class GmailService {
         if (raw != null) emails.add(raw);
         onProgress?.call(i + 1, total);
       }
-      final candidates = parser.parseAll(emails);
+      List<ParsedBill> candidates;
+      if (aiExtract != null) {
+        try {
+          candidates = await aiExtract(emails);
+        } catch (_) {
+          // AI failed (bad key, quota, offline) — fall back to on-device rules.
+          candidates = parser.parseAll(emails);
+        }
+      } else {
+        candidates = parser.parseAll(emails);
+      }
       return GmailScanResult(
         account: GmailAccount(email: account.email, name: account.displayName),
         candidates: candidates,

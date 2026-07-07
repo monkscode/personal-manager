@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../../data/app_controller.dart';
 import '../../widgets/ui.dart';
 import 'about_sheet.dart';
+import 'ai_settings_sheet.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -74,6 +75,18 @@ class ProfileScreen extends ConsumerWidget {
               _divider(p),
               _row(context, Icons.schedule_rounded, 'Scan frequency',
                   trailing: Text('Every 6 hrs', style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary))),
+              _divider(p),
+              _row(context, Icons.auto_awesome_outlined, 'AI extraction',
+                  onTap: () => showAiSettingsSheet(context, ref),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(s.aiEnabled ? 'On' : 'Off',
+                          style: jakarta(size: 13, weight: FontWeight.w600, color: s.aiEnabled ? AppColors.teal : p.textTertiary)),
+                      const SizedBox(width: 6),
+                      Icon(Icons.chevron_right_rounded, size: 18, color: p.textTertiary),
+                    ],
+                  )),
               _divider(p),
               _row(context, Icons.wb_sunny_outlined, 'Theme', trailing: _themeToggle(context, s.isDark, ctrl)),
               _divider(p),

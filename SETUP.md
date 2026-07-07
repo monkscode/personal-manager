@@ -94,6 +94,40 @@ Everything here is on Google's **free tier**. Do it once.
 
 ## What's free vs. optional paid
 - **Free & on-device (default):** Gmail read + rule-based parsing on the phone. ₹0.
-- **Optional AI upgrade (later):** to squeeze more out of messy emails, a Gemini/
-  Vertex model can be added *behind a small proxy* (never with keys in the APK).
-  That path costs per-token and needs a billing account, so it's off by default.
+- **Optional AI upgrade:** use Gemini/Vertex to read messy emails more accurately
+  (see Part D). Costs per-token on your billing; off unless you add a key.
+
+---
+
+## Part D — Optional: AI extraction with your Gemini / Vertex key
+
+Turn this on in the app: **Profile → AI extraction**. When set, fetched emails
+are sent to the model for extraction instead of the on-device rules; if a call
+fails, it automatically falls back to the rules.
+
+> ⚠️ **Privacy & cost:** with AI on, email text leaves the phone (to Google's
+> API) and usage is **billed to your account** (tiny for personal volume, not
+> ₹0). The key/credential lives **on your phone** — fine for a personal build,
+> but don't share the APK once you've entered it.
+
+You have two ways to authenticate — pick the one that matches what you have:
+
+### 1) An API key (Google AI Studio, or a Vertex **Express** key)
+- Paste it into **API key**. Default model `gemini-2.5-flash` works.
+- Get a free Gemini key at <https://aistudio.google.com/apikey> if you don't have one.
+- Only change **Endpoint** if your key requires the Vertex host.
+
+### 2) A `credentials.json` service-account key (classic Vertex)
+Your `credentials.json` (the file with `"type": "service_account"`,
+`"private_key"`, `"project_id"`) authenticates to Vertex AI.
+1. In Google Cloud, make sure the project has **Vertex AI API enabled**, and the
+   service account has the **"Vertex AI User"** role.
+2. In the app → Profile → AI extraction → **Service account JSON**: open
+   `credentials.json`, copy **all** of its contents, and paste them in.
+3. Set **Vertex region** (default `us-central1`).
+4. That's it — it takes priority over the API-key field.
+
+> **Not a service account?** If your `credentials.json` instead contains
+> `"installed"` / `"web"` with a `client_id` + `client_secret`, that's an
+> **OAuth client** for sign-in, *not* an AI credential — you do **not** paste it
+> anywhere. Android Gmail sign-in is authorized by package name + SHA-1 (Part C).
