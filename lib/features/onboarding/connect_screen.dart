@@ -13,20 +13,6 @@ class ConnectScreen extends ConsumerStatefulWidget {
 }
 
 class _ConnectScreenState extends ConsumerState<ConnectScreen> {
-  late final TextEditingController _clientId;
-
-  @override
-  void initState() {
-    super.initState();
-    _clientId = TextEditingController(text: ref.read(appControllerProvider).gmailServerClientId);
-  }
-
-  @override
-  void dispose() {
-    _clientId.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -59,18 +45,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 textAlign: TextAlign.center,
                 style: jakarta(size: 14, weight: FontWeight.w500, height: 1.6, color: p.textSecondary)),
             const SizedBox(height: 24),
-            // Android needs the Google Web OAuth client ID for sign-in.
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FieldLabel('Google Web client ID (required on Android)'),
-            ),
-            AppTextField(
-              controller: _clientId,
-              hint: '1234...apps.googleusercontent.com',
-              fillAlt: true,
-              onChanged: ctrl.setGmailServerClientId,
-            ),
-            const SizedBox(height: 20),
             PrimaryButton(
               label: 'Continue with Gmail',
               onTap: ctrl.connectGmail,

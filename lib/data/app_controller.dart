@@ -78,7 +78,6 @@ class AppController extends Notifier<AppState> {
   void setAiEndpoint(String v) => _update(state.copyWith(aiEndpoint: v));
   void setAiServiceAccount(String v) => _update(state.copyWith(aiServiceAccount: v));
   void setAiRegion(String v) => _update(state.copyWith(aiRegion: v));
-  void setGmailServerClientId(String v) => _update(state.copyWith(gmailServerClientId: v));
 
   // ---- Real on-device Gmail scan -------------------------------------------
   // Reads Gmail read-only on the device, parses bills locally, and moves to the
@@ -113,7 +112,6 @@ class AppController extends Notifier<AppState> {
     try {
       final result = await _gmail.scan(
         aiExtract: aiExtract,
-        serverClientId: state.gmailServerClientId,
         onProgress: (done, total) {
           final pct = total == 0 ? 100 : (done / total * 100).round();
           state = state.copyWith(scanProgress: pct.clamp(0, 100), scanCount: done);

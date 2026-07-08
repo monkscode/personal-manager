@@ -73,11 +73,16 @@ Everything here is on Google's **free tier**. Do it once.
    → **Create credentials** → **OAuth client ID** → Application type **Web
    application** → Create. **Copy its Client ID** (looks like
    `1234…apps.googleusercontent.com`). You don't need the secret.
-6. Open the app → **Connect your Gmail** → paste that **Web client ID** into the
-   **"Google Web client ID"** field → **Continue with Gmail** → pick your account
-   → approve read-only Gmail access. You may see an **"unverified app"** warning —
-   that's expected for your own testing app; continue. The app scans recent
-   mail on the phone and shows the bills it found for you to **confirm**.
+   - This Client ID is baked into the app as `_webClientId` in
+     `lib/services/gmail_service.dart` (it's tied to the SHA-1 above, which
+     never changes, so it doesn't need to be entered per-install). If you're
+     building your own fork with your own keystore/OAuth clients, update that
+     constant with your Web Client ID before building.
+6. Open the app → **Connect your Gmail** → **Continue with Gmail** → pick your
+   account → approve read-only Gmail access. You may see an **"unverified
+   app"** warning — that's expected for your own testing app; continue. The
+   app scans recent mail on the phone and shows the bills it found for you to
+   **confirm**.
 
 > **Weekly re-login:** because the app stays in "Testing" mode, Google expires
 > the token about every 7 days, so you'll tap "Continue with Gmail" again now and
@@ -86,11 +91,10 @@ Everything here is on Google's **free tier**. Do it once.
 ---
 
 ## Troubleshooting
-- **"serverClientId must be provided on Android"** → you haven't pasted the **Web**
-  client ID into the Connect screen. Create a Web OAuth client (Part C step 5) and
-  paste its Client ID.
-- **`DEVELOPER_ERROR` / sign-in closes instantly** → the SHA-1 or package name in
-  the Android OAuth client doesn't match. Re-check Part C step 4.
+- **`DEVELOPER_ERROR` / "Developer console is not set up correctly" / sign-in
+  closes instantly** → the SHA-1 or package name in the Android OAuth client
+  doesn't match (Part C step 4), or the Android and Web OAuth clients aren't
+  in the same Google Cloud project.
 - **AI/Vertex not used (falls back to on-device)** → check the project has the
   **Vertex AI API enabled** and the service account has the **"Vertex AI User"**
   role, and the region is right. The app auto-falls back to rules on any AI error.

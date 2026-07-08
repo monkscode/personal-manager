@@ -47,6 +47,11 @@ class GmailService {
   static const _maxMessages = 40;
   static bool _initialized = false;
 
+  // Google **Web** OAuth client ID, tied to the committed debug keystore's
+  // SHA-1 (see SETUP.md, Part C). Fixed because that SHA-1 never changes.
+  static const _webClientId =
+      '45204952204-5102jul2h2ad87v3o5bbssv1cn2r8s1e.apps.googleusercontent.com';
+
   // Gmail search: recent, transactional mail only.
   static const _query =
       'newer_than:6m (due OR premium OR invoice OR bill OR payment OR emi OR statement OR subscription OR renewal OR recharge OR policy)';
@@ -58,7 +63,6 @@ class GmailService {
   Future<GmailScanResult> scan({
     void Function(int done, int total)? onProgress,
     Future<List<ParsedBill>> Function(List<RawEmail>)? aiExtract,
-    String? serverClientId,
   }) async {
     final signIn = GoogleSignIn.instance;
     if (!signIn.supportsAuthenticate()) {
@@ -66,16 +70,9 @@ class GmailService {
           GmailFailure.unsupported, 'Gmail sign-in isn\'t available on this device.');
     }
 
-    // Android's Credential Manager sign-in requires the Google **Web** OAuth
-    // client ID (serverClientId). Fail early with a clear message if missing.
-    if (serverClientId == null || serverClientId.trim().isEmpty) {
-      throw const GmailScanException(GmailFailure.notConfigured,
-          'Add your Google Web OAuth client ID below (Android needs it). See SETUP.md, Part C.');
-    }
-
     if (!_initialized) {
       try {
-        await signIn.initialize(serverClientId: serverClientId.trim());
+        await signIn.initialize(serverClientId: _webClientId);
         _initialized = true;
       } catch (e) {
         throw GmailScanException(GmailFailure.notConfigured,

@@ -34,7 +34,6 @@ class AppState {
     this.aiEndpoint = 'https://generativelanguage.googleapis.com/v1beta',
     this.aiServiceAccount = '',
     this.aiRegion = 'us-central1',
-    this.gmailServerClientId = '',
   });
 
   final String stage;
@@ -67,7 +66,6 @@ class AppState {
   final String aiEndpoint;
   final String aiServiceAccount; // Vertex service-account key JSON (on-device only)
   final String aiRegion; // Vertex region, e.g. us-central1
-  final String gmailServerClientId; // Google **Web** OAuth client ID (required on Android)
 
   bool get isDark => theme != 'light';
   bool get aiEnabled => aiApiKey.trim().isNotEmpty || aiServiceAccount.trim().isNotEmpty;
@@ -100,7 +98,6 @@ class AppState {
     String? aiEndpoint,
     String? aiServiceAccount,
     String? aiRegion,
-    String? gmailServerClientId,
   }) {
     return AppState(
       stage: stage ?? this.stage,
@@ -129,7 +126,6 @@ class AppState {
       aiEndpoint: aiEndpoint ?? this.aiEndpoint,
       aiServiceAccount: aiServiceAccount ?? this.aiServiceAccount,
       aiRegion: aiRegion ?? this.aiRegion,
-      gmailServerClientId: gmailServerClientId ?? this.gmailServerClientId,
     );
   }
 
@@ -153,7 +149,6 @@ class AppState {
         'aiEndpoint': aiEndpoint,
         'aiServiceAccount': aiServiceAccount,
         'aiRegion': aiRegion,
-        'gmailServerClientId': gmailServerClientId,
       };
 
   factory AppState.fromJson(Map<String, dynamic> j) {
@@ -183,7 +178,6 @@ class AppState {
       aiEndpoint: j['aiEndpoint'] as String? ?? 'https://generativelanguage.googleapis.com/v1beta',
       aiServiceAccount: j['aiServiceAccount'] as String? ?? '',
       aiRegion: j['aiRegion'] as String? ?? 'us-central1',
-      gmailServerClientId: j['gmailServerClientId'] as String? ?? '',
     );
   }
 
