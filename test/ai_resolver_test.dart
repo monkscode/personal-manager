@@ -32,13 +32,19 @@ void main() {
       expect(bills.every((b) => b.confidence > 0.8), isTrue);
     });
 
-    test('drops non-bills and zero/invalid amounts', () {
+    test('drops non-bills but keeps genuine bills that have no amount', () {
       const json = '''
       [
         {"index":1,"isBill":false,"amount":0},
         {"index":0,"isBill":true,"merchant":"X","amount":0,"category":"other","recurrence":"onetime"}
       ]''';
-      expect(GeminiResolver.mapItems(json, emails), isEmpty);
+      // isBill:false is dropped; the amountless bill is kept with amount 0
+      // ("not detected") so the rule-based backstop / review can supply the
+      // figure — dropping it here is what made real reminder bills vanish.
+      final bills = GeminiResolver.mapItems(json, emails);
+      expect(bills.single.merchant, 'X');
+      expect(bills.single.amount, 0);
+      expect(bills.single.sourceId, 'm0');
     });
 
     test('normalizes unknown category/recurrence to safe defaults', () {

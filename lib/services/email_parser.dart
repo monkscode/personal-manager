@@ -145,8 +145,13 @@ class EmailParser {
     // A bare weak-keyword hit ("payment"/"receipt"/"recharge"...) with no due
     // date, no known sender, no inferred category and no strong bill word is
     // almost always a receipt/notification, not a bill to plan for — drop it
-    // instead of surfacing it as a low-confidence candidate.
-    if (confidence < 0.45) return null;
+    // instead of surfacing it as a low-confidence candidate. Checked against the
+    // signals directly rather than a `confidence < 0.45` threshold: base 0.35 +
+    // a strong keyword's 0.1 lands on exactly 0.45, which floating-point rounds
+    // just under (0.3499… + 0.1 = 0.44999…996), wrongly dropping valid bills.
+    if (dueDate == null && rule == null && inferredCategory == null && !hasStrong) {
+      return null;
+    }
 
     return ParsedBill(
       sourceId: email.id,
