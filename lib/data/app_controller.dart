@@ -85,7 +85,8 @@ class AppController extends Notifier<AppState> {
   // screen with a message; "Use sample data" remains available.
 
   Future<void> connectGmail() async {
-    state = state.copyWith(stage: 'scanning', scanProgress: 0, scanCount: 0, scanError: '');
+    state = state.copyWith(
+        stage: 'scanning', scanProgress: 0, scanCount: 0, scanError: '', aiFallbackNote: '');
 
     // If the user configured an AI key, use Gemini for extraction; otherwise the
     // service falls back to the on-device rule parser.
@@ -109,6 +110,7 @@ class AppController extends Notifier<AppState> {
       ).extract;
     }
 
+    String aiFallbackNote = '';
     try {
       final result = await _gmail.scan(
         aiExtract: aiExtract,
@@ -116,13 +118,17 @@ class AppController extends Notifier<AppState> {
           final pct = total == 0 ? 100 : (done / total * 100).round();
           state = state.copyWith(scanProgress: pct.clamp(0, 100), scanCount: done);
         },
+        onAiFallback: (message) => aiFallbackNote =
+            'AI extraction failed, showing rule-based results instead: $message',
       );
       _update(state.copyWith(
         stage: 'review',
         candidates: result.candidates,
         gmailEmail: result.account.email,
+        gmailName: result.account.name ?? '',
         scanProgress: 100,
         scanCount: result.scanned,
+        aiFallbackNote: aiFallbackNote,
       ));
     } on GmailScanException catch (e) {
       // Cancellation returns quietly; real failures surface a message.
@@ -156,6 +162,7 @@ class AppController extends Notifier<AppState> {
       stage: 'onboard',
       onboardStep: 0,
       gmailEmail: '',
+      gmailName: '',
       candidates: const [],
       scanError: '',
     ));

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../data/app_controller.dart';
 import '../../data/insights.dart';
@@ -13,9 +14,13 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
-    final monthView = ref.watch(appControllerProvider.select((s) => s.monthView));
+    final s = ref.watch(appControllerProvider);
+    final monthView = s.monthView;
     final i = ref.watch(insightsProvider);
     final ctrl = ref.read(appControllerProvider.notifier);
+    final connected = s.gmailEmail.isNotEmpty;
+    final name = connected && s.gmailName.isNotEmpty ? s.gmailName : (connected ? 'Gmail user' : 'Aarav Mehta');
+    final avatarLabel = initials(name).isEmpty ? '—' : initials(name);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
@@ -30,7 +35,7 @@ class HomeScreen extends ConsumerWidget {
                 children: [
                   Text('Welcome back', style: jakarta(size: 12, weight: FontWeight.w600, color: p.textTertiary)),
                   const SizedBox(height: 4),
-                  Text('Aarav Mehta', style: jakarta(size: 21, weight: FontWeight.w800, color: p.textPrimary)),
+                  Text(name, style: jakarta(size: 21, weight: FontWeight.w800, color: p.textPrimary)),
                 ],
               ),
             ),
@@ -49,7 +54,7 @@ class HomeScreen extends ConsumerWidget {
               height: 42,
               decoration: BoxDecoration(color: AppColors.teal.withValues(alpha: 0.14), shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: Text('AM', style: jakarta(size: 14, weight: FontWeight.w700, color: AppColors.teal)),
+              child: Text(avatarLabel, style: jakarta(size: 14, weight: FontWeight.w700, color: AppColors.teal)),
             ),
           ],
         ),
@@ -67,9 +72,14 @@ class HomeScreen extends ConsumerWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(width: 7, height: 7, decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(color: connected ? AppColors.green : p.textTertiary, shape: BoxShape.circle),
+                ),
                 const SizedBox(width: 8),
-                Text('Synced 2 min ago · Gmail', style: jakarta(size: 12, weight: FontWeight.w600, color: p.textSecondary)),
+                Text(connected ? 'Connected · Gmail' : 'Sample data',
+                    style: jakarta(size: 12, weight: FontWeight.w600, color: p.textSecondary)),
               ],
             ),
           ),
@@ -112,38 +122,20 @@ class HomeScreen extends ConsumerWidget {
         // Balance check
         _balanceCheck(context, i),
         const SizedBox(height: 20),
-        // Insight card: insurance
-        _insightCard(
-          context,
-          bg: AppColors.amber.withValues(alpha: 0.08),
-          border: AppColors.amber.withValues(alpha: 0.25),
-          icon: Icons.notifications_active_outlined,
-          iconColor: AppColors.amber,
-          onTap: ctrl.goInsights,
-          spans: [
-            _t(context, 'Insurance premium '),
-            _mono(context, '₹47,000', AppColors.amber),
-            _t(context, ' due Feb 14 — set aside '),
-            _mono(context, '₹11,750', p.textPrimary),
-            _t(context, '/week'),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Insight card: FD
-        _insightCard(
-          context,
-          bg: AppColors.teal.withValues(alpha: 0.08),
-          border: AppColors.teal.withValues(alpha: 0.25),
-          icon: Icons.trending_up_rounded,
-          iconColor: AppColors.teal,
-          onTap: ctrl.goInvestments,
-          spans: [
-            _t(context, 'HDFC FD matures ${i.fdMaturityDate} — '),
-            _mono(context, i.fdMaturityValue, AppColors.teal),
-            _t(context, ' incoming, incl. interest'),
-          ],
-        ),
-        const SizedBox(height: 20),
+        // Insight cards — driven by the real computed alerts, not fixed demo copy.
+        for (final a in i.alerts.take(2)) ...[
+          _insightCard(
+            context,
+            bg: a.bg,
+            border: a.border,
+            icon: a.isAlert ? Icons.notifications_active_outlined : Icons.trending_up_rounded,
+            iconColor: a.iconColor,
+            onTap: ctrl.goInsights,
+            spans: [_t(context, a.text)],
+          ),
+          const SizedBox(height: 12),
+        ],
+        const SizedBox(height: 8),
         // February breakdown (top categories)
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -257,9 +249,6 @@ class HomeScreen extends ConsumerWidget {
   InlineSpan _t(BuildContext context, String text) => TextSpan(
       text: text,
       style: jakarta(size: 13, weight: FontWeight.w600, height: 1.5, color: context.palette.textPrimary));
-
-  InlineSpan _mono(BuildContext context, String text, Color color) =>
-      TextSpan(text: text, style: mono(size: 13, weight: FontWeight.w600, color: color));
 
   Widget _initialBadge(String initial, Color color, Color bg, {double radius = 11}) {
     return Container(

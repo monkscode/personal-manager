@@ -14,6 +14,7 @@ class InvestmentsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final choice = ref.watch(appControllerProvider.select((s) => s.fdRoundoffChoice));
+    final isLive = ref.watch(appControllerProvider.select((s) => s.manualTx.isNotEmpty || s.gmailEmail.isNotEmpty));
     final i = ref.watch(insightsProvider);
     final ctrl = ref.read(appControllerProvider.notifier);
 
@@ -37,39 +38,44 @@ class InvestmentsScreen extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        if (choice.isEmpty) _roundoffPrompt(context, i, ctrl) else _roundoffDone(context, i, choice, ctrl),
-        const SizedBox(height: 16),
-        // PPF FY progress (illustrative)
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(18), border: Border.all(color: p.border)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('PPF · FY contribution', style: jakarta(size: 13, weight: FontWeight.w700, color: p.textPrimary)),
-                  Text('₹90,000 / ₹1,50,000', style: mono(size: 12, weight: FontWeight.w600, color: p.textSecondary)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                  value: 0.6,
-                  minHeight: 6,
-                  backgroundColor: p.surfaceAlt,
-                  valueColor: const AlwaysStoppedAnimation(AppColors.violet),
+        // The FD-roundoff planner and the PPF FY-progress card below are both
+        // built around the illustrative demo scenario (a specific fake HDFC FD
+        // and a fixed ₹90k/₹1.5L PPF progress) — only meaningful in sample mode.
+        if (!isLive) ...[
+          const SizedBox(height: 16),
+          if (choice.isEmpty) _roundoffPrompt(context, i, ctrl) else _roundoffDone(context, i, choice, ctrl),
+          const SizedBox(height: 16),
+          // PPF FY progress (illustrative)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(18), border: Border.all(color: p.border)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('PPF · FY contribution', style: jakarta(size: 13, weight: FontWeight.w700, color: p.textPrimary)),
+                    Text('₹90,000 / ₹1,50,000', style: mono(size: 12, weight: FontWeight.w600, color: p.textSecondary)),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text('Contribute the remaining ₹60,000 before Mar 31 to maximize this year\'s 80C deduction.',
-                  style: jakarta(size: 12, weight: FontWeight.w500, height: 1.5, color: p.textSecondary)),
-            ],
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: 0.6,
+                    minHeight: 6,
+                    backgroundColor: p.surfaceAlt,
+                    valueColor: const AlwaysStoppedAnimation(AppColors.violet),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('Contribute the remaining ₹60,000 before Mar 31 to maximize this year\'s 80C deduction.',
+                    style: jakarta(size: 12, weight: FontWeight.w500, height: 1.5, color: p.textSecondary)),
+              ],
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 20),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,

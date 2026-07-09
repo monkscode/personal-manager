@@ -275,7 +275,9 @@ Insights computeRealInsights(AppState s, {DateTime? nowOverride}) {
         status: 'Active',
       )
   ];
-  final allInvest = [...kInvestments, ...mfEntry, ...customInvest, ...s.manualInvestments];
+  // Only the user's own investments — the seed FD/PPF/RD entries are demo-only
+  // and must not appear once real data (Gmail or manual) drives the forecast.
+  final allInvest = [...mfEntry, ...customInvest, ...s.manualInvestments];
   final investments = allInvest.map((inv) {
     final c = kTypeColors[inv.type] ?? kTypeColors['Other']!;
     final soon = inv.status == 'Maturing soon';
@@ -322,15 +324,16 @@ Insights computeRealInsights(AppState s, {DateTime? nowOverride}) {
     txCountLabel: f == 'all' ? '${s.manualTx.length} tracked' : 'Filtered view',
     investments: investments,
     investTotal: investTotal,
-    fdMaturityDate: 'Apr 18',
-    fdMaturityValue: inr(182000),
-    fdRenewTarget: inr(200000),
-    fdTopUpAmount: inr(18000),
-    fdMonthlyPlanAmount: inr(6000),
-    fdTopUpMonths: 3,
-    roundoffDoneText: s.fdRoundoffChoice == 'yes'
-        ? 'Savings plan active — ${inr(6000)}/month for 3 months. Added to your forecast.'
-        : "Skipped — you'll take the ${inr(182000)} payout as-is at maturity.",
+    // No real FD-maturity data source yet (the app scans bills, not holdings),
+    // so the roundoff-planner card stays empty here; the screen hides it in
+    // live mode instead of inventing numbers.
+    fdMaturityDate: '',
+    fdMaturityValue: '',
+    fdRenewTarget: '',
+    fdTopUpAmount: '',
+    fdMonthlyPlanAmount: '',
+    fdTopUpMonths: 0,
+    roundoffDoneText: '',
     breakdownMonthLabel: selMonthName,
     driverTitle: 'Why $selMonthName looks like this',
   );

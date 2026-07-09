@@ -18,6 +18,7 @@ class ReviewScreen extends ConsumerStatefulWidget {
 
 class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   final _selected = <String>{};
+  final _amounts = <String, double>{}; // user-entered amounts for bills detected without one
   bool _seeded = false;
 
   Color _categoryColor(String key) =>
@@ -27,6 +28,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final candidates = ref.watch(appControllerProvider.select((s) => s.candidates));
+    final aiFallbackNote = ref.watch(appControllerProvider.select((s) => s.aiFallbackNote));
     final ctrl = ref.read(appControllerProvider.notifier);
 
     // Pre-select only the confident detections the first time we see them;
@@ -37,16 +39,32 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     }
 
     if (candidates.isEmpty) {
-      return _empty(context, ctrl);
+      return Column(
+        children: [
+          if (aiFallbackNote.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              child: _aiFallbackBanner(context, aiFallbackNote),
+            ),
+          Expanded(child: _empty(context, ctrl)),
+        ],
+      );
     }
 
-    final chosen = candidates.where((c) => _selected.contains(c.sourceId)).toList();
+    final chosen = candidates
+        .where((c) => _selected.contains(c.sourceId))
+        .map((c) => _amounts.containsKey(c.sourceId) ? c.copyWith(amount: _amounts[c.sourceId]) : c)
+        .toList();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (aiFallbackNote.isNotEmpty) ...[
+            _aiFallbackBanner(context, aiFallbackNote),
+            const SizedBox(height: 14),
+          ],
           Text('Found ${candidates.length} in your inbox',
               style: jakarta(size: 22, weight: FontWeight.w800, height: 1.3, color: p.textPrimary)),
           const SizedBox(height: 8),
@@ -75,6 +93,105 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                 child: Text('Not now', style: jakarta(size: 13, weight: FontWeight.w600, color: p.textTertiary)),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The amount cell on a review card. When the detectors couldn't find an
+  /// amount (common for bill *reminder* emails that omit the figure), show a
+  /// tappable "Set amount" chip instead of a misleading ₹0.
+  Widget _amountWidget(BuildContext context, ParsedBill bill) {
+    final p = context.palette;
+    final amount = _amounts[bill.sourceId] ?? bill.amount;
+    if (amount >= 1) {
+      return GestureDetector(
+        onTap: () => _promptAmount(bill),
+        child: Text(inr(amount), style: mono(size: 14, weight: FontWeight.w700, color: p.textPrimary)),
+      );
+    }
+    return GestureDetector(
+      onTap: () => _promptAmount(bill),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppColors.amber.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.add_rounded, size: 13, color: AppColors.amber),
+            const SizedBox(width: 4),
+            Text('Set amount', style: jakarta(size: 11, weight: FontWeight.w700, color: AppColors.amber)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _promptAmount(ParsedBill bill) async {
+    final p = context.palette;
+    final controller = TextEditingController(
+      text: (_amounts[bill.sourceId] ?? (bill.amount >= 1 ? bill.amount : 0)) >= 1
+          ? (_amounts[bill.sourceId] ?? bill.amount).round().toString()
+          : '',
+    );
+    final value = await showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surface,
+        title: Text(bill.merchant, style: jakarta(size: 15, weight: FontWeight.w800, color: p.textPrimary)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: jakarta(size: 15, weight: FontWeight.w600, color: p.textPrimary),
+          decoration: InputDecoration(
+            prefixText: '₹ ',
+            hintText: 'Enter amount',
+            hintStyle: jakarta(size: 15, weight: FontWeight.w500, color: p.textTertiary),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: jakarta(size: 13, weight: FontWeight.w600, color: p.textTertiary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, double.tryParse(controller.text.replaceAll(',', '').trim())),
+            child: Text('Save', style: jakarta(size: 13, weight: FontWeight.w700, color: AppColors.teal)),
+          ),
+        ],
+      ),
+    );
+    if (value != null && value >= 1) {
+      setState(() {
+        _amounts[bill.sourceId] = value;
+        _selected.add(bill.sourceId); // setting an amount implies you want it in
+      });
+    }
+  }
+
+  Widget _aiFallbackBanner(BuildContext context, String message) {
+    final p = context.palette;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.amber),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message,
+                style: jakarta(size: 12, weight: FontWeight.w500, height: 1.4, color: p.textSecondary)),
           ),
         ],
       ),
@@ -132,7 +249,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: jakarta(size: 14, weight: FontWeight.w700, color: p.textPrimary)),
                       ),
-                      Text(inr(bill.amount), style: mono(size: 14, weight: FontWeight.w700, color: p.textPrimary)),
+                      _amountWidget(context, bill),
                     ],
                   ),
                   const SizedBox(height: 8),

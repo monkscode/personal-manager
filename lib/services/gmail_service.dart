@@ -63,6 +63,7 @@ class GmailService {
   Future<GmailScanResult> scan({
     void Function(int done, int total)? onProgress,
     Future<List<ParsedBill>> Function(List<RawEmail>)? aiExtract,
+    void Function(String message)? onAiFallback,
   }) async {
     final signIn = GoogleSignIn.instance;
     if (!signIn.supportsAuthenticate()) {
@@ -118,8 +119,12 @@ class GmailService {
       if (aiExtract != null) {
         try {
           candidates = await aiExtract(emails);
-        } catch (_) {
-          // AI failed (bad key, quota, offline) — fall back to on-device rules.
+          // Recover amounts the AI missed via the rule-based backstop.
+          candidates = _recoverAmounts(candidates, emails);
+        } catch (e) {
+          // AI failed (bad key, quota, offline) — fall back to on-device rules,
+          // but tell the caller why so the user isn't left guessing.
+          onAiFallback?.call(e.toString());
           candidates = parser.parseAll(emails);
         }
       } else {
@@ -141,6 +146,20 @@ class GmailService {
     try {
       await GoogleSignIn.instance.disconnect();
     } catch (_) {}
+  }
+
+  /// Backstop for AI candidates that came back without an amount: try to recover
+  /// it from the source email with the rule-based extractor. Bills that still
+  /// have no amount are kept (the user sets the amount in review) rather than
+  /// silently dropped.
+  List<ParsedBill> _recoverAmounts(List<ParsedBill> candidates, List<RawEmail> emails) {
+    final byId = {for (final e in emails) e.id: e};
+    return candidates.map((b) {
+      if (b.amount >= 1) return b;
+      final e = byId[b.sourceId];
+      final amt = e == null ? null : parser.extractAmount(e.haystack);
+      return (amt != null && amt >= 1) ? b.copyWith(amount: amt) : b;
+    }).toList();
   }
 
   Future<List<String>> _listMessageIds(Map<String, String> headers) async {
@@ -187,14 +206,16 @@ class GmailService {
     );
   }
 
-  /// Walks the MIME tree for text, preferring text/plain, falling back to a
-  /// tag-stripped text/html part.
+  /// Walks the MIME tree for text and returns whichever of the plain-text and
+  /// tag-stripped HTML parts carries more content. Some billers send a tiny
+  /// text/plain stub ("view this email in a browser") while the real content —
+  /// including the amount — lives only in the HTML part, so preferring plain
+  /// unconditionally (as before) silently dropped the useful text.
   String _extractBody(Map<String, dynamic> payload) {
-    final plain = _findPart(payload, 'text/plain');
-    if (plain != null) return plain;
-    final html = _findPart(payload, 'text/html');
-    if (html != null) return _stripHtml(html);
-    return '';
+    final plain = _findPart(payload, 'text/plain') ?? '';
+    final htmlRaw = _findPart(payload, 'text/html');
+    final html = htmlRaw == null ? '' : _stripHtml(htmlRaw);
+    return html.length > plain.length ? html : plain;
   }
 
   String? _findPart(Map<String, dynamic> node, String mime) {

@@ -28,7 +28,9 @@ class AppState {
     this.theme = 'dark',
     this.candidates = const [],
     this.gmailEmail = '',
+    this.gmailName = '',
     this.scanError = '',
+    this.aiFallbackNote = '',
     this.aiApiKey = '',
     this.aiModel = 'gemini-2.5-flash',
     this.aiEndpoint = 'https://generativelanguage.googleapis.com/v1beta',
@@ -58,7 +60,9 @@ class AppState {
   // Gmail scan (transient — not persisted).
   final List<ParsedBill> candidates;
   final String gmailEmail; // '' when not connected via Gmail
+  final String gmailName; // '' when not connected via Gmail
   final String scanError; // '' when no error
+  final String aiFallbackNote; // '' unless the last scan's AI extraction failed and fell back to rules
 
   // Optional AI extraction (Gemini/Vertex). Empty key => on-device rules only.
   final String aiApiKey;
@@ -92,7 +96,9 @@ class AppState {
     String? theme,
     List<ParsedBill>? candidates,
     String? gmailEmail,
+    String? gmailName,
     String? scanError,
+    String? aiFallbackNote,
     String? aiApiKey,
     String? aiModel,
     String? aiEndpoint,
@@ -120,7 +126,9 @@ class AppState {
       theme: theme ?? this.theme,
       candidates: candidates ?? this.candidates,
       gmailEmail: gmailEmail ?? this.gmailEmail,
+      gmailName: gmailName ?? this.gmailName,
       scanError: scanError ?? this.scanError,
+      aiFallbackNote: aiFallbackNote ?? this.aiFallbackNote,
       aiApiKey: aiApiKey ?? this.aiApiKey,
       aiModel: aiModel ?? this.aiModel,
       aiEndpoint: aiEndpoint ?? this.aiEndpoint,

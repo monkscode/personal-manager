@@ -91,8 +91,11 @@ class GeminiResolver {
       if (item is! Map) continue;
       final isBill = item['isBill'];
       if (isBill == false) continue;
-      final amount = _num(item['amount']);
-      if (amount == null || amount < 1) continue;
+      // Keep bills even when the model couldn't find an amount (many Indian bill
+      // *reminder* emails omit the figure). Amount 0 means "not detected"; the
+      // caller runs a rule-based backstop and, failing that, the user sets it in
+      // review. Dropping amountless bills here is what made real bills vanish.
+      final amount = _num(item['amount']) ?? 0;
 
       final idx = _int(item['index']);
       final email = (idx != null && idx >= 0 && idx < emails.length) ? emails[idx] : null;
@@ -130,7 +133,7 @@ class GeminiResolver {
       buffer.writeln('From: ${e.from}');
       buffer.writeln('Subject: ${e.subject}');
       buffer.writeln('Date: ${e.date.toIso8601String()}');
-      buffer.writeln('Body: ${_clip(body, 1500)}');
+      buffer.writeln('Body: ${_clip(body, 4000)}');
     }
 
     const instruction =
@@ -142,7 +145,11 @@ class GeminiResolver {
         'dueDate (YYYY-MM-DD, or "" if unknown), '
         'category (one of: insurance, housing, utilities, subscriptions, transport, groceries, other), '
         'recurrence (one of: onetime, monthly, quarterly, annual). '
-        'Amounts must be the payable total, not fees or balances. Omit non-bills.';
+        'For amount: read the whole email (subject + body) and return the exact numeric payable total if it appears ANYWHERE '
+        '(e.g. "Rs. 543", "INR 1,168.20", "₹2,100"); strip symbols and commas. '
+        'Use 0 ONLY if the email truly states no amount (e.g. a reminder that says "your bill is ready, log in to pay"). '
+        'Never guess or fabricate an amount, and never treat a fee, balance, reward-points or promotional figure as the amount. '
+        'Still return the bill object (with amount 0) when it is clearly a bill but the amount is absent. Omit non-bills.';
 
     return {
       'contents': [

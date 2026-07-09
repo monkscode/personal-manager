@@ -67,7 +67,12 @@ class EmailParser {
     ..._strongBillKeywords,
     'payment', 'pay', 'reminder', 'recharge', 'subscription', 'receipt', 'total amount'
   ];
-  static const _promoKeywords = ['% off', 'sale', 'discount', 'flat ', 'coupon', 'deal of', 'cashback offer', 'lucky', 'you won'];
+  static const _promoKeywords = [
+    '% off', 'sale', 'discount', 'flat ', 'coupon', 'deal of', 'cashback offer', 'lucky', 'you won',
+    'offer', 'off on', 'win ', 'free gift', 'flash sale', 'limited time', 'best deal', 'top deals',
+    'grab now', 'shop now', 'buy now', 'new arrivals', 'refer and earn', 'exclusive', 'just for you',
+    'recommended for you', 'order confirm', 'order placed', 'order delivered', 'has shipped', 'out for delivery',
+  ];
 
   static final RegExp _currency =
       RegExp(r'(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)', caseSensitive: false);
@@ -116,8 +121,9 @@ class EmailParser {
     final hasStrong = _strongBillKeywords.any(lower.contains);
     final hasBill = _billKeywords.any(lower.contains);
     if (!hasBill) return null;
-    // Reject clearly promotional mail unless it carries a strong bill signal.
-    if (!hasStrong && _promoKeywords.any(lower.contains)) return null;
+    // Reject anything carrying marketing/receipt language, even if it also
+    // contains a "strong" bill word — real bill reminders don't run offers.
+    if (_promoKeywords.any(lower.contains)) return null;
 
     final amount = _extractAmount(text);
     if (amount == null) return null;
@@ -135,6 +141,12 @@ class EmailParser {
     if (inferredCategory != null || rule != null) confidence += 0.15;
     if (hasStrong) confidence += 0.1;
     confidence = math.min(1, confidence);
+
+    // A bare weak-keyword hit ("payment"/"receipt"/"recharge"...) with no due
+    // date, no known sender, no inferred category and no strong bill word is
+    // almost always a receipt/notification, not a bill to plan for — drop it
+    // instead of surfacing it as a low-confidence candidate.
+    if (confidence < 0.45) return null;
 
     return ParsedBill(
       sourceId: email.id,
@@ -173,6 +185,10 @@ class EmailParser {
     if (category == 'insurance') return 'annual';
     return 'onetime';
   }
+
+  /// Public entry to the rule-based amount extractor — used as a backstop to
+  /// recover an amount when the AI extractor returns none.
+  double? extractAmount(String text) => _extractAmount(text);
 
   double? _extractAmount(String text) {
     final candidates = <({double value, int start})>[];

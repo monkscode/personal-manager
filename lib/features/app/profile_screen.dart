@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../data/app_controller.dart';
 import '../../widgets/ui.dart';
@@ -15,6 +16,9 @@ class ProfileScreen extends ConsumerWidget {
     final p = context.palette;
     final s = ref.watch(appControllerProvider);
     final ctrl = ref.read(appControllerProvider.notifier);
+    final connected = s.gmailEmail.isNotEmpty;
+    final name = connected && s.gmailName.isNotEmpty ? s.gmailName : (connected ? 'Gmail user' : 'Sample user');
+    final avatarLabel = initials(name).isEmpty ? '—' : initials(name);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
@@ -27,12 +31,12 @@ class ProfileScreen extends ConsumerWidget {
               height: 68,
               decoration: BoxDecoration(color: AppColors.teal.withValues(alpha: 0.14), shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: Text('AM', style: jakarta(size: 20, weight: FontWeight.w700, color: AppColors.teal)),
+              child: Text(avatarLabel, style: jakarta(size: 20, weight: FontWeight.w700, color: AppColors.teal)),
             ),
             const SizedBox(height: 10),
-            Text('Aarav Mehta', style: jakarta(size: 18, weight: FontWeight.w800, color: p.textPrimary)),
+            Text(name, style: jakarta(size: 18, weight: FontWeight.w800, color: p.textPrimary)),
             const SizedBox(height: 2),
-            Text(s.gmailEmail.isEmpty ? 'aarav.mehta@gmail.com' : s.gmailEmail,
+            Text(connected ? s.gmailEmail : 'Not connected',
                 style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary)),
           ],
         ),
@@ -49,8 +53,15 @@ class ProfileScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Gmail connected', style: jakarta(size: 13, weight: FontWeight.w700, color: p.textPrimary)),
-                    Text('● Active · last synced 2 min ago', style: jakarta(size: 12, weight: FontWeight.w500, color: AppColors.green)),
+                    Text(connected ? 'Gmail connected' : 'Gmail not connected',
+                        style: jakarta(size: 13, weight: FontWeight.w700, color: p.textPrimary)),
+                    Text(
+                      connected ? '● Active · $name' : 'Using sample data',
+                      style: jakarta(
+                          size: 12,
+                          weight: FontWeight.w500,
+                          color: connected ? AppColors.green : p.textTertiary),
+                    ),
                   ],
                 ),
               ),
