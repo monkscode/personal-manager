@@ -1,0 +1,38 @@
+[
+  {
+    "sender": "VM-ICICIB",
+    "body": "ICICI Bank: Acct XX5678 debited Rs.1,800.00 on 27-Jun-25 via UPI Ref 334455667788. Avl Bal Rs.22,000.00.",
+    "receivedAt": "2025-06-27T13:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 180000
+  },
+  {
+    "sender": "VM-ICICIB",
+    "body": "ICICI Bank: Your a/c XX5678 is credited with Rs.12,000.00 on 29-Jun-25 by UPI from payer@okicici.",
+    "receivedAt": "2025-06-29T10:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 1200000
+  },
+  {
+    "sender": "VM-ICICIB",
+    "body": "Rs.4,500.00 spent on ICICI Bank Credit Card XX7108 at FLIPKART on 28-Jun-25. Available Limit: Rs.95,500.00.",
+    "receivedAt": "2025-06-28T19:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 450000
+  },
+  {
+    "sender": "VM-ICICIB",
+    "body": "Your ICICI Bank OTP is 778899 for an online transaction of Rs.9,999.00. Do not disclose it to anyone.",
+    "receivedAt": "2025-06-26T16:00:00",
+    "isTxn": false
+  },
+  {
+    "sender": "VM-ICICIB",
+    "body": "ICICI Bank: Grab the best sale offer on personal loans at low rates. Limited time discount. Apply now.",
+    "receivedAt": "2025-06-15T10:00:00",
+    "isTxn": false
+  }
+]

@@ -41,50 +41,197 @@ class EmailParser {
     _SenderRule('jio', 'Jio', 'utilities', 'monthly'),
     _SenderRule('actcorp', 'ACT Fibernet', 'utilities', 'monthly'),
     _SenderRule('tatapower', 'Tata Power', 'utilities', 'monthly'),
-    _SenderRule('adanielectricity', 'Adani Electricity', 'utilities', 'monthly'),
+    _SenderRule(
+      'adanielectricity',
+      'Adani Electricity',
+      'utilities',
+      'monthly',
+    ),
     _SenderRule('bescom', 'BESCOM', 'utilities', 'monthly'),
     _SenderRule('mahadiscom', 'MSEB', 'utilities', 'monthly'),
   ];
 
   // Category inference keywords (checked when no sender rule matches).
   static const _categoryKeywords = <String, List<String>>{
-    'insurance': ['insurance', 'premium', 'policy', 'life cover', 'term plan', 'mediclaim'],
-    'housing': ['rent', 'lease', 'maintenance', 'society', 'landlord', 'housing'],
-    'utilities': [
-      'electricity', 'power bill', 'energy bill', 'water bill', 'gas bill', 'lpg',
-      'broadband', 'wifi', 'internet', 'fiber', 'fibernet', 'dth', 'postpaid', 'recharge', 'utility'
+    'insurance': [
+      'insurance',
+      'premium',
+      'policy',
+      'life cover',
+      'term plan',
+      'mediclaim',
     ],
-    'subscriptions': ['subscription', 'membership', 'gym', 'prime', 'renewal of your'],
-    'transport': ['fuel', 'petrol', 'diesel', 'fastag', 'metro card', 'parking', 'toll'],
-    'groceries': ['grocery', 'groceries', 'supermarket', 'bigbasket', 'blinkit', 'instamart'],
+    'housing': [
+      'rent',
+      'lease',
+      'maintenance',
+      'society',
+      'landlord',
+      'housing',
+    ],
+    'utilities': [
+      'electricity',
+      'power bill',
+      'energy bill',
+      'water bill',
+      'gas bill',
+      'lpg',
+      'broadband',
+      'wifi',
+      'internet',
+      'fiber',
+      'fibernet',
+      'dth',
+      'postpaid',
+      'recharge',
+      'utility',
+    ],
+    'subscriptions': [
+      'subscription',
+      'membership',
+      'gym',
+      'prime',
+      'renewal of your',
+    ],
+    'transport': [
+      'fuel',
+      'petrol',
+      'diesel',
+      'fastag',
+      'metro card',
+      'parking',
+      'toll',
+    ],
+    'groceries': [
+      'grocery',
+      'groceries',
+      'supermarket',
+      'bigbasket',
+      'blinkit',
+      'instamart',
+    ],
   };
 
   static const _strongBillKeywords = [
-    'due', 'premium', 'payable', 'invoice', 'bill', 'emi', 'statement',
-    'e-mandate', 'autopay', 'auto-debit', 'renew', 'renewal', 'payment reminder', 'amount due'
+    'due',
+    'premium',
+    'payable',
+    'invoice',
+    'bill',
+    'emi',
+    'statement',
+    'e-mandate',
+    'autopay',
+    'auto-debit',
+    'renew',
+    'renewal',
+    'payment reminder',
+    'amount due',
   ];
   static const _billKeywords = [
     ..._strongBillKeywords,
-    'payment', 'pay', 'reminder', 'recharge', 'subscription', 'receipt', 'total amount'
+    'payment',
+    'pay',
+    'reminder',
+    'recharge',
+    'subscription',
+    'receipt',
+    'total amount',
   ];
   static const _promoKeywords = [
-    '% off', 'sale', 'discount', 'flat ', 'coupon', 'deal of', 'cashback offer', 'lucky', 'you won',
-    'offer', 'off on', 'win ', 'free gift', 'flash sale', 'limited time', 'best deal', 'top deals',
-    'grab now', 'shop now', 'buy now', 'new arrivals', 'refer and earn', 'exclusive', 'just for you',
-    'recommended for you', 'order confirm', 'order placed', 'order delivered', 'has shipped', 'out for delivery',
+    '% off',
+    'sale',
+    'discount',
+    'flat ',
+    'coupon',
+    'deal of',
+    'cashback offer',
+    'lucky',
+    'you won',
+    'offer',
+    'off on',
+    'win ',
+    'free gift',
+    'flash sale',
+    'limited time',
+    'best deal',
+    'top deals',
+    'grab now',
+    'shop now',
+    'buy now',
+    'new arrivals',
+    'refer and earn',
+    'exclusive',
+    'just for you',
+    'recommended for you',
+    'order confirm',
+    'order placed',
+    'order delivered',
+    'has shipped',
+    'out for delivery',
   ];
 
-  static final RegExp _currency =
-      RegExp(r'(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)', caseSensitive: false);
+  // Token-adjacency amount extraction (spec §6, ported from `transaction-sms-
+  // parser`, MIT): a currency marker followed by a number, plus the immediately
+  // following word so a magnitude multiplier ("₹10 Lakhs" in a loan promo) can
+  // be rejected instead of greedily grabbing the "10". The `(?<![a-z])`
+  // look-behind stops "hours"/"rsi" being read as an `rs` currency marker.
+  static final RegExp _currency = RegExp(
+    r'(?:₹|(?<![a-z])rs\.?|(?<![a-z])inr|(?<![a-z])rupees?)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*([a-z]+)?',
+    caseSensitive: false,
+  );
   static final RegExp _keywordAmount = RegExp(
-      r'(?:amount|total|premium|due|payable|balance)[^0-9₹]{0,12}([0-9][0-9,]{2,}(?:\.[0-9]{1,2})?)',
-      caseSensitive: false);
+    r'(?:amount|total|premium|due|payable|balance)[^0-9₹]{0,12}([0-9][0-9,]{2,}(?:\.[0-9]{1,2})?)\s*([a-z]+)?',
+    caseSensitive: false,
+  );
+
+  /// Magnitude multipliers that mark an *approximate / promotional* figure
+  /// ("up to ₹10 Lakhs", "win Rs 5 Crore") rather than a precise payable. A
+  /// currency amount immediately followed by one of these is never extracted —
+  /// the token-adjacency guard from spec §6 that the old greedy regex lacked.
+  static const kAmountMagnitudeWords = <String>{
+    'lakh',
+    'lakhs',
+    'lac',
+    'lacs',
+    'crore',
+    'crores',
+    'cr',
+    'thousand',
+    'thousands',
+    'million',
+    'millions',
+    'mn',
+    'billion',
+    'billions',
+    'bn',
+  };
 
   static const _months = {
-    'jan': 1, 'january': 1, 'feb': 2, 'february': 2, 'mar': 3, 'march': 3,
-    'apr': 4, 'april': 4, 'may': 5, 'jun': 6, 'june': 6, 'jul': 7, 'july': 7,
-    'aug': 8, 'august': 8, 'sep': 9, 'sept': 9, 'september': 9, 'oct': 10, 'october': 10,
-    'nov': 11, 'november': 11, 'dec': 12, 'december': 12,
+    'jan': 1,
+    'january': 1,
+    'feb': 2,
+    'february': 2,
+    'mar': 3,
+    'march': 3,
+    'apr': 4,
+    'april': 4,
+    'may': 5,
+    'jun': 6,
+    'june': 6,
+    'jul': 7,
+    'july': 7,
+    'aug': 8,
+    'august': 8,
+    'sep': 9,
+    'sept': 9,
+    'september': 9,
+    'oct': 10,
+    'october': 10,
+    'nov': 11,
+    'november': 11,
+    'dec': 12,
+    'december': 12,
   };
 
   /// Parse a batch, drop non-bills, de-duplicate (keep highest confidence),
@@ -118,6 +265,8 @@ class EmailParser {
     final text = email.haystack;
     final lower = text.toLowerCase();
 
+    if (isCompletedOrInformationalSubject(email.subject)) return null;
+
     final hasStrong = _strongBillKeywords.any(lower.contains);
     final hasBill = _billKeywords.any(lower.contains);
     if (!hasBill) return null;
@@ -125,8 +274,13 @@ class EmailParser {
     // contains a "strong" bill word — real bill reminders don't run offers.
     if (_promoKeywords.any(lower.contains)) return null;
 
-    final amount = _extractAmount(text);
-    if (amount == null) return null;
+    // The amount may be absent: Indian bill *reminders* frequently keep the
+    // figure behind a login / in a PDF / only in the SMS. Represent "missing"
+    // as amount 0 (matching the AI path, spec §14) and gate amountless bills
+    // more strictly below, rather than dropping them outright.
+    final extracted = _extractAmount(text);
+    final amount = extracted ?? 0;
+    final amountMissing = extracted == null;
 
     final rule = _matchSender(email.fromDomain);
     final inferredCategory = _inferCategory(lower);
@@ -149,7 +303,21 @@ class EmailParser {
     // signals directly rather than a `confidence < 0.45` threshold: base 0.35 +
     // a strong keyword's 0.1 lands on exactly 0.45, which floating-point rounds
     // just under (0.3499… + 0.1 = 0.44999…996), wrongly dropping valid bills.
-    if (dueDate == null && rule == null && inferredCategory == null && !hasStrong) {
+    if (dueDate == null &&
+        rule == null &&
+        inferredCategory == null &&
+        !hasStrong) {
+      return null;
+    }
+
+    // Amountless bills carry weaker evidence (a key field is absent), so they
+    // need a *strong* reminder signal anchored to a known biller, an explicit
+    // due date, or a recognizable bill category — otherwise they are amountless
+    // noise (receipts, "manage your subscription", "payment received"). A strong
+    // bill word plus one concrete anchor mirrors the AI path's isBill+amount 0.
+    if (amountMissing &&
+        !(hasStrong &&
+            (rule != null || dueDate != null || inferredCategory != null))) {
       return null;
     }
 
@@ -174,6 +342,40 @@ class EmailParser {
     return null;
   }
 
+  /// Whether [domain] belongs to a known biller (LIC, Netflix, Airtel, …). Used
+  /// by the Gmail pre-AI prefilter to always keep real billers, protecting recall.
+  bool isKnownBillerDomain(String domain) => _matchSender(domain) != null;
+
+  /// Documents completed payments or report historical holdings/activity;
+  /// they are not upcoming obligations even when they contain bill keywords.
+  static bool isCompletedOrInformationalSubject(String subject) {
+    final lower = subject.toLowerCase();
+    if (RegExp(r'\b(receipt|acknowledg(?:e)?ment)\b').hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(
+      r'\b(payment|transaction)\b.*\b(successful|successfully|completed|received)\b',
+    ).hasMatch(lower)) {
+      return true;
+    }
+    if (lower.contains('portfolio disclosure')) return true;
+    if (lower.contains('postal ballot') ||
+        lower.contains('dividend') ||
+        lower.contains('contribution credit') ||
+        lower.contains('instaalert') ||
+        lower.contains('manage your home loan') ||
+        lower.contains('tax-related information') ||
+        lower.contains('annual general meeting')) {
+      return true;
+    }
+    if (lower.contains('account statement') &&
+        !lower.contains('credit card') &&
+        !lower.contains('card statement')) {
+      return true;
+    }
+    return false;
+  }
+
   String? _inferCategory(String lower) {
     for (final entry in _categoryKeywords.entries) {
       if (entry.value.any(lower.contains)) return entry.key;
@@ -182,11 +384,19 @@ class EmailParser {
   }
 
   String _inferRecurrence(String lower, String category) {
-    if (RegExp(r'\bannual|yearly|per annum|per year\b').hasMatch(lower)) return 'annual';
+    if (RegExp(r'\bannual|yearly|per annum|per year\b').hasMatch(lower)) {
+      return 'annual';
+    }
     if (lower.contains('quarterly')) return 'quarterly';
-    if (RegExp(r'\bmonthly|per month|/month|emi\b').hasMatch(lower)) return 'monthly';
+    if (RegExp(r'\bmonthly|per month|/month|emi\b').hasMatch(lower)) {
+      return 'monthly';
+    }
     // Sensible category defaults.
-    if (category == 'housing' || category == 'utilities' || category == 'subscriptions') return 'monthly';
+    if (category == 'housing' ||
+        category == 'utilities' ||
+        category == 'subscriptions') {
+      return 'monthly';
+    }
     if (category == 'insurance') return 'annual';
     return 'onetime';
   }
@@ -198,11 +408,13 @@ class EmailParser {
   double? _extractAmount(String text) {
     final candidates = <({double value, int start})>[];
     for (final m in _currency.allMatches(text)) {
+      if (_isMagnitude(m.group(2))) continue;
       final v = _toAmount(m.group(1));
       if (v != null) candidates.add((value: v, start: m.start));
     }
     if (candidates.isEmpty) {
       for (final m in _keywordAmount.allMatches(text)) {
+        if (_isMagnitude(m.group(2))) continue;
         final v = _toAmount(m.group(1));
         if (v != null) candidates.add((value: v, start: m.start));
       }
@@ -210,7 +422,9 @@ class EmailParser {
     if (candidates.isEmpty) return null;
 
     final lower = text.toLowerCase();
-    final kw = RegExp(r'premium|amount|total|due|payable|pay|balance|bill|emi|price|charge');
+    final kw = RegExp(
+      r'premium|amount|total|due|payable|pay|balance|bill|emi|price|charge',
+    );
     double best = -1;
     double bestScore = -1;
     for (final c in candidates) {
@@ -225,6 +439,12 @@ class EmailParser {
     return best;
   }
 
+  /// True when the word immediately after a currency amount is a magnitude
+  /// multiplier ("₹10 **Lakhs**"), marking an approximate/promotional figure.
+  static bool _isMagnitude(String? following) =>
+      following != null &&
+      kAmountMagnitudeWords.contains(following.toLowerCase());
+
   double? _toAmount(String? raw) {
     if (raw == null) return null;
     final v = double.tryParse(raw.replaceAll(',', ''));
@@ -236,7 +456,9 @@ class EmailParser {
     final found = <DateTime>[];
 
     // Numeric dd/mm/yyyy or dd-mm-yyyy (Indian day-first order).
-    for (final m in RegExp(r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b').allMatches(text)) {
+    for (final m in RegExp(
+      r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b',
+    ).allMatches(text)) {
       final d = int.parse(m.group(1)!);
       final mo = int.parse(m.group(2)!);
       var y = int.parse(m.group(3)!);
@@ -246,35 +468,49 @@ class EmailParser {
     }
     // "14 Feb 2026" / "14th February".
     final dmy = RegExp(
-        r'\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})?',
-        caseSensitive: false);
+      r'\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})?',
+      caseSensitive: false,
+    );
     for (final m in dmy.allMatches(text)) {
       final mo = _months[m.group(2)!.toLowerCase()];
       if (mo == null) continue;
-      final dt = _safeDate(m.group(3) != null ? int.parse(m.group(3)!) : emailDate.year, mo, int.parse(m.group(1)!), emailDate);
+      final explicitYear = m.group(3);
+      final dt = _safeDate(
+        explicitYear != null ? int.parse(explicitYear) : emailDate.year,
+        mo,
+        int.parse(m.group(1)!),
+        explicitYear == null ? emailDate : null,
+      );
       if (dt != null) found.add(dt);
     }
     // "Feb 14, 2026" — the `(?!\d)` stops "Feb 2026" being read as day 20.
     final mdy = RegExp(
-        r'\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?!\d)(?:st|nd|rd|th)?\s*,?\s*(\d{4})?',
-        caseSensitive: false);
+      r'\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?!\d)(?:st|nd|rd|th)?\s*,?\s*(\d{4})?',
+      caseSensitive: false,
+    );
     for (final m in mdy.allMatches(text)) {
       final mo = _months[m.group(1)!.toLowerCase()];
       if (mo == null) continue;
-      final dt = _safeDate(m.group(3) != null ? int.parse(m.group(3)!) : emailDate.year, mo, int.parse(m.group(2)!), emailDate);
+      final explicitYear = m.group(3);
+      final dt = _safeDate(
+        explicitYear != null ? int.parse(explicitYear) : emailDate.year,
+        mo,
+        int.parse(m.group(2)!),
+        explicitYear == null ? emailDate : null,
+      );
       if (dt != null) found.add(dt);
     }
 
     if (found.isEmpty) return null;
 
-    // Prefer the soonest date that is on/after the email's date (an upcoming
-    // due date); otherwise fall back to the earliest found.
+    // Prefer the soonest date that is on/after the email's date. Historical
+    // document dates are not upcoming due dates and must not be surfaced.
     found.sort();
     final cutoff = emailDate.subtract(const Duration(days: 2));
     for (final d in found) {
       if (!d.isBefore(cutoff)) return d;
     }
-    return found.first;
+    return null;
   }
 
   /// Builds a valid date, rejecting impossible day/month combos. When [ref] is

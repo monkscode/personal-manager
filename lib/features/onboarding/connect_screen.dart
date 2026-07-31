@@ -17,12 +17,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final ctrl = ref.read(appControllerProvider.notifier);
-    final scanError = ref.watch(appControllerProvider.select((s) => s.scanError));
+    final scanError = ref.watch(
+      appControllerProvider.select((s) => s.scanError),
+    );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
       child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 120),
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.of(context).size.height - 120,
+        ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -34,21 +38,43 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 borderRadius: BorderRadius.circular(26),
                 border: Border.all(color: p.border),
               ),
-              child: Icon(Icons.mail_outline_rounded, size: 40, color: p.textPrimary),
+              child: Icon(
+                Icons.mail_outline_rounded,
+                size: 40,
+                color: p.textPrimary,
+              ),
             ),
             const SizedBox(height: 24),
-            Text('Connect your Gmail',
-                textAlign: TextAlign.center,
-                style: jakarta(size: 22, weight: FontWeight.w800, height: 1.3, color: p.textPrimary)),
+            Text(
+              'Connect your Gmail',
+              textAlign: TextAlign.center,
+              style: jakarta(
+                size: 22,
+                weight: FontWeight.w800,
+                height: 1.3,
+                color: p.textPrimary,
+              ),
+            ),
             const SizedBox(height: 10),
-            Text("We'll ask Google for read-only access to scan for transaction emails.",
-                textAlign: TextAlign.center,
-                style: jakarta(size: 14, weight: FontWeight.w500, height: 1.6, color: p.textSecondary)),
+            Text(
+              "We'll ask Google for read-only access to scan for transaction emails.",
+              textAlign: TextAlign.center,
+              style: jakarta(
+                size: 14,
+                weight: FontWeight.w500,
+                height: 1.6,
+                color: p.textSecondary,
+              ),
+            ),
             const SizedBox(height: 24),
             PrimaryButton(
               label: 'Continue with Gmail',
               onTap: ctrl.connectGmail,
-              icon: Icon(Icons.mail_outline_rounded, size: 18, color: AppColors.ink),
+              icon: Icon(
+                Icons.mail_outline_rounded,
+                size: 18,
+                color: AppColors.ink,
+              ),
             ),
             if (scanError.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -57,18 +83,33 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 decoration: BoxDecoration(
                   color: AppColors.pink.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.pink.withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: AppColors.pink.withValues(alpha: 0.3),
+                  ),
                 ),
-                child: Text(scanError,
-                    textAlign: TextAlign.center,
-                    style: jakarta(size: 12, weight: FontWeight.w500, height: 1.5, color: p.textSecondary)),
+                child: Text(
+                  scanError,
+                  textAlign: TextAlign.center,
+                  style: jakarta(
+                    size: 12,
+                    weight: FontWeight.w500,
+                    height: 1.5,
+                    color: p.textSecondary,
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 24),
             GestureDetector(
               onTap: ctrl.skipToApp,
-              child: Text('Use sample data instead',
-                  style: jakarta(size: 13, weight: FontWeight.w600, color: p.textTertiary)),
+              child: Text(
+                'Set up later',
+                style: jakarta(
+                  size: 13,
+                  weight: FontWeight.w600,
+                  color: p.textTertiary,
+                ),
+              ),
             ),
           ],
         ),

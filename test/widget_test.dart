@@ -24,22 +24,40 @@ void main() {
     expect(find.text('Your inbox already knows your expenses'), findsOneWidget);
     expect(find.text('Skip'), findsOneWidget);
 
-    // Skipping jumps straight into the home dashboard.
+    // Skipping enters the app without inventing financial data.
     await tester.tap(find.text('Skip'));
     await tester.pumpAndSettle();
-    expect(find.text('Welcome back'), findsOneWidget);
-    expect(find.text('Balance check · next month'), findsOneWidget);
+    expect(find.text('Welcome'), findsOneWidget);
+    expect(find.text('No financial data yet'), findsOneWidget);
+    expect(find.text('Balance check · next month'), findsNothing);
   });
 
-  testWidgets('renders the real forecast when confirmed obligations exist', (tester) async {
+  testWidgets('renders the real forecast when confirmed obligations exist', (
+    tester,
+  ) async {
     // One monthly ₹18,000 rent, contributions disabled → next month is exactly
     // ₹18,000 regardless of the real calendar date (deterministic hero).
     final seeded = const AppState().copyWith(
       stage: 'app',
       tab: 'home',
-      nps: const ContribPlan(enabled: false, amount: '0', frequency: 'monthly', month: 'Feb'),
-      ppf: const ContribPlan(enabled: false, amount: '0', frequency: 'lumpsum', month: 'Feb'),
-      mf: const ContribPlan(enabled: false, amount: '0', frequency: 'monthly', month: 'Feb'),
+      nps: const ContribPlan(
+        enabled: false,
+        amount: '0',
+        frequency: 'monthly',
+        month: 'Feb',
+      ),
+      ppf: const ContribPlan(
+        enabled: false,
+        amount: '0',
+        frequency: 'lumpsum',
+        month: 'Feb',
+      ),
+      mf: const ContribPlan(
+        enabled: false,
+        amount: '0',
+        frequency: 'monthly',
+        month: 'Feb',
+      ),
       manualTx: const [
         ExpenseEntry(
           name: 'House Rent',
@@ -52,7 +70,9 @@ void main() {
         ),
       ],
     );
-    SharedPreferences.setMockInitialValues({'expense_insight_state_v1': seeded.encode()});
+    SharedPreferences.setMockInitialValues({
+      'expense_insight_state_v1': seeded.encode(),
+    });
     final prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(

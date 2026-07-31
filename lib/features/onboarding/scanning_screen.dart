@@ -33,21 +33,47 @@ class ScanningScreen extends ConsumerWidget {
                     valueColor: const AlwaysStoppedAnimation(AppColors.teal),
                   ),
                 ),
-                Text('$pct%', style: mono(size: 20, weight: FontWeight.w700, color: p.textPrimary)),
+                Text(
+                  '$pct%',
+                  style: mono(
+                    size: 20,
+                    weight: FontWeight.w700,
+                    color: p.textPrimary,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          Text('Scanning your inbox…',
-              style: jakarta(size: 20, weight: FontWeight.w800, height: 1.3, color: p.textPrimary)),
+          Text(
+            'Scanning your inbox…',
+            style: jakarta(
+              size: 20,
+              weight: FontWeight.w800,
+              height: 1.3,
+              color: p.textPrimary,
+            ),
+          ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('${s.scanCount}',
-                  style: mono(size: 14, weight: FontWeight.w600, color: AppColors.teal)),
-              Text(' transactions found so far',
-                  style: jakarta(size: 14, weight: FontWeight.w500, color: p.textSecondary)),
+              Text(
+                '${s.scanCount}',
+                style: mono(
+                  size: 14,
+                  weight: FontWeight.w600,
+                  color: AppColors.teal,
+                ),
+              ),
+              Text(
+                ' emails scanned so far',
+                style: jakarta(
+                  size: 14,
+                  weight: FontWeight.w500,
+                  color: p.textSecondary,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 24),

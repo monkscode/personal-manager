@@ -67,22 +67,32 @@ class SegmentedToggle extends StatelessWidget {
         children: [
           for (var i = 0; i < labels.length; i++)
             Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => onChanged(i),
-                child: Container(
-                  height: height - 8,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: i == selectedIndex ? AppColors.teal : Colors.transparent,
-                    borderRadius: BorderRadius.circular(radius - 3),
-                  ),
-                  child: Text(
-                    labels[i],
-                    style: jakarta(
-                      size: fontSize,
-                      weight: FontWeight.w700,
-                      color: i == selectedIndex ? AppColors.ink : p.textSecondary,
+              child: Semantics(
+                button: true,
+                selected: i == selectedIndex,
+                label: labels[i],
+                excludeSemantics: true,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(i),
+                  child: Container(
+                    height: height - 8,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: i == selectedIndex
+                          ? AppColors.teal
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(radius - 3),
+                    ),
+                    child: Text(
+                      labels[i],
+                      style: jakarta(
+                        size: fontSize,
+                        weight: FontWeight.w700,
+                        color: i == selectedIndex
+                            ? AppColors.ink
+                            : p.textSecondary,
+                      ),
                     ),
                   ),
                 ),
@@ -121,7 +131,10 @@ class SwitchToggle extends StatelessWidget {
             child: Container(
               width: 18,
               height: 18,
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
             ),
           ),
         ),
@@ -163,7 +176,14 @@ class PrimaryButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (icon != null) ...[icon!, const SizedBox(width: 10)],
-            Text(label, style: jakarta(size: 16, weight: FontWeight.w700, color: AppColors.ink)),
+            Text(
+              label,
+              style: jakarta(
+                size: 16,
+                weight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
           ],
         ),
       ),
@@ -242,7 +262,9 @@ class AppTextField extends StatelessWidget {
       child: TextField(
         controller: controller,
         onChanged: onChanged,
-        keyboardType: number ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+        keyboardType: number
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.text,
         style: mono
             ? mono4(p.textPrimary)
             : jakarta(size: 14, weight: FontWeight.w500, color: p.textPrimary),
@@ -251,10 +273,17 @@ class AppTextField extends StatelessWidget {
           hintText: hint,
           hintStyle: mono
               ? mono4(p.textTertiary)
-              : jakarta(size: 14, weight: FontWeight.w500, color: p.textTertiary),
+              : jakarta(
+                  size: 14,
+                  weight: FontWeight.w500,
+                  color: p.textTertiary,
+                ),
           filled: true,
           fillColor: fillAlt ? p.surfaceAlt : p.surface,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(color: p.border),
@@ -269,7 +298,8 @@ class AppTextField extends StatelessWidget {
   }
 }
 
-TextStyle mono4(Color color) => mono(size: 16, weight: FontWeight.w600, color: color);
+TextStyle mono4(Color color) =>
+    mono(size: 16, weight: FontWeight.w600, color: color);
 
 /// Small field label above an input.
 class FieldLabel extends StatelessWidget {
@@ -279,8 +309,14 @@ class FieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Text(text,
-          style: jakarta(size: 12, weight: FontWeight.w600, color: context.palette.textTertiary)),
+      child: Text(
+        text,
+        style: jakarta(
+          size: 12,
+          weight: FontWeight.w600,
+          color: context.palette.textTertiary,
+        ),
+      ),
     );
   }
 }
@@ -318,16 +354,29 @@ class ChartBar extends StatelessWidget {
             if (tag != null && tag!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Text(tag!, style: mono(size: 9, weight: FontWeight.w600, color: color)),
+                child: Text(
+                  tag!,
+                  style: mono(size: 9, weight: FontWeight.w600, color: color),
+                ),
               ),
             Container(
               width: double.infinity,
               height: height,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(radius)),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(radius),
+              ),
             ),
             if (label != null) ...[
               const SizedBox(height: 4),
-              Text(label!, style: jakarta(size: 9.5, weight: FontWeight.w600, color: p.textTertiary)),
+              Text(
+                label!,
+                style: jakarta(
+                  size: 9.5,
+                  weight: FontWeight.w600,
+                  color: p.textTertiary,
+                ),
+              ),
             ],
           ],
         ),
@@ -360,12 +409,35 @@ class CategoryProgress extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(children: [
-              Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Text(name, style: jakarta(size: 13, weight: FontWeight.w600, color: p.textPrimary)),
-            ]),
-            Text(amount, style: mono(size: 13, weight: FontWeight.w600, color: p.textSecondary)),
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  name,
+                  style: jakarta(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: p.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              amount,
+              style: mono(
+                size: 13,
+                weight: FontWeight.w600,
+                color: p.textSecondary,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 6),

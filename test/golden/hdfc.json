@@ -1,0 +1,38 @@
+[
+  {
+    "sender": "VM-HDFCBK",
+    "body": "HDFC Bank: Rs.2,499.00 debited from a/c XX1234 to swiggy@okhdfcbank on 28-06-25. UPI Ref 987654321098. Not you? Call 18002586161.",
+    "receivedAt": "2025-06-28T20:10:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 249900
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "Spent Rs.3,200.00 on HDFC Bank Card XX9012 at AMAZON on 26-06-25. Available Limit Rs.46,800.00. Not you? Call 18002586161.",
+    "receivedAt": "2025-06-26T15:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 320000
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "HDFC Bank: Rs.50,000.00 credited to a/c XX1234 on 30-06-25 by IMPS Ref 112233445566. Avl Bal Rs.75,000.00.",
+    "receivedAt": "2025-06-30T09:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 5000000
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "OTP for your HDFC Bank transaction is 445566. It is valid for 10 minutes. Do not share this OTP.",
+    "receivedAt": "2025-06-27T12:00:00",
+    "isTxn": false
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "HDFC Bank: Enjoy an exclusive discount offer on dining with your Credit Card. Limited period sale. T&C apply.",
+    "receivedAt": "2025-06-18T10:00:00",
+    "isTxn": false
+  }
+]

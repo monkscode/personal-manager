@@ -17,6 +17,37 @@ premium never catches your bank balance off guard.
 - **Manual add**, investments (FD/PPF/RD/MF) with an FD round-off savings plan,
   transactions, dark/light themes.
 
+## The forecast model
+The dashboard is a **salary-anchored, dated cash-flow forecast**, not a simple
+month total:
+- **Salary-anchored** — your recurring salary credit sets the balance anchor and
+  the effective month; a salary already inside the opening balance is never
+  double-counted.
+- **Minimum-in-month balance** — instead of only the month-end number, the
+  headline is driven by the **lowest projected balance** on any day of the month,
+  so a mid-month lumpy bill (an annual premium, a card statement) can't sneak past
+  a healthy month-end figure. It tells you the surplus, or how much more you need,
+  by the exact date it dips.
+- **Why-log & coverage lines** — every rupee lands in exactly one bucket
+  (anchored, dated event, quantified-but-excluded, or pending review), and the app
+  shows *why* each line is counted, including forward "earmark" heads-up for large
+  future dues and provisional flags when the balance anchor is stale.
+
+## Where the numbers come from
+- **Gmail (Android + iOS)** — upcoming bills read **read-only on the device**.
+- **SMS bank transactions (Android only)** — on Android the app can also read your
+  bank/UPI transaction SMS **on the device** (`READ_SMS`, requested on demand) to
+  reconcile real spending into the forecast. This is **Android-only**; **iOS falls
+  back to Gmail only** and hides the SMS entry point.
+- **SMS never leaves the device** — messages are redacted before storage, backups
+  are disabled, and nothing SMS-derived is uploaded anywhere. The **only** path
+  that ever uploads text is the *opt-in* Gmail AI extraction, which sends *email*
+  bodies (never SMS) and only when you turn it on. Even that Gmail path is hardened
+  with a pre-AI **prefilter** and a narrowed search query so obvious non-bill mail
+  is dropped on the device before any AI call. See
+  [SETUP.md → On-device SMS reading](SETUP.md#part-e--on-device-sms-bank-transaction-reading-android-only-sideload-only).
+
+
 ## Free & private by design
 No server, no database, no AI bill. Gmail is read **read-only on the device** and
 nothing about your email leaves the phone. See

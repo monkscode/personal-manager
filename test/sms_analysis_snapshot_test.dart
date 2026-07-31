@@ -1,0 +1,603 @@
+import 'package:expense_insight/data/app_controller.dart';
+import 'package:expense_insight/data/forecast_models.dart';
+import 'package:expense_insight/data/forecast_risk_models.dart';
+import 'package:expense_insight/data/obligation_models.dart';
+import 'package:expense_insight/data/obligation_repository.dart';
+import 'package:expense_insight/data/sms_analysis_snapshot.dart';
+import 'package:expense_insight/data/sms_database.dart';
+import 'package:expense_insight/data/sms_models.dart';
+import 'package:expense_insight/data/transaction_repository.dart';
+import 'package:expense_insight/data/transactions_notifier.dart';
+import 'package:expense_insight/services/recurring_debit_detector.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+ParsedTxn txn({
+  required int amountPaise,
+  required DateTime date,
+  TransactionDirection direction = TransactionDirection.debit,
+  TxnType type = TxnType.upi,
+  PaymentInstrument instrument = PaymentInstrument.bank,
+  String? merchant = 'ICICI Pru MF',
+  String categoryKey = 'investment',
+  String? accountLast4,
+  int? balancePaise,
+  ReviewStatus reviewStatus = ReviewStatus.confirmed,
+  String? smsId,
+}) => ParsedTxn(
+  smsId: smsId ?? 'sms:${date.toIso8601String()}:$amountPaise',
+  sender: 'VM-ICICIB',
+  direction: direction,
+  instrument: instrument,
+  type: type,
+  amountPaise: amountPaise,
+  txnDate: date,
+  merchant: merchant,
+  accountLast4: accountLast4,
+  balancePaise: balancePaise,
+  payeeType: PayeeType.merchant,
+  categoryKey: categoryKey,
+  confidence: 0.95,
+  reviewStatus: reviewStatus,
+  source: TxnSource.sms,
+  coverageBucket: CoverageBucket.datedEvent,
+  rawBodyRedacted: 'redacted',
+  bodyHash: 'h',
+  scanBatchId: 'b',
+);
+
+List<ParsedTxn> monthlySip({required int count, int day = 10}) => [
+  for (var i = 0; i < count; i++)
+    txn(
+      amountPaise: 1000000,
+      date: DateTime(2026, 3 + i, day),
+      smsId: 'sip:$i',
+    ),
+];
+
+void main() {
+  final now = DateTime(2026, 8, 15);
+
+  group('kAnalysisLookbackMonths', () {
+    test('covers year-over-year plus the trailing window', () {
+      expect(kAnalysisLookbackMonths, 13);
+    });
+  });
+
+  group('SmsAnalysisSnapshot.reduce (pure)', () {
+    test('empty history yields a no-data snapshot (sample mode stays)', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: const [],
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+      expect(snapshot.hasData, isFalse);
+      expect(snapshot.commitments, isEmpty);
+      expect(snapshot.reconciliationItems, isEmpty);
+      expect(snapshot.anchor, isNull);
+    });
+
+    test('a monthly SIP becomes a detected commitment and owned item', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: monthlySip(count: 5),
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+      expect(snapshot.hasData, isTrue);
+      expect(snapshot.commitments, hasLength(1));
+      expect(snapshot.commitments.single.cadence, RecurringCadence.monthly);
+      expect(
+        snapshot.reconciliationItems.where(
+          (i) => i.owner == ForecastOwner.recurringCommitment,
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('derives a bank balance anchor and its freshness', () {
+      final history = [
+        txn(
+          amountPaise: 5000000,
+          date: DateTime(2026, 8, 14),
+          direction: TransactionDirection.credit,
+          accountLast4: '1234',
+          balancePaise: 20000000,
+          categoryKey: 'salary',
+          merchant: null,
+        ),
+      ];
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: history,
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+      expect(snapshot.anchor, isNotNull);
+      expect(snapshot.anchor!.amountPaise, 20000000);
+      expect(snapshot.anchor!.accountLast4, '1234');
+      expect(snapshot.anchorFreshness, AnchorFreshness.current); // 1 day old
+    });
+
+    test('excludes dismissed rows from the reduction', () {
+      final history = [
+        ...monthlySip(count: 5),
+        txn(
+          amountPaise: 9999999,
+          date: DateTime(2026, 8, 1),
+          reviewStatus: ReviewStatus.dismissed,
+          merchant: 'DISMISSED',
+          categoryKey: 'shopping',
+          smsId: 'dismissed',
+        ),
+      ];
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: history,
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+      expect(
+        snapshot.currentMonthTxns.any((t) => t.smsId == 'dismissed'),
+        isFalse,
+      );
+    });
+
+    test('computes same-month year-over-year per category', () {
+      final history = [
+        txn(
+          amountPaise: 500000,
+          date: DateTime(2025, 8, 5),
+          merchant: 'BigBasket',
+          categoryKey: 'groceries',
+          smsId: 'ly',
+        ),
+        txn(
+          amountPaise: 800000,
+          date: DateTime(2026, 8, 5),
+          merchant: 'BigBasket',
+          categoryKey: 'groceries',
+          smsId: 'ty',
+        ),
+      ];
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: history,
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+      final yoy = snapshot.yearOverYear['groceries'];
+      expect(yoy, isNotNull);
+      expect(yoy!.lastYearPaise, 500000);
+      expect(yoy.currentPaise, 800000);
+      expect(yoy.deltaPaise, 300000);
+    });
+
+    test(
+      'reduction creates reserve schedule without adding database work to Home',
+      () {
+        final lic = ObligationRecord(
+          sourceType: ObligationSourceType.manual,
+          sourceId: 'lic-policy-123',
+          dedupeKey: 'lic:annual',
+          merchant: 'LIC Premium',
+          merchantNorm: 'lic premium',
+          categoryKey: 'insurance',
+          amountPaise: 5000000,
+          amountStatus: AmountStatus.known,
+          recurrence: ReconciliationRecurrence.annual,
+          dueDate: DateTime(2027, 2, 12),
+          dueDay: 12,
+          dueMonth: 2,
+          paymentAccountScope: AccountScope.unknown,
+          paymentStatus: ReconciliationPaymentStatus.unpaid,
+          nextExpectedSource: NextExpectedSource.userEntered,
+          payeeType: PayeeType.merchant,
+          userCadenceStatus: UserCadenceStatus.userConfirmed,
+          confidence: 1.0,
+          reviewStatus: ObligationReviewStatus.confirmed,
+          reserveEnabled: true,
+          reserveFundedPaise: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final snapshot = SmsAnalysisSnapshot.reduce(
+          history: const [],
+          obligations: [lic],
+          riskDecisions: const [],
+          configuredPlans: const [],
+          now: DateTime(2026, 7, 22),
+        );
+        expect(snapshot.reservePlan.schedules.single.dedupeKey, 'lic:annual');
+        expect(snapshot.obligations, hasLength(1));
+        expect(snapshot.riskDecisions, isEmpty);
+      },
+    );
+
+    test('snapshot carries immutable obligations and risk decisions', () {
+      final decision = ForecastRiskDecision(
+        ownerKey: 'test:key',
+        targetMonth: '2026-08',
+        status: ForecastRiskDecisionStatus.confirmed,
+      );
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: const [],
+        obligations: const [],
+        riskDecisions: [decision],
+        configuredPlans: const [],
+        now: now,
+      );
+      expect(snapshot.riskDecisions, hasLength(1));
+      expect(snapshot.riskDecisions.first.ownerKey, 'test:key');
+    });
+
+    test(
+      'empty snapshot defaults obligations, reservePlan, riskDecisions to empty',
+      () {
+        final snapshot = SmsAnalysisSnapshot.empty(now);
+        expect(snapshot.obligations, isEmpty);
+        expect(snapshot.reservePlan.schedules, isEmpty);
+        expect(snapshot.riskDecisions, isEmpty);
+      },
+    );
+  });
+
+  group('TransactionsNotifier async boundary', () {
+    setUpAll(sqfliteFfiInit);
+
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test(
+      'crosses the SQLite boundary exactly once and caches the reduction',
+      () async {
+        final realDb = await SmsDatabase.openWithFactory(
+          factory: databaseFactoryFfi,
+          path: inMemoryDatabasePath,
+        );
+        addTearDown(realDb.close);
+
+        final repo = TransactionRepository(realDb);
+        for (final sip in monthlySip(count: 5)) {
+          await repo.upsertParsedTxn(sip);
+        }
+
+        final counting = _CountingDatabase(realDb);
+        final prefs = await SharedPreferences.getInstance();
+        final container = ProviderContainer(
+          overrides: [
+            smsDatabaseProvider.overrideWithValue(counting),
+            analysisClockProvider.overrideWithValue(() => now),
+            sharedPrefsProvider.overrideWithValue(prefs),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final snapshot = await container.read(
+          transactionsNotifierProvider.future,
+        );
+        expect(snapshot.hasData, isTrue);
+        expect(snapshot.commitments, hasLength(1));
+
+        // Three indexed reads: transactions history + active obligations + risk decisions.
+        expect(counting.queryCalls, 3);
+
+        // Re-reading the cached snapshot performs no further DB work.
+        container.read(transactionsNotifierProvider);
+        expect(counting.queryCalls, 3);
+      },
+    );
+
+    test(
+      'a null database yields an empty snapshot without touching the DB',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        final container = ProviderContainer(
+          overrides: [
+            smsDatabaseProvider.overrideWithValue(null),
+            analysisClockProvider.overrideWithValue(() => now),
+            sharedPrefsProvider.overrideWithValue(prefs),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final snapshot = await container.read(
+          transactionsNotifierProvider.future,
+        );
+        expect(snapshot.hasData, isFalse);
+      },
+    );
+
+    test('updateReserveProgress persists and reloads once', () async {
+      final realDb = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(realDb.close);
+
+      final obliRepo = ObligationRepository(realDb);
+      await obliRepo.upsert(
+        ObligationRecord(
+          sourceType: ObligationSourceType.manual,
+          sourceId: 'test-obligation',
+          dedupeKey: 'test:key',
+          merchant: 'Test Merchant',
+          merchantNorm: 'test merchant',
+          categoryKey: 'insurance',
+          amountPaise: 1000000,
+          amountStatus: AmountStatus.known,
+          recurrence: ReconciliationRecurrence.annual,
+          dueDate: DateTime(2027, 1, 1),
+          dueDay: 1,
+          dueMonth: 1,
+          paymentAccountScope: AccountScope.unknown,
+          paymentStatus: ReconciliationPaymentStatus.unpaid,
+          nextExpectedSource: NextExpectedSource.userEntered,
+          payeeType: PayeeType.merchant,
+          userCadenceStatus: UserCadenceStatus.userConfirmed,
+          confidence: 1.0,
+          reviewStatus: ObligationReviewStatus.confirmed,
+          reserveEnabled: false,
+          reserveFundedPaise: 0,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      final counting = _CountingDatabase(realDb);
+      final container = ProviderContainer(
+        overrides: [
+          smsDatabaseProvider.overrideWithValue(counting),
+          analysisClockProvider.overrideWithValue(() => now),
+          sharedPrefsProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(transactionsNotifierProvider.future);
+      final initialCalls = counting.queryCalls;
+
+      final notifier = container.read(transactionsNotifierProvider.notifier);
+      await notifier.updateReserveProgress(
+        dedupeKey: 'test:key',
+        enabled: true,
+        fundedPaise: 500000,
+      );
+
+      // Reload performs three queries again
+      expect(counting.queryCalls, initialCalls + 3);
+
+      final reloaded = await container.read(
+        transactionsNotifierProvider.future,
+      );
+      final obligation = reloaded.obligations.firstWhere(
+        (o) => o.dedupeKey == 'test:key',
+      );
+      expect(obligation.reserveEnabled, isTrue);
+      expect(obligation.reserveFundedPaise, 500000);
+    });
+
+    test('updateReserveProgress fails clearly when database is null', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final container = ProviderContainer(
+        overrides: [
+          smsDatabaseProvider.overrideWithValue(null),
+          analysisClockProvider.overrideWithValue(() => now),
+          sharedPrefsProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(transactionsNotifierProvider.future);
+      final notifier = container.read(transactionsNotifierProvider.notifier);
+
+      expect(
+        () => notifier.updateReserveProgress(
+          dedupeKey: 'test:key',
+          enabled: true,
+          fundedPaise: 500000,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('database is unavailable'),
+          ),
+        ),
+      );
+    });
+
+    test('saveRiskDecision persists and reloads once', () async {
+      final realDb = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(realDb.close);
+
+      final prefs = await SharedPreferences.getInstance();
+      final counting = _CountingDatabase(realDb);
+      final container = ProviderContainer(
+        overrides: [
+          smsDatabaseProvider.overrideWithValue(counting),
+          analysisClockProvider.overrideWithValue(() => now),
+          sharedPrefsProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(transactionsNotifierProvider.future);
+      final initialCalls = counting.queryCalls;
+
+      final notifier = container.read(transactionsNotifierProvider.notifier);
+      final decision = ForecastRiskDecision(
+        ownerKey: 'test:risk',
+        targetMonth: '2026-08',
+        status: ForecastRiskDecisionStatus.confirmed,
+      );
+      await notifier.saveRiskDecision(decision);
+
+      // Reload performs three queries again
+      expect(counting.queryCalls, initialCalls + 3);
+
+      final reloaded = await container.read(
+        transactionsNotifierProvider.future,
+      );
+      expect(reloaded.riskDecisions, hasLength(1));
+      expect(reloaded.riskDecisions.first.ownerKey, 'test:risk');
+    });
+
+    test('saveRiskDecision fails clearly when database is null', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final container = ProviderContainer(
+        overrides: [
+          smsDatabaseProvider.overrideWithValue(null),
+          analysisClockProvider.overrideWithValue(() => now),
+          sharedPrefsProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(transactionsNotifierProvider.future);
+      final notifier = container.read(transactionsNotifierProvider.notifier);
+
+      final decision = ForecastRiskDecision(
+        ownerKey: 'test:risk',
+        targetMonth: '2026-08',
+        status: ForecastRiskDecisionStatus.confirmed,
+      );
+      expect(
+        () => notifier.saveRiskDecision(decision),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('database is unavailable'),
+          ),
+        ),
+      );
+    });
+
+    test('reload keeps the previous snapshot visible (no loading flash)', () async {
+      final realDb = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(realDb.close);
+
+      await TransactionRepository(realDb).upsertParsedTxn(
+        txn(amountPaise: 120000, date: DateTime(2026, 8, 10)),
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      final container = ProviderContainer(
+        overrides: [
+          smsDatabaseProvider.overrideWithValue(realDb),
+          analysisClockProvider.overrideWithValue(() => now),
+          sharedPrefsProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(transactionsNotifierProvider.future);
+      expect(
+        container.read(transactionsNotifierProvider).asData,
+        isNotNull,
+        reason: 'the first load resolves to data',
+      );
+
+      final notifier = container.read(transactionsNotifierProvider.notifier);
+      // Start a reload but do not await it yet: the state must still expose the
+      // previous snapshot (not a bare AsyncLoading), so dependents like
+      // insightsProvider never flash a stale placeholder mid-refresh.
+      final pending = notifier.reload();
+      expect(
+        container.read(transactionsNotifierProvider).asData,
+        isNotNull,
+        reason: 'reload must refresh in place without a loading flash',
+      );
+      await pending;
+      expect(container.read(transactionsNotifierProvider).asData, isNotNull);
+    });
+  });
+}
+
+/// A [Database] wrapper that counts `query` invocations to prove the notifier
+/// crosses the async boundary once. All other members are unused.
+class _CountingDatabase implements Database {
+  _CountingDatabase(this._inner);
+
+  final Database _inner;
+  int queryCalls = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> query(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+  }) {
+    queryCalls++;
+    return _inner.query(
+      table,
+      distinct: distinct,
+      columns: columns,
+      where: where,
+      whereArgs: whereArgs,
+      groupBy: groupBy,
+      having: having,
+      orderBy: orderBy,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  @override
+  Future<int> update(
+    String table,
+    Map<String, Object?> values, {
+    String? where,
+    List<Object?>? whereArgs,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) {
+    return _inner.update(
+      table,
+      values,
+      where: where,
+      whereArgs: whereArgs,
+      conflictAlgorithm: conflictAlgorithm,
+    );
+  }
+
+  @override
+  Future<int> insert(
+    String table,
+    Map<String, Object?> values, {
+    String? nullColumnHack,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) {
+    return _inner.insert(
+      table,
+      values,
+      nullColumnHack: nullColumnHack,
+      conflictAlgorithm: conflictAlgorithm,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}

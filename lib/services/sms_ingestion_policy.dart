@@ -1,0 +1,209 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
+import '../data/sms_models.dart';
+
+/// Confidence at or above which a parsed SMS transaction is auto-added on a
+/// later scan (first scans always review). Interim value pending calibration
+/// against the Phase I golden corpus (spec §6/§10, decision D9); a corpus
+/// regression is expected to tune this. Single source of truth — the parser's
+/// `needsReview` gate and the ingestion policy both read it.
+const double kAutoAddConfidenceThreshold = 0.8;
+
+enum IngestionAction { upsert, queueReview, skipDuplicate }
+
+class IngestionDecision {
+  const IngestionDecision({
+    required this.action,
+    required this.transaction,
+    this.existingToFlag,
+  });
+
+  final IngestionAction action;
+  final ParsedTxn transaction;
+  final ParsedTxn? existingToFlag;
+}
+
+class SmsIngestionPolicy {
+  const SmsIngestionPolicy._();
+
+  static IngestionDecision classify({
+    required ParsedTxn incoming,
+    required List<ParsedTxn> existing,
+    required bool isFirstScan,
+    DateTime? now,
+  }) {
+    return _classify(
+      incoming: incoming,
+      smsIdMatches: existing,
+      strongRefCandidates: existing,
+      weakCollisionCandidates: existing,
+      isFirstScan: isFirstScan,
+      now: now,
+    );
+  }
+
+  /// Same policy as [classify], but fed pre-filtered candidate rows instead of
+  /// the whole table so callers can back each check with an index. Each list
+  /// must be a *superset* of the rows that could match its check; the same pure
+  /// predicates then refine them.
+  static IngestionDecision classifyWithCandidates({
+    required ParsedTxn incoming,
+    required Iterable<ParsedTxn> smsIdMatches,
+    required Iterable<ParsedTxn> strongRefCandidates,
+    required Iterable<ParsedTxn> weakCollisionCandidates,
+    required bool isFirstScan,
+    DateTime? now,
+  }) {
+    return _classify(
+      incoming: incoming,
+      smsIdMatches: smsIdMatches,
+      strongRefCandidates: strongRefCandidates,
+      weakCollisionCandidates: weakCollisionCandidates,
+      isFirstScan: isFirstScan,
+      now: now,
+    );
+  }
+
+  static IngestionDecision _classify({
+    required ParsedTxn incoming,
+    required Iterable<ParsedTxn> smsIdMatches,
+    required Iterable<ParsedTxn> strongRefCandidates,
+    required Iterable<ParsedTxn> weakCollisionCandidates,
+    required bool isFirstScan,
+    DateTime? now,
+  }) {
+    if (smsIdMatches.any((txn) => txn.smsId == incoming.smsId)) {
+      return IngestionDecision(
+        action: IngestionAction.skipDuplicate,
+        transaction: incoming,
+      );
+    }
+
+    if (strongRefCandidates.any((txn) => _strongReferenceDuplicate(txn, incoming))) {
+      return IngestionDecision(
+        action: IngestionAction.skipDuplicate,
+        transaction: incoming,
+      );
+    }
+
+    final collision = weakCollisionCandidates
+        .where((txn) => _weakCollision(txn, incoming))
+        .toList();
+    if (collision.isNotEmpty &&
+        !_hasDistinguishingSignal(incoming, collision.first)) {
+      final collisionSetId = _collisionSetId(incoming, collision.first);
+      return IngestionDecision(
+        action: IngestionAction.queueReview,
+        transaction: incoming.copyWith(
+          reviewStatus: ReviewStatus.needsReview,
+          reviewReason: ReviewReason.dedupCollision,
+          collisionSetId: collisionSetId,
+          coverageBucket: CoverageBucket.reviewPending,
+        ),
+        existingToFlag: collision.first.copyWith(
+          reviewStatus: ReviewStatus.needsReview,
+          reviewReason: ReviewReason.dedupCollision,
+          collisionSetId: collisionSetId,
+          coverageBucket: CoverageBucket.reviewPending,
+        ),
+      );
+    }
+
+    if (isFirstScan) {
+      return IngestionDecision(
+        action: IngestionAction.queueReview,
+        transaction: incoming.copyWith(
+          reviewStatus: ReviewStatus.needsReview,
+          reviewReason: ReviewReason.firstScan,
+          coverageBucket: CoverageBucket.reviewPending,
+        ),
+      );
+    }
+
+    if (incoming.confidence < kAutoAddConfidenceThreshold ||
+        incoming.reviewReason == ReviewReason.parserUncertain) {
+      return IngestionDecision(
+        action: IngestionAction.queueReview,
+        transaction: incoming.copyWith(
+          reviewStatus: ReviewStatus.needsReview,
+          reviewReason: incoming.reviewReason ?? ReviewReason.lowConfidence,
+          coverageBucket: CoverageBucket.reviewPending,
+        ),
+      );
+    }
+
+    return IngestionDecision(
+      action: IngestionAction.upsert,
+      transaction: incoming.copyWith(
+        reviewStatus: ReviewStatus.autoAdded,
+        autoAddedAt: now ?? DateTime.now(),
+        coverageBucket: CoverageBucket.datedEvent,
+      ),
+    );
+  }
+
+  static bool _weakCollision(ParsedTxn a, ParsedTxn b) {
+    return a.amountPaise == b.amountPaise &&
+        a.txnLocalDate == b.txnLocalDate &&
+        a.accountLast4 != null &&
+        a.accountLast4 == b.accountLast4 &&
+        a.direction == b.direction;
+  }
+
+  static bool _strongReferenceDuplicate(ParsedTxn a, ParsedTxn b) {
+    final refA = a.refNumber?.trim();
+    if (refA == null || refA.isEmpty || refA != b.refNumber?.trim()) {
+      return false;
+    }
+    if (a.instrument != b.instrument || a.direction != b.direction) return false;
+    if (a.amountPaise != b.amountPaise) return false;
+    // Account, when present on both, must agree; an absent account no longer
+    // blocks the match (a resent UPI alert often drops the a/c tail).
+    if (a.accountLast4 != null &&
+        b.accountLast4 != null &&
+        a.accountLast4 != b.accountLast4) {
+      return false;
+    }
+    return true;
+  }
+
+  static bool _hasDistinguishingSignal(ParsedTxn a, ParsedTxn b) {
+    final refA = a.refNumber?.trim();
+    final refB = b.refNumber?.trim();
+    if (refA != null &&
+        refA.isNotEmpty &&
+        refB != null &&
+        refB.isNotEmpty &&
+        refA != refB) {
+      return true;
+    }
+
+    final merchantA = a.merchant?.trim().toLowerCase();
+    final merchantB = b.merchant?.trim().toLowerCase();
+    if (merchantA != null &&
+        merchantA.isNotEmpty &&
+        merchantB != null &&
+        merchantB.isNotEmpty &&
+        merchantA != merchantB) {
+      return true;
+    }
+
+    return a.balancePaise != null &&
+        b.balancePaise != null &&
+        a.balancePaise != b.balancePaise;
+  }
+
+  static String _collisionSetId(ParsedTxn a, ParsedTxn b) {
+    final raw = [
+      a.amountPaise,
+      a.txnLocalDate,
+      a.accountLast4,
+      a.direction.storageValue,
+      b.smsId,
+      a.smsId,
+    ].join('|');
+    return 'collision:${sha256.convert(utf8.encode(raw))}';
+  }
+}

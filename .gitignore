@@ -49,3 +49,15 @@ credentials.json
 **/credentials.json
 *service-account*.json
 *service_account*.json
+
+# Agent working files. Plans, specs and skill packs stay on disk only — this
+# repo is public, and they carry machine paths, device serials and scratch notes.
+.agents/
+skills-lock.json
+docs/superpowers/
+
+# Local assistant / editor state
+.claude/
+
+# Local-only dependency overrides
+pubspec_overrides.yaml

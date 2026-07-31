@@ -124,4 +124,40 @@ void main() {
       expect(i.upcomingBills, isEmpty);
     });
   });
+
+  group('undated recurrence exclusion (A1)', () {
+    test('an undated annual obligation is excluded from the dated outlook', () {
+      final undatedAnnual = ExpenseEntry(
+        name: 'LIC',
+        category: 'Insurance',
+        categoryKey: 'insurance',
+        amount: 47000,
+        initial: 'LI',
+        color: AppColors.amber,
+        recurrence: 'annual',
+        dueDate: null,
+      );
+      final i = computeRealInsights(_stateWith([undatedAnnual, _rent]), nowOverride: _now);
+      // July (current) and August (next) both contain only rent — the undated
+      // annual must NOT default into "this month".
+      expect(i.janRemaining, 18000);
+      expect(i.febRequired, 18000);
+    });
+
+    test('an undated quarterly obligation is excluded from the dated outlook', () {
+      final undatedQuarterly = ExpenseEntry(
+        name: 'Advance Tax',
+        category: 'Other',
+        categoryKey: 'other',
+        amount: 30000,
+        initial: 'AT',
+        color: AppColors.slate,
+        recurrence: 'quarterly',
+        dueDate: null,
+      );
+      final i = computeRealInsights(_stateWith([undatedQuarterly]), nowOverride: _now);
+      expect(i.janRemaining, 0);
+      expect(i.febRequired, 0);
+    });
+  });
 }

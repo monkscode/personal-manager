@@ -1,0 +1,38 @@
+[
+  {
+    "sender": "AD-SBIINB",
+    "body": "Dear Customer, Rs.1,250.00 debited from A/c XX3456 on 27-06-25 to VPA grocerystore@oksbi (UPI Ref 123456789012). -SBI",
+    "receivedAt": "2025-06-27T09:15:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 125000
+  },
+  {
+    "sender": "AD-SBIINB",
+    "body": "Rs.85,000.00 credited to A/c XX3456 on 30-06-25 by NEFT. Avl Bal Rs.1,20,000.00 -SBI",
+    "receivedAt": "2025-06-30T11:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 8500000
+  },
+  {
+    "sender": "AD-SBIINB",
+    "body": "Rs.5,000.00 withdrawn from A/c XX3456 at SBI ATM on 25-06-25. Avl Bal Rs.15,000.00 -SBI",
+    "receivedAt": "2025-06-25T18:30:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 500000
+  },
+  {
+    "sender": "AD-SBIINB",
+    "body": "123456 is your SBI OTP for a transaction of Rs.2,000.00. Do not share it with anyone. -SBI",
+    "receivedAt": "2025-06-26T14:00:00",
+    "isTxn": false
+  },
+  {
+    "sender": "AD-SBIINB",
+    "body": "Exclusive offer! Enjoy a flat discount on SBI Credit Cards this season. Apply now. T&C apply. -SBI",
+    "receivedAt": "2025-06-20T10:00:00",
+    "isTxn": false
+  }
+]

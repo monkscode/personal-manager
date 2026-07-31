@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/format.dart';
 import '../../core/theme.dart';
@@ -17,8 +18,13 @@ class ProfileScreen extends ConsumerWidget {
     final s = ref.watch(appControllerProvider);
     final ctrl = ref.read(appControllerProvider.notifier);
     final connected = s.gmailEmail.isNotEmpty;
-    final name = connected && s.gmailName.isNotEmpty ? s.gmailName : (connected ? 'Gmail user' : 'Sample user');
+    final name = connected && s.gmailName.isNotEmpty
+        ? s.gmailName
+        : (connected ? 'Gmail user' : 'Your profile');
     final avatarLabel = initials(name).isEmpty ? '—' : initials(name);
+    final syncStatus = s.gmailLastSyncedAt == null
+        ? '${s.gmailLastFetchedCount} fetched'
+        : 'Last synced ${DateFormat('d MMM, HH:mm').format(s.gmailLastSyncedAt!.toLocal())} · ${s.gmailLastFetchedCount} fetched';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
@@ -29,15 +35,38 @@ class ProfileScreen extends ConsumerWidget {
             Container(
               width: 68,
               height: 68,
-              decoration: BoxDecoration(color: AppColors.teal.withValues(alpha: 0.14), shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: AppColors.teal.withValues(alpha: 0.14),
+                shape: BoxShape.circle,
+              ),
               alignment: Alignment.center,
-              child: Text(avatarLabel, style: jakarta(size: 20, weight: FontWeight.w700, color: AppColors.teal)),
+              child: Text(
+                avatarLabel,
+                style: jakarta(
+                  size: 20,
+                  weight: FontWeight.w700,
+                  color: AppColors.teal,
+                ),
+              ),
             ),
             const SizedBox(height: 10),
-            Text(name, style: jakarta(size: 18, weight: FontWeight.w800, color: p.textPrimary)),
+            Text(
+              name,
+              style: jakarta(
+                size: 18,
+                weight: FontWeight.w800,
+                color: p.textPrimary,
+              ),
+            ),
             const SizedBox(height: 2),
-            Text(connected ? s.gmailEmail : 'Not connected',
-                style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary)),
+            Text(
+              connected ? s.gmailEmail : 'Connect Gmail to sync bills',
+              style: jakarta(
+                size: 13,
+                weight: FontWeight.w500,
+                color: p.textTertiary,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 22),
@@ -45,68 +74,199 @@ class ProfileScreen extends ConsumerWidget {
         Surface(
           radius: 16,
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
             children: [
-              Icon(Icons.mail_outline_rounded, size: 26, color: p.textPrimary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(connected ? 'Gmail connected' : 'Gmail not connected',
-                        style: jakarta(size: 13, weight: FontWeight.w700, color: p.textPrimary)),
-                    Text(
-                      connected ? '● Active · $name' : 'Using sample data',
+              Row(
+                children: [
+                  Icon(
+                    Icons.mail_outline_rounded,
+                    size: 26,
+                    color: p.textPrimary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          connected ? 'Gmail connected' : 'Gmail not connected',
+                          style: jakarta(
+                            size: 13,
+                            weight: FontWeight.w700,
+                            color: p.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          connected ? syncStatus : 'No Gmail account linked',
+                          style: jakarta(
+                            size: 12,
+                            weight: FontWeight.w500,
+                            color: connected ? AppColors.green : p.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: ctrl.syncGmail,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          connected ? Icons.sync_rounded : Icons.login_rounded,
+                          size: 16,
+                          color: AppColors.teal,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          connected ? 'Sync again' : 'Connect Gmail',
+                          style: jakarta(
+                            size: 12,
+                            weight: FontWeight.w700,
+                            color: AppColors.teal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (connected) ...[
+                const SizedBox(height: 12),
+                Container(height: 1, color: p.border),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: ctrl.disconnectGmail,
+                    child: Text(
+                      'Disconnect',
                       style: jakarta(
-                          size: 12,
-                          weight: FontWeight.w500,
-                          color: connected ? AppColors.green : p.textTertiary),
+                        size: 12,
+                        weight: FontWeight.w700,
+                        color: AppColors.pink,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (s.scanError.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            s.scanError,
+            style: jakarta(
+              size: 12,
+              weight: FontWeight.w500,
+              color: AppColors.pink,
+            ),
+          ),
+        ],
+        const SizedBox(height: 22),
+        // Settings list
+        Container(
+          decoration: BoxDecoration(
+            color: p.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: p.border),
+          ),
+          child: Column(
+            children: [
+              _row(
+                context,
+                Icons.notifications_none_rounded,
+                'Notifications',
+                trailing: SwitchToggle(
+                  value: s.notifOn,
+                  onTap: ctrl.toggleNotif,
+                ),
+              ),
+              _divider(p),
+              _row(
+                context,
+                Icons.account_balance_wallet_outlined,
+                'Currency',
+                trailing: Text(
+                  '₹ INR',
+                  style: jakarta(
+                    size: 13,
+                    weight: FontWeight.w500,
+                    color: p.textTertiary,
+                  ),
+                ),
+              ),
+              _divider(p),
+              _row(
+                context,
+                Icons.schedule_rounded,
+                'Scan frequency',
+                trailing: Text(
+                  'Every 6 hrs',
+                  style: jakarta(
+                    size: 13,
+                    weight: FontWeight.w500,
+                    color: p.textTertiary,
+                  ),
+                ),
+              ),
+              _divider(p),
+              _row(
+                context,
+                Icons.auto_awesome_outlined,
+                'AI extraction',
+                onTap: () => showAiSettingsSheet(context, ref),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      s.aiEnabled ? 'On' : 'Off',
+                      style: jakarta(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: s.aiEnabled ? AppColors.teal : p.textTertiary,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: p.textTertiary,
                     ),
                   ],
                 ),
               ),
-              GestureDetector(
-                onTap: ctrl.signOut,
-                child: Text('Disconnect', style: jakarta(size: 12, weight: FontWeight.w700, color: AppColors.pink)),
+              _divider(p),
+              _row(
+                context,
+                Icons.wb_sunny_outlined,
+                'Theme',
+                trailing: _themeToggle(context, s.isDark, ctrl),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 22),
-        // Settings list
-        Container(
-          decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: p.border)),
-          child: Column(
-            children: [
-              _row(context, Icons.notifications_none_rounded, 'Notifications',
-                  trailing: SwitchToggle(value: s.notifOn, onTap: ctrl.toggleNotif)),
               _divider(p),
-              _row(context, Icons.account_balance_wallet_outlined, 'Currency',
-                  trailing: Text('₹ INR', style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary))),
+              _row(
+                context,
+                Icons.info_outline_rounded,
+                'About this app',
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: p.textTertiary,
+                ),
+                onTap: () => showAboutSheet(context),
+              ),
               _divider(p),
-              _row(context, Icons.schedule_rounded, 'Scan frequency',
-                  trailing: Text('Every 6 hrs', style: jakarta(size: 13, weight: FontWeight.w500, color: p.textTertiary))),
-              _divider(p),
-              _row(context, Icons.auto_awesome_outlined, 'AI extraction',
-                  onTap: () => showAiSettingsSheet(context, ref),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(s.aiEnabled ? 'On' : 'Off',
-                          style: jakarta(size: 13, weight: FontWeight.w600, color: s.aiEnabled ? AppColors.teal : p.textTertiary)),
-                      const SizedBox(width: 6),
-                      Icon(Icons.chevron_right_rounded, size: 18, color: p.textTertiary),
-                    ],
-                  )),
-              _divider(p),
-              _row(context, Icons.wb_sunny_outlined, 'Theme', trailing: _themeToggle(context, s.isDark, ctrl)),
-              _divider(p),
-              _row(context, Icons.info_outline_rounded, 'About this app',
-                  trailing: Icon(Icons.chevron_right_rounded, size: 18, color: p.textTertiary),
-                  onTap: () => showAboutSheet(context)),
-              _divider(p),
-              _row(context, Icons.shield_outlined, 'Data & privacy',
-                  trailing: Icon(Icons.chevron_right_rounded, size: 18, color: p.textTertiary)),
+              _row(
+                context,
+                Icons.shield_outlined,
+                'Data & privacy',
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: p.textTertiary,
+                ),
+              ),
             ],
           ),
         ),
@@ -121,14 +281,27 @@ class ProfileScreen extends ConsumerWidget {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppColors.pink.withValues(alpha: 0.35)),
             ),
-            child: Text('Sign out', style: jakarta(size: 14, weight: FontWeight.w700, color: AppColors.pink)),
+            child: Text(
+              'Sign out',
+              style: jakarta(
+                size: 14,
+                weight: FontWeight.w700,
+                color: AppColors.pink,
+              ),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _row(BuildContext context, IconData icon, String label, {required Widget trailing, VoidCallback? onTap}) {
+  Widget _row(
+    BuildContext context,
+    IconData icon,
+    String label, {
+    required Widget trailing,
+    VoidCallback? onTap,
+  }) {
     final p = context.palette;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -139,7 +312,16 @@ class ProfileScreen extends ConsumerWidget {
           children: [
             Icon(icon, size: 19, color: p.textSecondary),
             const SizedBox(width: 12),
-            Expanded(child: Text(label, style: jakarta(size: 13, weight: FontWeight.w600, color: p.textPrimary))),
+            Expanded(
+              child: Text(
+                label,
+                style: jakarta(
+                  size: 13,
+                  weight: FontWeight.w600,
+                  color: p.textPrimary,
+                ),
+              ),
+            ),
             trailing,
           ],
         ),
@@ -151,7 +333,8 @@ class ProfileScreen extends ConsumerWidget {
 
   Widget _themeToggle(BuildContext context, bool isDark, AppController ctrl) {
     final p = context.palette;
-    Widget seg(String label, bool selected, VoidCallback onTap) => GestureDetector(
+    Widget seg(String label, bool selected, VoidCallback onTap) =>
+        GestureDetector(
           onTap: onTap,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -159,13 +342,22 @@ class ProfileScreen extends ConsumerWidget {
               color: selected ? AppColors.teal : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(label,
-                style: jakarta(size: 11, weight: FontWeight.w700, color: selected ? AppColors.ink : p.textSecondary)),
+            child: Text(
+              label,
+              style: jakarta(
+                size: 11,
+                weight: FontWeight.w700,
+                color: selected ? AppColors.ink : p.textSecondary,
+              ),
+            ),
           ),
         );
     return Container(
       padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(color: p.surfaceAlt, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(
+        color: p.surfaceAlt,
+        borderRadius: BorderRadius.circular(10),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

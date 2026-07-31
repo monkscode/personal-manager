@@ -1,10 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Reading Gmail happens over HTTPS from the device. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- On-device SMS reading for the bank-transaction actuals layer.
+         Intentional and sideload-only: READ_SMS makes the build
+         Play-Store-ineligible (spec §11.1). SMS bodies are redacted before
+         storage and backups are disabled (allowBackup=false). -->
+    <uses-permission android:name="android.permission.READ_SMS"/>
     <application
         android:label="Expense Insight"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -1,0 +1,38 @@
+[
+  {
+    "sender": "AX-KOTAKB",
+    "body": "Kotak Bank: Rs.1,499.00 debited from A/c XX7107 on 27-06-25 to zomato@okhdfcbank via UPI Ref 778899001122.",
+    "receivedAt": "2025-06-27T21:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 149900
+  },
+  {
+    "sender": "AX-KOTAKB",
+    "body": "Kotak Bank: Rs.35,000.00 credited to A/c XX7107 on 30-06-25 by NEFT. Avl Bal Rs.60,000.00.",
+    "receivedAt": "2025-06-30T12:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 3500000
+  },
+  {
+    "sender": "AX-KOTAKB",
+    "body": "Rs.8,000.00 withdrawn at Kotak ATM from A/c XX7107 on 25-06-25. Avl Bal Rs.52,000.00.",
+    "receivedAt": "2025-06-25T19:30:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 800000
+  },
+  {
+    "sender": "AX-KOTAKB",
+    "body": "Your Kotak Bank OTP for the transaction of Rs.4,000.00 is 991122. Do not share this one time password.",
+    "receivedAt": "2025-06-26T13:30:00",
+    "isTxn": false
+  },
+  {
+    "sender": "AX-KOTAKB",
+    "body": "Kotak Bank: Special festive sale! Get a cashback offer on your next purchase. Limited time discount.",
+    "receivedAt": "2025-06-12T10:00:00",
+    "isTxn": false
+  }
+]

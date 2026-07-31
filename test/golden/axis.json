@@ -1,0 +1,38 @@
+[
+  {
+    "sender": "VK-AXISBK",
+    "body": "Axis Bank: Rs.999.00 debited from A/c XX7788 on 27-06-25 towards NETFLIX subscription. Ref 556677889900.",
+    "receivedAt": "2025-06-27T08:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 99900
+  },
+  {
+    "sender": "VK-AXISBK",
+    "body": "Axis Bank: A/c XX7788 credited with Rs.6,500.00 on 29-06-25 by IMPS. Avl Bal Rs.41,000.00.",
+    "receivedAt": "2025-06-29T11:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 650000
+  },
+  {
+    "sender": "VK-AXISBK",
+    "body": "Rs.2,750.00 paid via UPI from A/c XX7788 to bookstore@axl on 28-06-25. UPI Ref 667788990011.",
+    "receivedAt": "2025-06-28T17:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 275000
+  },
+  {
+    "sender": "VK-AXISBK",
+    "body": "Use OTP 334411 to authorize your Axis Bank transaction of Rs.3,000.00. Never share your OTP with anyone.",
+    "receivedAt": "2025-06-26T15:30:00",
+    "isTxn": false
+  },
+  {
+    "sender": "VK-AXISBK",
+    "body": "Axis Bank: Flat 20% discount offer on shopping this weekend sale. Shop now with your debit card.",
+    "receivedAt": "2025-06-14T10:00:00",
+    "isTxn": false
+  }
+]
