@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 class SmsStorageSchema {
   const SmsStorageSchema._();
 
@@ -121,30 +123,109 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
   ];
 
   /// Incremental schema migrations keyed by the version they upgrade *to*, run
-  /// in ascending order by [SmsDatabase]'s `onUpgrade`. Every schema-version
-  /// bump adds an entry here and a case in `sms_migration_test.dart`.
+  /// in ascending order by [SmsDatabase]'s `onUpgrade` via [applyMigration].
+  /// Every schema-version bump adds an entry here and a case in
+  /// `sms_migration_test.dart`.
   ///
   /// **v2** adds the additions made after the original v1 shipped: the A2
   /// `meta` table (per-install body-hash salt), the A5 `ref_number` index
   /// (indexed dedup), and the D4 `known_accounts` table + its indexes
-  /// (self-transfer allow-list). All statements are idempotent (`IF NOT
+  /// (self-transfer allow-list).
   ///
   /// **v3** adds reserve progress tracking (`reserve_enabled`,
   /// `reserve_funded_paise`) to obligations and the `forecast_risk_decisions`
   /// table for user-driven confirmations and risk planning.
-  static const migrations = <int, List<String>>{
+  ///
+  /// Every step is idempotent: plain statements all use `IF NOT EXISTS`, and
+  /// the two column additions — which SQLite cannot express that way — go
+  /// through [MigrationStep.addColumn] so [applyMigration] skips them when the
+  /// column is already present. Re-running any migration is therefore safe,
+  /// which is what lets a database whose version was written down by an older
+  /// build heal itself on the next forward open.
+  static const migrations = <int, List<MigrationStep>>{
     2: [
-      createMetaTable,
-      createKnownAccountsTable,
-      'CREATE INDEX IF NOT EXISTS idx_transactions_ref ON transactions(ref_number);',
-      'CREATE INDEX IF NOT EXISTS idx_known_accounts_last4 ON known_accounts(last4);',
-      'CREATE INDEX IF NOT EXISTS idx_known_accounts_vpa_norm ON known_accounts(vpa_norm);',
+      MigrationStep(createMetaTable),
+      MigrationStep(createKnownAccountsTable),
+      MigrationStep(
+        'CREATE INDEX IF NOT EXISTS idx_transactions_ref ON transactions(ref_number);',
+      ),
+      MigrationStep(
+        'CREATE INDEX IF NOT EXISTS idx_known_accounts_last4 ON known_accounts(last4);',
+      ),
+      MigrationStep(
+        'CREATE INDEX IF NOT EXISTS idx_known_accounts_vpa_norm ON known_accounts(vpa_norm);',
+      ),
     ],
     3: [
-      'ALTER TABLE obligations ADD COLUMN reserve_enabled INTEGER NOT NULL DEFAULT 0;',
-      'ALTER TABLE obligations ADD COLUMN reserve_funded_paise INTEGER NOT NULL DEFAULT 0;',
-      createForecastRiskDecisionsTable,
-      'CREATE INDEX IF NOT EXISTS idx_forecast_risk_target_month ON forecast_risk_decisions(target_month);',
+      MigrationStep.addColumn(
+        table: 'obligations',
+        column: 'reserve_enabled',
+        sql:
+            'ALTER TABLE obligations ADD COLUMN reserve_enabled INTEGER NOT NULL DEFAULT 0;',
+      ),
+      MigrationStep.addColumn(
+        table: 'obligations',
+        column: 'reserve_funded_paise',
+        sql:
+            'ALTER TABLE obligations ADD COLUMN reserve_funded_paise INTEGER NOT NULL DEFAULT 0;',
+      ),
+      MigrationStep(createForecastRiskDecisionsTable),
+      MigrationStep(
+        'CREATE INDEX IF NOT EXISTS idx_forecast_risk_target_month ON forecast_risk_decisions(target_month);',
+      ),
     ],
   };
+
+  /// Runs every step registered for [version]. Missing versions fail loudly
+  /// rather than leaving the schema half-migrated.
+  static Future<void> applyMigration(DatabaseExecutor db, int version) async {
+    final steps = migrations[version];
+    if (steps == null) {
+      throw StateError(
+        'No SMS database migration is registered for schema version $version.',
+      );
+    }
+    for (final step in steps) {
+      await _applyStep(db, step);
+    }
+  }
+
+  static Future<void> _applyStep(DatabaseExecutor db, MigrationStep step) async {
+    final column = step.column;
+    if (column != null && await _hasColumn(db, step.table!, column)) return;
+    await db.execute(step.sql);
+  }
+
+  static Future<bool> _hasColumn(
+    DatabaseExecutor db,
+    String table,
+    String column,
+  ) async {
+    // `PRAGMA table_info` cannot take a `?` placeholder for the table name, so
+    // it has to be interpolated. Safe here: every table name comes from a
+    // compile-time literal in [migrations], never from user input.
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    return info.any((row) => row['name'] == column);
+  }
+}
+
+/// One statement in a schema migration.
+///
+/// Plain steps must be written idempotently (`CREATE ... IF NOT EXISTS`) so a
+/// migration can be re-applied safely. SQLite has no
+/// `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so column additions instead
+/// declare the [table] and [column] they add and are skipped by
+/// `SmsStorageSchema.applyMigration` when that column already exists.
+class MigrationStep {
+  const MigrationStep(this.sql) : table = null, column = null;
+
+  const MigrationStep.addColumn({
+    required String this.table,
+    required String this.column,
+    required this.sql,
+  });
+
+  final String sql;
+  final String? table;
+  final String? column;
 }

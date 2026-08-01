@@ -173,6 +173,123 @@ void main() {
     );
     expect(tables, hasLength(1));
   });
+
+  group('rollback hardening', () {
+    Future<int> reserveColumnCount(Database db) async {
+      final columns = await db.rawQuery('PRAGMA table_info(obligations)');
+      return columns.where((row) => row['name'] == 'reserve_enabled').length;
+    }
+
+    test('a database whose version was written down still opens', () async {
+      final dir = await Directory.systemTemp.createTemp('sms_rollback_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+
+      final current = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      await current.close();
+
+      // An older build has no onDowngrade, so sqflite writes the version down
+      // to 2 while the schema on disk is physically still v3.
+      final rolledBack = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(version: 2),
+      );
+      expect(await rolledBack.getVersion(), 2);
+      await rolledBack.close();
+
+      // Updating forward again re-runs migrations[3] over a schema that already
+      // has the reserve columns. It must not throw.
+      final reopened = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(reopened.close);
+
+      expect(await reopened.getVersion(), SmsDatabase.schemaVersion);
+      expect(await reserveColumnCount(reopened), 1);
+    });
+
+    test('applying migration 3 twice is a no-op the second time', () async {
+      final dir = await Directory.systemTemp.createTemp('sms_idempotent_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+
+      final db = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onCreate: (db, version) async {
+            await db.execute(SmsStorageSchema.createTransactionsTable);
+            await db.execute(_createV2ObligationsTable);
+          },
+        ),
+      );
+      addTearDown(db.close);
+
+      // Absent → added.
+      await SmsStorageSchema.applyMigration(db, 3);
+      expect(await reserveColumnCount(db), 1);
+
+      // Present → skipped, not a duplicate-column error.
+      await SmsStorageSchema.applyMigration(db, 3);
+      expect(await reserveColumnCount(db), 1);
+    });
+
+    test('an unregistered migration version still fails loudly', () async {
+      final db = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(db.close);
+
+      await expectLater(
+        SmsStorageSchema.applyMigration(db, 99),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('the production open options always set onDowngrade', () {
+      expect(SmsDatabase.openOptions.onDowngrade, isNotNull);
+    });
+
+    test('opening an older build against a newer database is refused', () async {
+      final dir = await Directory.systemTemp.createTemp('sms_downgrade_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+
+      final current = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      await current.close();
+
+      final options = SmsDatabase.openOptions;
+      await expectLater(
+        databaseFactoryFfi.openDatabase(
+          path,
+          options: OpenDatabaseOptions(
+            version: 2,
+            onCreate: options.onCreate,
+            onUpgrade: options.onUpgrade,
+            onDowngrade: options.onDowngrade,
+          ),
+        ),
+        throwsA(isA<SmsDatabaseDowngradeException>()),
+      );
+
+      // Refusing must leave the stored version untouched, so the next open of
+      // the real build is an ordinary no-op rather than a failed re-migration.
+      final reopened = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(reopened.close);
+      expect(await reopened.getVersion(), SmsDatabase.schemaVersion);
+    });
+  });
 }
 
 /// v1 obligations table (before reserve columns and before meta/known_accounts).

@@ -126,14 +126,14 @@ scope the idempotency claim accurately (after fix 2, it becomes true again — s
 
 Add to `test/sms_migration_test.dart`:
 
-- [ ] **The regression test.** Open at v3 → close → reopen forcing `version: 2` → close
+- [x] **The regression test.** Open at v3 → close → reopen forcing `version: 2` → close
       → reopen at v3. Assert it succeeds and the `obligations` table has exactly one
       `reserve_enabled` column.
-- [ ] Running `migrations[3]` twice against the same database succeeds (idempotency,
+- [x] Running `migrations[3]` twice against the same database succeeds (idempotency,
       directly).
-- [ ] A genuine downgrade attempt surfaces the chosen behaviour: either the named error
+- [x] A genuine downgrade attempt surfaces the chosen behaviour: either the named error
       is thrown, or (if you chose delete) the database is recreated empty at v2.
-- [ ] `_addColumnIfMissing` adds the column when absent and is a no-op when present.
+- [x] `_addColumnIfMissing` adds the column when absent and is a no-op when present.
 
 ## Verification
 
@@ -144,9 +144,9 @@ flutter test
 
 ## Definition of done
 
-- [ ] `onDowngrade` explicitly set in `_openOptions`, with a comment explaining the choice
-- [ ] Both v3 ALTERs guarded by a column-existence check
-- [ ] `sms_storage_schema.dart:130` doc comment completed and accurate
-- [ ] All four tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Guard schema migrations against rollback and re-application`
+- [x] `onDowngrade` explicitly set in `_openOptions`, with a comment explaining the choice
+- [x] Both v3 ALTERs guarded by a column-existence check
+- [x] `sms_storage_schema.dart:130` doc comment completed and accurate
+- [x] All four tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Guard schema migrations against rollback and re-application`
