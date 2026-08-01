@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../core/clamped_date.dart';
 import '../data/card_models.dart';
 import '../data/forecast_models.dart';
 import '../data/obligation_models.dart';
@@ -102,7 +103,7 @@ class ReconciliationMatcher {
       final dueDate =
           obligation.dueDate ??
           (obligation.dueDay != null
-              ? DateTime(
+              ? clampedDate(
                   targetMonth.year,
                   targetMonth.month,
                   obligation.dueDay!,
@@ -412,7 +413,7 @@ class ReconciliationMatcher {
       direction: LedgerDirection.inflow,
       owner: ForecastOwner.salary,
       source: ForecastItemSource.sms,
-      dueDate: DateTime(targetMonth.year, targetMonth.month, day),
+      dueDate: clampedDate(targetMonth.year, targetMonth.month, day),
       confidence: salary.confidence == SalaryConfidence.detectedStable
           ? 0.9
           : 0.6,

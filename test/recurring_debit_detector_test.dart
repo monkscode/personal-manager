@@ -98,6 +98,29 @@ void main() {
       expect(result.single.cadence, RecurringCadence.annual);
       expect(result.single.nextExpected, DateTime(2026, 6, 10));
     });
+
+    test('a month-end monthly cadence advances to the last day, not overflow', () {
+      final result = detect([
+        debit(date: DateTime(2025, 11, 30), amountPaise: 300000, smsId: 'a'),
+        debit(date: DateTime(2025, 12, 31), amountPaise: 300000, smsId: 'b'),
+        debit(date: DateTime(2026, 1, 31), amountPaise: 300000, smsId: 'c'),
+      ]);
+
+      expect(result.single.cadence, RecurringCadence.monthly);
+      // 31 Jan + 1 month must be 28 Feb, not 3 March (which skips February).
+      expect(result.single.nextExpected, DateTime(2026, 2, 28));
+    });
+
+    test('a month-end monthly cadence lands on 29 Feb in a leap year', () {
+      final result = detect([
+        debit(date: DateTime(2027, 11, 30), amountPaise: 300000, smsId: 'a'),
+        debit(date: DateTime(2027, 12, 31), amountPaise: 300000, smsId: 'b'),
+        debit(date: DateTime(2028, 1, 31), amountPaise: 300000, smsId: 'c'),
+      ]);
+
+      expect(result.single.cadence, RecurringCadence.monthly);
+      expect(result.single.nextExpected, DateTime(2028, 2, 29));
+    });
   });
 
   group('amount jitter tolerance', () {

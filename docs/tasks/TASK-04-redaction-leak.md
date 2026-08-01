@@ -36,10 +36,10 @@ static final RegExp _account = RegExp(
 
 Three independent gaps:
 
-1. **Alternative 2 omits `card`.** So `HDFC Bank Card x7102` matches nothing —
+1. **Alternative 2 omits `card`.** So `HDFC Bank Card x1111` matches nothing —
    alternative 1 needs the literal word `ending`, alternative 2 doesn't accept `card`.
-2. **Alternative 3 requires `[*xX]{2,}`.** A single-`x` tail (`x7102`) or a bare tail
-   (`Card 7113`) is missed.
+2. **Alternative 3 requires `[*xX]{2,}`.** A single-`x` tail (`x1111`) or a bare tail
+   (`Card 5555`) is missed.
 3. **`_amount` requires a `₹|rs|inr` token.** Every un-prefixed number — most
    importantly running balances — is stored in the clear.
 
@@ -47,15 +47,15 @@ Three independent gaps:
 
 | Input | Stored `raw_body_redacted` |
 |---|---|
-| `Rs.20000.00 withdrawn from HDFC Bank Card x7102 at SCIENCE CITY-II ... Avl bal: 80572.18` | `[amount] withdrawn from HDFC Bank Card x7102 ... Avl bal: 80572.18` |
-| `Paid Rs.500.00 On HDFC Bank Card 7113 at KANDOI ... Bal 12345.67` | `Paid [amount] On HDFC Bank Card 7113 ... Bal 12345.67` |
+| `Rs.20000.00 withdrawn from HDFC Bank Card x1111 at MAIN STREET ATM ... Avl bal: 54321.00` | `[amount] withdrawn from HDFC Bank Card x1111 ... Avl bal: 54321.00` |
+| `Paid Rs.500.00 On HDFC Bank Card 5555 at KANDOI ... Bal 12345.67` | `Paid [amount] On HDFC Bank Card 5555 ... Bal 12345.67` |
 | `Dear UPI user A/C X3456 debited by 1250.0 ... Refno 501234567890 -SBI` | `... debited by 1250.0 ... Refno 501234567890 -SBI` |
 
 **This is not theoretical.** The repository's own test fixtures — documented as "taken
 (redacted) from real device messages" — contain the leak:
-`test/merchant_display_test.dart:47` (`Card 7113`), `:111` (`Card x7102`; `Avl bal` reads
+`test/merchant_display_test.dart:47` (`Card 5555`), `:111` (`Card x1111`; `Avl bal` reads
 `[amount]` there only because the author masked it by hand), and
-`test/sms_live_normalizer_test.dart:91-102` (`Card x7102`, `Avl bal: 80572.18`).
+`test/sms_live_normalizer_test.dart:91-102` (`Card x1111`, `Avl bal: 54321.00`).
 
 Net effect: **card last-4 plus running balance sit in plaintext SQLite.**
 
@@ -128,8 +128,8 @@ Add to `test/sms_privacy_test.dart`:
 
 - [ ] Each of the three leaking inputs in the table above redacts to a string containing
       **no** 4-digit card tail and **no** bare balance number.
-- [ ] `Card x7102`, `Card 7113`, `A/C X3456`, `card ending 1234`, `**1234` all redact.
-- [ ] `Avl bal: 80572.18`, `Bal 12345.67`, `debited by 1250.0` all redact.
+- [ ] `Card x1111`, `Card 5555`, `A/C X3456`, `card ending 1234`, `**1234` all redact.
+- [ ] `Avl bal: 54321.00`, `Bal 12345.67`, `debited by 1250.0` all redact.
 - [ ] `HDFC Credit Card ending 4321` keeps the word `Card` in the output.
 - [ ] A property/fuzz test: for a corpus of bodies, the redacted output contains no
       run of 4+ consecutive digits. This is the assertion that catches the *next* gap.

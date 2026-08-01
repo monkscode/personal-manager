@@ -172,5 +172,41 @@ void main() {
       expect(estimate.dueDate, isNull);
       expect(estimate.cardLast4, '4321');
     });
+
+    test('dueDay 31 clamps to the last day of a short statement month', () {
+      final estimate = estimator.estimate(
+        [cardTxn(amountPaise: 300000, date: DateTime(2026, 2, 10))],
+        cycle: const CardCycle(
+          cardLast4: '4321',
+          issuer: 'HDFC',
+          cycleStartDay: 6,
+          statementDay: 3,
+          dueDay: 31,
+          paymentAccountHint: '1234',
+          confidence: 0.9,
+        ),
+        statementMonth: DateTime(2026, 2),
+      );
+
+      expect(estimate.dueDate, DateTime(2026, 2, 28));
+    });
+
+    test('dueDay 30 clamps to 28 Feb rather than rolling into March', () {
+      final estimate = estimator.estimate(
+        [cardTxn(amountPaise: 300000, date: DateTime(2026, 2, 10))],
+        cycle: const CardCycle(
+          cardLast4: '4321',
+          issuer: 'HDFC',
+          cycleStartDay: 6,
+          statementDay: 3,
+          dueDay: 30,
+          paymentAccountHint: '1234',
+          confidence: 0.9,
+        ),
+        statementMonth: DateTime(2026, 2),
+      );
+
+      expect(estimate.dueDate, DateTime(2026, 2, 28));
+    });
   });
 }

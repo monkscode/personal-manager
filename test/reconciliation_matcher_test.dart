@@ -69,6 +69,7 @@ ObligationRecord obligation({
   String categoryKey = 'investment',
   ReconciliationRecurrence recurrence = ReconciliationRecurrence.monthly,
   DateTime? dueDate,
+  int? dueDay,
   AccountScope scope = AccountScope.primary,
   ReconciliationPaymentStatus paymentStatus =
       ReconciliationPaymentStatus.unpaid,
@@ -89,6 +90,7 @@ ObligationRecord obligation({
   amountStatus: amountStatus,
   recurrence: recurrence,
   dueDate: dueDate,
+  dueDay: dueDay,
   paymentAccountScope: scope,
   paymentStatus: paymentStatus,
   nextExpectedSource: dueDate == null
@@ -131,6 +133,8 @@ List<ReconciliationItem> build({
   SeasonalEstimate seasonal = _noSeasonal,
   SalaryProfile salary = _noSalary,
   List<CardCycleEstimate> cards = const [],
+  DateTime? targetMonth,
+  BalanceAnchor? anchor,
 }) => _matcher.buildItems(
   actuals: actuals,
   obligations: obligations,
@@ -138,8 +142,14 @@ List<ReconciliationItem> build({
   seasonal: seasonal,
   salary: salary,
   cards: cards,
-  anchor: _anchor,
-  targetMonth: _target,
+  anchor: anchor ?? _anchor,
+  targetMonth: targetMonth ?? _target,
+);
+
+BalanceAnchor anchorFor(DateTime month) => BalanceAnchor(
+  amountPaise: 20000000,
+  asOf: DateTime(month.year, month.month, 1),
+  source: BalanceAnchorSource.smsBankBalance,
 );
 
 ReconciliationItem byOwner(
@@ -853,6 +863,112 @@ void main() {
       expect(outlook.riskLines, isEmpty);
       final feb = outlook.months[6];
       expect(feb.events.where((e) => e.label == 'LIC'), hasLength(1));
+    });
+  });
+
+  group('month-end day-of-month never rolls out of the target month', () {
+    test('salary on the 30th is dated 28 Feb and stays in February', () {
+      final target = DateTime(2026, 2);
+      final anchor = anchorFor(target);
+      final items = build(
+        salary: const SalaryProfile(
+          confidence: SalaryConfidence.detectedStable,
+          basePaise: 8000000,
+          expectedDay: 30,
+        ),
+        targetMonth: target,
+        anchor: anchor,
+      );
+
+      expect(byOwner(items, ForecastOwner.salary).dueDate, DateTime(2026, 2, 28));
+
+      final result = _engine.reconcileMonth(
+        targetMonth: target,
+        anchor: anchor,
+        items: items,
+        now: DateTime(2026, 2, 5),
+      );
+      final salaryEvents = result.events.where(
+        (e) => e.source == ForecastEventSource.salary,
+      );
+      expect(salaryEvents, hasLength(1));
+      expect(salaryEvents.single.date, DateTime(2026, 2, 28));
+      expect(salaryEvents.single.direction, LedgerDirection.inflow);
+      expect(salaryEvents.single.amountPaise, 8000000);
+      expect(
+        result.coverageLines.where(
+          (l) => l.reason == CoverageReason.futureEarmark,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('salary on the 31st is dated 30 Apr in a 30-day month', () {
+      final target = DateTime(2026, 4);
+      final items = build(
+        salary: const SalaryProfile(
+          confidence: SalaryConfidence.detectedStable,
+          basePaise: 8000000,
+          expectedDay: 31,
+        ),
+        targetMonth: target,
+        anchor: anchorFor(target),
+      );
+
+      expect(byOwner(items, ForecastOwner.salary).dueDate, DateTime(2026, 4, 30));
+    });
+
+    test('salary on the 30th keeps 29 Feb in a leap year', () {
+      final target = DateTime(2028, 2);
+      final items = build(
+        salary: const SalaryProfile(
+          confidence: SalaryConfidence.detectedStable,
+          basePaise: 8000000,
+          expectedDay: 30,
+        ),
+        targetMonth: target,
+        anchor: anchorFor(target),
+      );
+
+      expect(byOwner(items, ForecastOwner.salary).dueDate, DateTime(2028, 2, 29));
+    });
+
+    test('obligation dueDay 31 is dated 28 Feb and stays a February event', () {
+      final target = DateTime(2026, 2);
+      final anchor = anchorFor(target);
+      final items = build(
+        obligations: [
+          obligation(
+            sourceType: ObligationSourceType.gmail,
+            amountPaise: 4700000,
+            merchant: 'Rent',
+            merchantNorm: 'rent',
+            categoryKey: 'rent',
+            dueDay: 31,
+          ),
+        ],
+        targetMonth: target,
+        anchor: anchor,
+      );
+
+      expect(items.single.dueDate, DateTime(2026, 2, 28));
+
+      final result = _engine.reconcileMonth(
+        targetMonth: target,
+        anchor: anchor,
+        items: items,
+        now: DateTime(2026, 2, 5),
+      );
+      expect(result.events, hasLength(1));
+      expect(result.events.single.date, DateTime(2026, 2, 28));
+      expect(result.events.single.direction, LedgerDirection.outflow);
+      expect(result.events.single.amountPaise, 4700000);
+      expect(
+        result.coverageLines.where(
+          (l) => l.reason == CoverageReason.futureEarmark,
+        ),
+        isEmpty,
+      );
     });
   });
 }

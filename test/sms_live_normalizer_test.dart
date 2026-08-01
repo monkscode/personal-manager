@@ -50,14 +50,14 @@ void main() {
           sender: 'AD-HDFCBK-S',
           amountPaise: 6141500,
           body: '[AD-HDFCBK-S] debit 6141500p :: [amount] debited [account] '
-              '05-12-25, 10:57:27 UPI/P2M/549148394747/CHEQ DIGITAL PRIVAT',
+              '05-12-25, 10:57:27 UPI/P2M/549148394747/ACME DIGITAL PRIVAT',
         ),
         txn(
           smsId: 'b',
           sender: 'VM-HDFCBK-S',
           amountPaise: 6141500,
           body: '[VM-HDFCBK-S] debit 6141500p :: [amount] debited [account] '
-              '05-12-25, 10:57:27 UPI/P2M/549148394747/CHEQ DIGITAL PRIVAT',
+              '05-12-25, 10:57:27 UPI/P2M/549148394747/ACME DIGITAL PRIVAT',
         ),
       ]);
       expect(rows, hasLength(1));
@@ -87,19 +87,19 @@ void main() {
           smsId: 'a',
           type: TxnType.atm,
           amountPaise: 2000000,
-          balancePaise: 8057218,
+          balancePaise: 5432100,
           body: '[JD-HDFCBK-S] debit 2000000p :: [amount] withdrawn from HDFC '
-              'Bank Card x7102 at SCIENCE CITY-II on 2026-07-17:20:20:43 '
-              'Avl bal: 80572.18',
+              'Bank Card x1111 at MAIN STREET ATM on 2026-07-17:20:20:43 '
+              'Avl bal: 54321.00',
         ),
         txn(
           smsId: 'b',
           type: TxnType.atm,
           amountPaise: 2000000,
-          balancePaise: 6057218,
+          balancePaise: 3432100,
           body: '[JD-HDFCBK-S] debit 2000000p :: [amount] withdrawn from HDFC '
-              'Bank Card x7102 at SCIENCE CITY-II on 2026-07-17:20:21:42 '
-              'Avl bal: 60572.18',
+              'Bank Card x1111 at MAIN STREET ATM on 2026-07-17:20:21:42 '
+              'Avl bal: 34321.00',
         ),
       ]);
       expect(rows, hasLength(2));
@@ -112,10 +112,10 @@ void main() {
         txn(
           smsId: 'a',
           body: '[VM-HDFCBK-S] debit 1000000p :: [amount] debited '
-              'UPI/P2M/549148394747/CHEQ DIGITAL PRIVAT',
+              'UPI/P2M/549148394747/ACME DIGITAL PRIVAT',
         ),
       );
-      expect(out.merchant, 'cheq digital privat');
+      expect(out.merchant, 'acme digital privat');
     });
 
     test('writes a known-merchant name and its category', () {
@@ -160,7 +160,7 @@ void main() {
           smsId: 'jul',
           date: DateTime(2026, 7, 5),
           body: '[VM-HDFCBK-S] debit 1000000p :: [amount] debited '
-              'UPI/P2M/111/CHEQ DIGITAL PRIVAT',
+              'UPI/P2M/111/ACME DIGITAL PRIVAT',
         ),
       );
       final august = normalizer.enrich(
@@ -168,7 +168,7 @@ void main() {
           smsId: 'aug',
           date: DateTime(2026, 8, 5),
           body: '[AD-HDFCBK-S] debit 1000000p :: [amount] debited '
-              'UPI/P2M/999/CHEQ DIGITAL PRIVAT',
+              'UPI/P2M/999/ACME DIGITAL PRIVAT',
         ),
       );
       expect(july.merchant, august.merchant);

@@ -1,3 +1,4 @@
+import '../core/clamped_date.dart';
 import '../data/card_models.dart';
 import '../data/forecast_models.dart';
 import '../data/sms_models.dart';
@@ -52,7 +53,11 @@ class CardCycleEstimator {
 
     final DateTime? dueDate;
     if (cycle != null && statementMonth != null) {
-      dueDate = DateTime(statementMonth.year, statementMonth.month, cycle.dueDay);
+      dueDate = clampedDate(
+        statementMonth.year,
+        statementMonth.month,
+        cycle.dueDay,
+      );
     } else {
       dueDate = null;
     }

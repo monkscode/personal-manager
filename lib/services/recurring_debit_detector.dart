@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../core/clamped_date.dart';
 import '../data/models.dart';
 import '../data/sms_models.dart';
 
@@ -272,7 +273,10 @@ class RecurringDebitDetector {
       RecurringCadence.halfYearly => 6,
       RecurringCadence.annual => 12,
     };
-    return DateTime(last.year, last.month + months, last.day);
+    // Clamped so a month-end cadence advances to the next month's last day
+    // (31 Jan + 1 month = 28 Feb) instead of overflowing past it and skipping
+    // that month entirely.
+    return clampedDate(last.year, last.month + months, last.day);
   }
 
   String _ownerNorm(ParsedTxn txn) {

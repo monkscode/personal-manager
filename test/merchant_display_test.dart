@@ -44,7 +44,7 @@ void main() {
       final d = resolver.resolve(
         txn(
           body:
-              'Paid [amount] On HDFC Bank Card 7113 at KANDOI BHOGILAL MULCHA '
+              'Paid [amount] On HDFC Bank Card 5555 at KANDOI BHOGILAL MULCHA '
               'on 21-JUL-26 09:07 AM Bal [amount]',
         ),
       );
@@ -84,10 +84,10 @@ void main() {
           instrument: PaymentInstrument.bank,
           body:
               '[amount] debited\n[account]\n01-12-25, 10:57:27\n'
-              'UPI/P2M/549148394747/CHEQ DIGITAL PRIVAT\nAxis Bank',
+              'UPI/P2M/549148394747/ACME DIGITAL PRIVAT\nAxis Bank',
         ),
       );
-      expect(d.name, 'Cheq Digital Privat');
+      expect(d.name, 'Acme Digital Privat');
     });
 
     test('lower-cased merchant token is title-cased ("Freeze Land")', () {
@@ -108,7 +108,7 @@ void main() {
         txn(
           type: TxnType.atm,
           body:
-              '[amount] withdrawn from HDFC Bank Card x7102 at SCIENCE CITY-II '
+              '[amount] withdrawn from HDFC Bank Card x1111 at MAIN STREET ATM '
               'on 2026-07-17:20:20:43 Avl bal: [amount].',
         ),
       );

@@ -75,15 +75,15 @@ SmsAnalysisSnapshot _snapshot(List<ParsedTxn> currentMonthTxns) =>
 
 // Real consumption that must be counted.
 final _swiggy = _txn(
-  amountPaise: 230700,
+  amountPaise: 250000,
   body:
-      'Rs.2307 spent on HDFC Bank Card x7115 at RAZ*SWIGGY on 2026-08-05:22:03:27.Not U?',
+      'Rs.2500 spent on HDFC Bank Card x7115 at RAZ*SWIGGY on 2026-08-05:22:03:27.Not U?',
 );
 // Cash withdrawal mis-tagged as POS because the body names the debit card.
 final _cashOut = _txn(
   amountPaise: 2000000,
   body:
-      'Rs.20000 withdrawn from HDFC Bank Card x7102 at SCIENCE CITY-II on 2026-08-05 Avl bal: 20572.18',
+      'Rs.20000 withdrawn from HDFC Bank Card x1111 at MAIN STREET ATM on 2026-08-05 Avl bal: 20572.18',
 );
 // Recurring SIP auto-debit via a mutual-fund clearing house.
 final _sip = _txn(
@@ -150,7 +150,7 @@ void main() {
 
       // Only the Swiggy debit is genuine consumption.
       expect(i.spentThisMonthCount, 1);
-      expect(i.spentThisMonthLabel, inr(2307));
+      expect(i.spentThisMonthLabel, inr(2500));
     });
 
     test('sums multiple genuine debits and counts them', () {
@@ -165,7 +165,7 @@ void main() {
       );
 
       expect(i.spentThisMonthCount, 2);
-      expect(i.spentThisMonthLabel, inr(20307));
+      expect(i.spentThisMonthLabel, inr(20500));
     });
 
     test(

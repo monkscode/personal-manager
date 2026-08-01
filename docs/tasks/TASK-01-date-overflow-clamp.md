@@ -132,29 +132,29 @@ refactor it to call the new helper, but that is cosmetic.
 
 Add to `test/reconciliation_matcher_test.dart`:
 
-- [ ] Salary with `expectedDay: 30`, target month February 2026 → the salary item's
+- [x] Salary with `expectedDay: 30`, target month February 2026 → the salary item's
       `dueDate` is 28 Feb 2026, and the item appears in the February ledger as an
       inflow (not as a `futureEarmark`).
-- [ ] Salary with `expectedDay: 31`, target month April 2026 → 30 Apr 2026.
-- [ ] Obligation with `dueDay: 31`, target month February 2026 → 28 Feb 2026, and the
+- [x] Salary with `expectedDay: 31`, target month April 2026 → 30 Apr 2026.
+- [x] Obligation with `dueDay: 31`, target month February 2026 → 28 Feb 2026, and the
       obligation is a dated event in February.
-- [ ] Leap year: `expectedDay: 30`, February **2028** → 29 Feb 2028 (not 28).
+- [x] Leap year: `expectedDay: 30`, February **2028** → 29 Feb 2028 (not 28).
 
 Add to `test/card_cycle_estimator_test.dart` (currently only tests `dueDay: 20` in August):
 
-- [ ] `dueDay: 31`, statement month February 2026 → due date 28 Feb 2026.
-- [ ] `dueDay: 30`, statement month February 2026 → 28 Feb 2026.
+- [x] `dueDay: 31`, statement month February 2026 → due date 28 Feb 2026.
+- [x] `dueDay: 30`, statement month February 2026 → 28 Feb 2026.
 
 Add to `test/recurring_debit_detector_test.dart`:
 
-- [ ] `_addCadence` from 31 Jan 2026, monthly → 28 Feb 2026 (not 3 March).
-- [ ] From 31 Jan 2028, monthly → 29 Feb 2028.
+- [x] `_addCadence` from 31 Jan 2026, monthly → 28 Feb 2026 (not 3 March).
+- [x] From 31 Jan 2028, monthly → 29 Feb 2028.
 
 Add a shared test file `test/clamped_date_test.dart`:
 
-- [ ] Every month of a non-leap year with `day: 31` returns that month's real last day.
-- [ ] Leap and non-leap February with `day: 29`.
-- [ ] `day: 0` and negative days clamp to 1 rather than rolling backwards.
+- [x] Every month of a non-leap year with `day: 31` returns that month's real last day.
+- [x] Leap and non-leap February with `day: 29`.
+- [x] `day: 0` and negative days clamp to 1 rather than rolling backwards.
 
 ---
 
@@ -167,8 +167,8 @@ flutter test        # all green
 
 ## Definition of done
 
-- [ ] `clampedDate` helper added with a doc comment explaining the rollover hazard
-- [ ] All four sites use it
-- [ ] All tests above written, failing first, then passing
-- [ ] `flutter analyze` clean, `flutter test` fully green
-- [ ] Committed with an imperative subject, e.g. `Clamp month-end dates so salary and bills stay in their month`
+- [x] `clampedDate` helper added with a doc comment explaining the rollover hazard
+- [x] All four sites use it
+- [x] All tests above written, failing first, then passing
+- [x] `flutter analyze` clean, `flutter test` fully green
+- [x] Committed with an imperative subject, e.g. `Clamp month-end dates so salary and bills stay in their month`
