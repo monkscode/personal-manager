@@ -537,4 +537,94 @@ void main() {
       );
     });
   });
+
+  group('merchant, instrument and balance are read precisely', () {
+    ParsedTxn parse(String body, {String sender = 'VM-HDFCBK'}) =>
+        parser.parseOne(
+          sms(sender: sender, body: body),
+          scanBatchId: 'scan-28',
+          bodyHashSalt: 'test-salt',
+        )!;
+
+    test('the merchant is the merchant, not the rest of the sentence', () {
+      final txn = parse(
+        'Spent Rs.3,200.00 on HDFC Bank Card XX9012 at AMAZON on 26-06-25. '
+        'Available Limit Rs.46,800.00. Not you? Call 18002586161.',
+      );
+
+      expect(txn.merchant, 'amazon');
+    });
+
+    test('merchant capture stops at a date, a reference and a balance', () {
+      expect(
+        parse('Rs.900.00 debited from A/c XX1234 at BOOKSTORE on 26-06-25.').merchant,
+        'bookstore',
+      );
+      expect(
+        parse('Rs.900.00 debited from A/c XX1234 at BOOKSTORE Ref 123456789012').merchant,
+        'bookstore',
+      );
+      expect(
+        parse('Rs.900.00 debited from A/c XX1234 at BOOKSTORE. Avl Bal Rs.9,000.00.').merchant,
+        'bookstore',
+      );
+    });
+
+    test('a bank-card purchase is a card, not a bank debit', () {
+      final txn = parse(
+        'Spent Rs.3,200.00 on HDFC Bank Card XX9012 at AMAZON on 26-06-25. '
+        'Available Limit Rs.46,800.00. Not you? Call 18002586161.',
+      );
+
+      expect(txn.instrument, PaymentInstrument.card);
+    });
+
+    test('an available limit alone is enough to classify as a card', () {
+      final txn = parse(
+        'HDFC Bank: Rs.2,500.00 spent at BOOKSTORE on 26-06-25. '
+        'Available Limit Rs.10,000.00.',
+      );
+
+      expect(txn.instrument, PaymentInstrument.card);
+    });
+
+    test('a bank debit with no card wording stays a bank debit', () {
+      final txn = parse(
+        'HDFC Bank: Rs.750.00 debited from A/c XX1234 at BOOKSTORE. '
+        'Avl Bal Rs.9,000.00.',
+      );
+
+      expect(txn.instrument, PaymentInstrument.bank);
+    });
+
+    test('the real Axis debit format parses cleanly, not into review', () {
+      final txn = parse(
+        'Axis Bank Acct XX7788 debited with INR 2750.00 on 28-06-25. '
+        'Info- UPI/P2A/RAHUL. Avl Bal- INR 41000.00',
+        sender: 'VK-AXISBK',
+      );
+
+      expect(txn.amountPaise, 275000);
+      expect(txn.balancePaise, 4100000);
+      expect(txn.direction, TransactionDirection.debit);
+      expect(txn.reviewReason, isNot(ReviewReason.parserUncertain));
+      expect(txn.reviewStatus, ReviewStatus.autoAdded);
+    });
+
+    test('Avl Bal followed by a space, a colon or a dash is always a balance', () {
+      for (final form in const [
+        'Avl Bal Rs.9,000.00',
+        'Avl Bal: Rs.9,000.00',
+        'Avl Bal- Rs.9,000.00',
+      ]) {
+        final txn = parse(
+          'HDFC Bank: Rs.750.00 debited from A/c XX1234. $form.',
+        );
+
+        expect(txn.amountPaise, 75000, reason: form);
+        expect(txn.balancePaise, 900000, reason: form);
+        expect(txn.reviewReason, isNot(ReviewReason.parserUncertain), reason: form);
+      }
+    });
+  });
 }

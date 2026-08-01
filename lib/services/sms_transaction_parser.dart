@@ -57,6 +57,20 @@ class SmsTransactionParser {
   static final RegExp _vpa = RegExp(
     r'\b[A-Za-z0-9._-]+@[A-Za-z][A-Za-z0-9._-]+\b',
   );
+  // Lazy and terminator-aware, mirroring `merchant_display._merchantFromBody`.
+  // A greedy class that admits `.`, `-` and space runs straight past the name
+  // and swallows the date, the balance and the helpline number after it — and
+  // that garbage then buys confidence and masquerades as a distinguishing
+  // signal in the ingestion policy.
+  static final RegExp _merchantAt = RegExp(
+    r'\bat\s+(.{2,40}?)(?:\s+on\s+\d|\s+at\s|\s+to\s|\s+from\s|\s+ref\b|\s+avl\b|\s+available\b|\s+bal\b|\.(?:\s|$)|\n|$)',
+  );
+  // A bank account has no limit, so any available/credit-limit phrasing is by
+  // itself card evidence. `bank card` and a bare `card <tail>` cover HDFC's
+  // "on HDFC Bank Card XX9012", which never says "credit card" at all.
+  static final RegExp _cardMarker = RegExp(
+    r'\bcredit card\b|\bcard ending\b|\bbank card\b|\bcard\s+[*x]*\d{4}\b|\bavailable credit\b|\bavailable limit\b|\bavl lmt\b|\bcredit limit\b|\bcard limit\b',
+  );
 
   // Direction verbs. `repayment` is a *debit*: in Indian bank SMS it is the
   // customer paying down a loan, so an EMI alert must not book as income.
@@ -79,8 +93,11 @@ class SmsTransactionParser {
   // A balance/limit phrase immediately before an amount marks that amount as a
   // balance (not the transaction value). Anchored to the end of the preceding
   // window so only an adjacent phrase counts.
+  // The separator after the keyword may be `is`, `:` or a dash — Axis writes
+  // `Avl Bal- INR 41000.00`, and without the dash the balance stays in the
+  // candidate pool and every Axis debit lands in review forever.
   static final RegExp _balancePrefix = RegExp(
-    r'(?:avl\.?\s*bal|available\s+balance|a/c\s+bal|ac\s+bal|updated\s+balance|available\s+credit(?:\s+limit)?|available\s+limit|credit\s+limit|card\s+limit)\s*(?:is|:)?\s*$',
+    r'(?:avl\.?\s*bal|available\s+balance|a/c\s+bal|ac\s+bal|updated\s+balance|available\s+credit(?:\s+limit)?|available\s+limit|credit\s+limit|card\s+limit)\s*(?:is|[:\-–])?\s*$',
     caseSensitive: false,
   );
   // Verbs used to pick which of several amounts is the transaction amount.
@@ -89,7 +106,9 @@ class SmsTransactionParser {
   );
   // How far either side of an amount counts as "beside" it — used both to pick
   // which amount is the transaction value and to find the verb governing it.
-  static const int _adjacencyWindow = 12;
+  // Wide enough for `debited with ` (13) to reach the amount it governs; at 12
+  // the transaction amount failed its own adjacency test.
+  static const int _adjacencyWindow = 24;
   // SBI's UPI alert carries no ₹/Rs/INR token at all ("debited by 1250.0"). A
   // bare number is read as money only when a transaction verb anchors it *and*
   // it carries decimals — that keeps dates (05Jan25), reference numbers and
@@ -416,13 +435,10 @@ class SmsTransactionParser {
     return null;
   }
 
-  PaymentInstrument _instrument(String lower) {
-    return RegExp(
-          r'\bcredit card\b|\bcard ending\b|\bavailable credit\b|\bcredit limit\b',
-        ).hasMatch(lower)
-        ? PaymentInstrument.card
-        : PaymentInstrument.bank;
-  }
+  PaymentInstrument _instrument(String lower) =>
+      _cardMarker.hasMatch(lower)
+      ? PaymentInstrument.card
+      : PaymentInstrument.bank;
 
   TxnType _type(String lower, String? upiVpa) {
     if (upiVpa != null || lower.contains('upi')) return TxnType.upi;
@@ -442,10 +458,8 @@ class SmsTransactionParser {
     PaymentInstrument instrument,
   ) {
     if (upiVpa != null) return upiVpa.split('@').first;
-    final atMatch = RegExp(
-      r'\bat\s+([a-z0-9 &._-]{2,40})(?:\.|,|$)',
-    ).firstMatch(lower);
-    if (atMatch != null) return atMatch.group(1)!.trim();
+    final merchant = _merchantAt.firstMatch(lower)?.group(1)?.trim();
+    if (merchant != null && merchant.length >= 2) return merchant;
     return instrument == PaymentInstrument.card ? 'card purchase' : null;
   }
 

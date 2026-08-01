@@ -101,20 +101,32 @@ corpus table — whoever gets there second should find it already present.
 None of these three defects is currently asserted anywhere. Add to
 `test/sms_transaction_parser_test.dart`:
 
-- [ ] `test/golden/hdfc.json` sample 2 → `merchant == 'amazon'` exactly (not the trailing
+- [x] `test/golden/hdfc.json` sample 2 → `merchant == 'amazon'` exactly (not the trailing
       sentence).
-- [ ] Merchant extraction terminates correctly for ` at X on <date>`, ` to X Ref Y`, and
+- [x] Merchant extraction terminates correctly for ` at X on <date>`, ` to X Ref Y`, and
       ` at X. Avl Bal Z`.
-- [ ] `test/golden/hdfc.json` sample 2 → `instrument == card`.
-- [ ] `Available Limit` alone (no `credit card` phrase) classifies as card.
-- [ ] A genuine bank debit with no card wording stays `instrument == bank` (regression
+- [x] `test/golden/hdfc.json` sample 2 → `instrument == card`.
+- [x] `Available Limit` alone (no `credit card` phrase) classifies as card.
+- [x] A genuine bank debit with no card wording stays `instrument == bank` (regression
       guard).
-- [ ] The Axis string → parses cleanly, `amountPaise == 275000`, balance
+- [x] The Axis string → parses cleanly, `amountPaise == 275000`, balance
       `41000.00` recognised as balance, and **not** parser-uncertain.
-- [ ] `Avl Bal:` and `Avl Bal ` (space) still work after the `-` addition.
+- [x] `Avl Bal:` and `Avl Bal ` (space) still work after the `-` addition.
 
 Then add assertions on `merchant` and `instrument` to `golden_corpus_test.dart` — their
 absence is why these went unnoticed.
+
+> Done. `_Sample` gained optional `merchant` and `instrument` labels, asserted where
+> present; six rows across the five banks carry them. The Axis row TASK-07 added now
+> carries `"autoAdd": true`, which is the handoff that task recorded.
+>
+> Five of the seven were red. The bank-instrument row and the `Avl Bal` separator row
+> passed before the fix — both are the regression guards this task labels as such.
+>
+> The two new corpus assertions were written after the parser change, so they were
+> validated by stashing the parser back to HEAD and re-running: both fail without it —
+> `merchant: 'amazon on 26-06-25. available limit rs'` and *a clean sample was held back
+> from auto-add* on the Axis row. They are guards that bite, not decoration.
 
 ## Verification
 
@@ -125,10 +137,22 @@ flutter test
 
 ## Definition of done
 
-- [ ] Merchant pattern is lazy and terminator-aware, reusing the `merchant_display` form
-- [ ] Instrument detection recognises `bank card`, bare card tails, and limit phrases
-- [ ] `_balancePrefix` accepts `-`/`–`; verb window widened to ~24 chars
-- [ ] Golden corpus test asserts `merchant` and `instrument`
-- [ ] All seven tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Tighten merchant capture, card detection and Axis balance parsing`
+- [x] Merchant pattern is lazy and terminator-aware, reusing the `merchant_display` form
+- [x] Instrument detection recognises `bank card`, bare card tails, and limit phrases
+- [x] `_balancePrefix` accepts `-`/`–`; verb window widened to ~24 chars
+- [x] Golden corpus test asserts `merchant` and `instrument`
+- [x] All seven tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Tighten merchant capture, card detection and Axis balance parsing`
+
+The merchant terminator set extends `merchant_display`'s with ` at `, ` to `, ` from `,
+` ref ` and ` available `. Without ` from `, `withdrawn at KOTAK ATM from A/c XX7107 on
+25-06-25` yields `kotak atm from a/c xx7107` — the old greedy class returned null there
+(its character class stops at the `/` in `a/c`), so a plain lazy rewrite would have
+replaced *no* merchant with a *wrong* one, and wrong merchants suppress collision review.
+
+`_adjacencyWindow` is now 24, as TASK-06 asked. That fix alone does not resolve the Axis
+string — once `_balancePrefix` accepts the dash there is only one candidate amount and
+adjacency never runs — but it does move `debited with `, `credited with ` and
+`Acct XX#### debited ` onto the adjacency path instead of the whole-message fallback.
+All 24 labelled corpus transactions keep their labelled direction either way.

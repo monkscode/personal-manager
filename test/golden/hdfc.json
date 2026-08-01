@@ -5,7 +5,9 @@
     "receivedAt": "2025-06-28T20:10:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 249900
+    "amountPaise": 249900,
+    "merchant": "swiggy",
+    "instrument": "bank"
   },
   {
     "sender": "VM-HDFCBK",
@@ -13,7 +15,9 @@
     "receivedAt": "2025-06-26T15:00:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 320000
+    "amountPaise": 320000,
+    "merchant": "amazon",
+    "instrument": "card"
   },
   {
     "sender": "VM-HDFCBK",

@@ -21,7 +21,9 @@
     "receivedAt": "2025-06-28T17:00:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 275000
+    "amountPaise": 275000,
+    "merchant": "bookstore",
+    "instrument": "bank"
   },
   {
     "sender": "VK-AXISBK",
@@ -41,7 +43,8 @@
     "receivedAt": "2025-06-28T10:00:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 275000
+    "amountPaise": 275000,
+    "autoAdd": true
   },
   {
     "sender": "VK-AXISBK",

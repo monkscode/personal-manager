@@ -26,7 +26,9 @@ class _Sample {
         isTxn = j['isTxn'] as bool,
         direction = j['direction'] as String?,
         amountPaise = j['amountPaise'] as int?,
-        autoAdd = j['autoAdd'] as bool?;
+        autoAdd = j['autoAdd'] as bool?,
+        merchant = j['merchant'] as String?,
+        instrument = j['instrument'] as String?;
 
   final String sender;
   final String body;
@@ -34,6 +36,12 @@ class _Sample {
   final bool isTxn;
   final String? direction;
   final int? amountPaise;
+
+  /// Optional. The corpus went years without asserting either, which is why a
+  /// merchant of `amazon on 26-06-25. available limit rs` and a credit-card
+  /// purchase filed as a bank debit both survived in sample 2 unnoticed.
+  final String? merchant;
+  final String? instrument;
 
   /// Explicitly `false` on a real transaction that must never be auto-added —
   /// an AutoPay pre-notice, say, which is genuine signal but not a dated
@@ -118,6 +126,32 @@ void main() {
             s.autoAdd,
             isNot(false),
             reason: 'a review-only sample was auto-added: "${s.body}"',
+          );
+        }
+        if (s.autoAdd ?? false) {
+          expect(
+            parsed?.reviewStatus,
+            ReviewStatus.autoAdded,
+            reason: 'a clean sample was held back from auto-add: "${s.body}"',
+          );
+        }
+      }
+    }
+  });
+
+  test('merchant and instrument match the labels the corpus states', () {
+    for (final file in _bankFiles) {
+      for (final s in load(file)) {
+        final parsed = parse(s);
+        if (parsed == null) continue;
+        if (s.merchant != null) {
+          expect(parsed.merchant, s.merchant, reason: 'merchant: "${s.body}"');
+        }
+        if (s.instrument != null) {
+          expect(
+            parsed.instrument.storageValue,
+            s.instrument,
+            reason: 'instrument: "${s.body}"',
           );
         }
       }

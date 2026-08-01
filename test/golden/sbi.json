@@ -5,7 +5,9 @@
     "receivedAt": "2025-06-27T09:15:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 125000
+    "amountPaise": 125000,
+    "merchant": "grocerystore",
+    "instrument": "bank"
   },
   {
     "sender": "AD-SBIINB",

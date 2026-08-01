@@ -21,7 +21,9 @@
     "receivedAt": "2025-06-28T19:00:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 450000
+    "amountPaise": 450000,
+    "merchant": "flipkart",
+    "instrument": "card"
   },
   {
     "sender": "VM-ICICIB",

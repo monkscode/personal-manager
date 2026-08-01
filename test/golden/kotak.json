@@ -5,7 +5,9 @@
     "receivedAt": "2025-06-27T21:00:00",
     "isTxn": true,
     "direction": "debit",
-    "amountPaise": 149900
+    "amountPaise": 149900,
+    "merchant": "zomato",
+    "instrument": "bank"
   },
   {
     "sender": "AX-KOTAKB",
