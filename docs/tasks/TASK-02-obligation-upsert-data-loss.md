@@ -132,17 +132,17 @@ already-fetched `existing`.
 `test/obligation_repository_test.dart:220-238` gets within one line of catching this —
 it just never re-upserts afterward.
 
-- [ ] **The headline test.** `upsert(record)` → `updateReserveProgress(enabled: true,
+- [x] **The headline test.** `upsert(record)` → `updateReserveProgress(enabled: true,
       fundedPaise: 1800000)` → `upsert` the *same dedupe key* with a default-constructed
       record → assert `reserveEnabled == true` and `reserveFundedPaise == 1800000` survive.
-- [ ] Same shape for `userCadenceStatus`: set to `userConfirmed`, re-upsert, assert it
+- [x] Same shape for `userCadenceStatus`: set to `userConfirmed`, re-upsert, assert it
       is still `userConfirmed` and not `algorithmDetected`.
-- [ ] Same shape for `reviewStatus`: set to `dismissed`, re-upsert, assert the
+- [x] Same shape for `reviewStatus`: set to `dismissed`, re-upsert, assert the
       obligation stays dismissed and does **not** reappear as `confirmed`.
-- [ ] Same shape for `paymentStatus` + `amountPaidPaise` + `outstandingPaise`.
-- [ ] Derived fields DO refresh: upsert with `amountPaise: 500000`, re-upsert the same
+- [x] Same shape for `paymentStatus` + `amountPaidPaise` + `outstandingPaise`.
+- [x] Derived fields DO refresh: upsert with `amountPaise: 500000`, re-upsert the same
       dedupe key with `amountPaise: 750000`, assert the stored amount is 750000.
-- [ ] `importLegacyManualEntries` with a mid-list failure leaves **zero** rows
+- [x] `importLegacyManualEntries` with a mid-list failure leaves **zero** rows
       committed (inject a failure via a wrapper database or a duplicate-id entry).
 
 ## Verification
@@ -154,10 +154,10 @@ flutter test
 
 ## Definition of done
 
-- [ ] `upsert` preserves all user-intent columns when a row already exists
-- [ ] `upsert` read+write is inside one transaction
-- [ ] `importLegacyManualEntries` wraps its whole loop in one transaction
-- [ ] Duplicate `byDedupeKey` lookup removed
-- [ ] All six tests above written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Preserve user obligation decisions across SMS rescans`
+- [x] `upsert` preserves all user-intent columns when a row already exists
+- [x] `upsert` read+write is inside one transaction
+- [x] `importLegacyManualEntries` wraps its whole loop in one transaction
+- [x] Duplicate `byDedupeKey` lookup removed
+- [x] All six tests above written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Preserve user obligation decisions across SMS rescans`

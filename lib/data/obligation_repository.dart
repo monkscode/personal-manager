@@ -14,22 +14,73 @@ class ObligationRepository {
 
   final Database _db;
 
+  /// Writes [obligation], merging it over any row that already holds the same
+  /// `dedupeKey`.
+  ///
+  /// The caller is the SMS scan loop, which re-derives a whole record from
+  /// message history on every scan and therefore carries only defaults for the
+  /// columns the user owns. Preserving those is the default here and refreshing
+  /// is opt-in (see [_merge]) — otherwise each scan would silently discard the
+  /// user's reserve progress, dismissals and payment record.
+  ///
+  /// The read and the write run in one transaction because the merge is a
+  /// read-modify-write.
   Future<void> upsert(ObligationRecord obligation, {DateTime? now}) async {
     final timestamp = now ?? DateTime.now();
-    final existing = await byDedupeKey(obligation.dedupeKey);
-    final obligationToUpsert = existing?.id != null
-        ? obligation.copyWith(id: existing!.id)
-        : obligation;
-    await _db.insert(
+    await _db.transaction((txn) async {
+      final existing = await _byDedupeKey(txn, obligation.dedupeKey);
+      await _upsertWithin(txn, obligation, existing, timestamp);
+    });
+  }
+
+  static Future<void> _upsertWithin(
+    DatabaseExecutor db,
+    ObligationRecord incoming,
+    ObligationRecord? existing,
+    DateTime timestamp,
+  ) async {
+    final merged = existing == null ? incoming : _merge(existing, incoming);
+    await db.insert(
       'obligations',
       _toRow(
-        obligationToUpsert,
-        createdAt: existing?.createdAt ?? obligation.createdAt,
+        merged,
+        createdAt: existing?.createdAt ?? incoming.createdAt,
         updatedAt: timestamp,
       ),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
+
+  /// Refreshes the columns a scan legitimately re-derives from SMS/Gmail, and
+  /// preserves everything else from [existing].
+  ///
+  /// The preserved set is exactly the columns that hold *user intent* rather
+  /// than derived data: `reserveEnabled`, `reserveFundedPaise`,
+  /// `userCadenceStatus`, `reviewStatus`, `paymentStatus`, `amountPaidPaise`
+  /// and `outstandingPaise` — plus the row identity (`id`, `sourceType`).
+  /// Nothing a user can change through the UI may be sourced from the incoming
+  /// scan record.
+  static ObligationRecord _merge(
+    ObligationRecord existing,
+    ObligationRecord incoming,
+  ) => existing.copyWith(
+    sourceId: incoming.sourceId,
+    merchant: incoming.merchant,
+    merchantNorm: incoming.merchantNorm,
+    categoryKey: incoming.categoryKey,
+    amountPaise: incoming.amountPaise,
+    amountStatus: incoming.amountStatus,
+    recurrence: incoming.recurrence,
+    dueDate: incoming.dueDate,
+    dueDay: incoming.dueDay,
+    dueMonth: incoming.dueMonth,
+    paymentAccountHintLast4: incoming.paymentAccountHintLast4,
+    paymentAccountScope: incoming.paymentAccountScope,
+    nextExpectedSource: incoming.nextExpectedSource,
+    upiVpaNorm: incoming.upiVpaNorm,
+    payeeType: incoming.payeeType,
+    confidence: incoming.confidence,
+  );
 
   Future<List<ObligationRecord>> allActive() async {
     final rows = await _db.query(
@@ -41,8 +92,14 @@ class ObligationRepository {
     return rows.map(_fromRow).toList(growable: false);
   }
 
-  Future<ObligationRecord?> byDedupeKey(String dedupeKey) async {
-    final rows = await _db.query(
+  Future<ObligationRecord?> byDedupeKey(String dedupeKey) =>
+      _byDedupeKey(_db, dedupeKey);
+
+  static Future<ObligationRecord?> _byDedupeKey(
+    DatabaseExecutor db,
+    String dedupeKey,
+  ) async {
+    final rows = await db.query(
       'obligations',
       where: 'dedupe_key = ?',
       whereArgs: [dedupeKey],
@@ -52,20 +109,27 @@ class ObligationRepository {
     return _fromRow(rows.single);
   }
 
+  /// Migrates the user's legacy `manualTx` payload. Runs once at first launch,
+  /// in a single transaction: a partial import is a state the user can neither
+  /// see nor retry cleanly, so a failure part-way must commit nothing.
   Future<int> importLegacyManualEntries(
     List<ExpenseEntry> entries, {
     DateTime? now,
   }) async {
-    var imported = 0;
     final timestamp = now ?? DateTime.now();
-    for (final entry in entries) {
-      final record = _fromLegacyEntry(entry, timestamp);
-      if (await byDedupeKey(record.dedupeKey) != null) {
-        continue;
+    var imported = 0;
+    await _db.transaction((txn) async {
+      var count = 0;
+      for (final entry in entries) {
+        final record = _fromLegacyEntry(entry, timestamp);
+        if (await _byDedupeKey(txn, record.dedupeKey) != null) {
+          continue;
+        }
+        await _upsertWithin(txn, record, null, timestamp);
+        count++;
       }
-      await upsert(record, now: timestamp);
-      imported++;
-    }
+      imported = count;
+    });
     return imported;
   }
 

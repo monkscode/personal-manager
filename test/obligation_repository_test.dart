@@ -27,6 +27,11 @@ void main() {
     ObligationReviewStatus reviewStatus = ObligationReviewStatus.confirmed,
     DateTime? dueDate,
     int? dueMonth,
+    UserCadenceStatus userCadenceStatus = UserCadenceStatus.userConfirmed,
+    ReconciliationPaymentStatus paymentStatus =
+        ReconciliationPaymentStatus.unpaid,
+    int? amountPaidPaise,
+    int? outstandingPaise,
   }) {
     return ObligationRecord(
       sourceType: ObligationSourceType.gmail,
@@ -42,10 +47,12 @@ void main() {
       dueDay: dueDate?.day,
       dueMonth: dueMonth,
       paymentAccountScope: AccountScope.unknown,
-      paymentStatus: ReconciliationPaymentStatus.unpaid,
+      amountPaidPaise: amountPaidPaise,
+      outstandingPaise: outstandingPaise,
+      paymentStatus: paymentStatus,
       nextExpectedSource: NextExpectedSource.explicitDueDate,
       payeeType: PayeeType.merchant,
-      userCadenceStatus: UserCadenceStatus.userConfirmed,
+      userCadenceStatus: userCadenceStatus,
       confidence: 0.95,
       reviewStatus: reviewStatus,
       createdAt: DateTime(2026, 7, 9),
@@ -267,6 +274,141 @@ void main() {
         ),
         throwsA(isA<ArgumentError>()),
       );
+    });
+  });
+
+  group('a rescan must not overwrite user decisions', () {
+    test('saved reserve progress survives a re-upsert of the same key', () async {
+      final repository = await openRepository();
+
+      await repository.upsert(
+        obligation(dedupeKey: 'lic:annual'),
+        now: DateTime(2026, 7, 22),
+      );
+      await repository.updateReserveProgress(
+        'lic:annual',
+        enabled: true,
+        fundedPaise: 1800000,
+        now: DateTime(2026, 7, 22),
+      );
+
+      // A later SMS scan re-derives the same dedupe key from history alone, so
+      // its record carries the model defaults for the reserve columns.
+      await repository.upsert(
+        obligation(dedupeKey: 'lic:annual'),
+        now: DateTime(2026, 7, 23),
+      );
+
+      final saved = await repository.byDedupeKey('lic:annual');
+      expect(saved!.reserveEnabled, isTrue);
+      expect(saved.reserveFundedPaise, 1800000);
+    });
+
+    test('a user-confirmed cadence is not reset to algorithm-detected', () async {
+      final repository = await openRepository();
+
+      await repository.upsert(
+        obligation(userCadenceStatus: UserCadenceStatus.userConfirmed),
+        now: DateTime(2026, 7, 22),
+      );
+      await repository.upsert(
+        obligation(userCadenceStatus: UserCadenceStatus.algorithmDetected),
+        now: DateTime(2026, 7, 23),
+      );
+
+      final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+      expect(saved!.userCadenceStatus, UserCadenceStatus.userConfirmed);
+    });
+
+    test('a dismissed obligation does not reappear as confirmed', () async {
+      final repository = await openRepository();
+
+      await repository.upsert(
+        obligation(reviewStatus: ObligationReviewStatus.dismissed),
+        now: DateTime(2026, 7, 22),
+      );
+      await repository.upsert(
+        obligation(reviewStatus: ObligationReviewStatus.confirmed),
+        now: DateTime(2026, 7, 23),
+      );
+
+      final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+      expect(saved!.reviewStatus, ObligationReviewStatus.dismissed);
+      expect(await repository.allActive(), isEmpty);
+    });
+
+    test('a recorded partial payment survives a re-upsert', () async {
+      final repository = await openRepository();
+
+      await repository.upsert(
+        obligation(
+          paymentStatus: ReconciliationPaymentStatus.partial,
+          amountPaidPaise: 2000000,
+          outstandingPaise: 2700000,
+        ),
+        now: DateTime(2026, 7, 22),
+      );
+      await repository.upsert(
+        obligation(paymentStatus: ReconciliationPaymentStatus.unpaid),
+        now: DateTime(2026, 7, 23),
+      );
+
+      final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+      expect(saved!.paymentStatus, ReconciliationPaymentStatus.partial);
+      expect(saved.amountPaidPaise, 2000000);
+      expect(saved.outstandingPaise, 2700000);
+    });
+
+    test('SMS-derived fields still refresh on a re-upsert', () async {
+      final repository = await openRepository();
+
+      await repository.upsert(
+        obligation(amountPaise: 500000),
+        now: DateTime(2026, 7, 22),
+      );
+      await repository.upsert(
+        obligation(amountPaise: 750000, dueDate: DateTime(2026, 9, 12)),
+        now: DateTime(2026, 7, 23),
+      );
+
+      final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+      expect(saved!.amountPaise, 750000);
+      expect(saved.dueDate, DateTime(2026, 9, 12));
+      expect(saved.dueDay, 12);
+    });
+
+    test('a failure part-way through a legacy import commits nothing', () async {
+      final repository = await openRepository();
+      const good = ExpenseEntry(
+        name: 'Broadband',
+        category: 'Utilities',
+        categoryKey: 'utilities',
+        amount: 1299,
+        initial: 'BR',
+        color: Colors.blue,
+        recurrence: 'monthly',
+      );
+      // A negative amount is rejected by MoneyParser, failing the second entry
+      // after the first has already been written.
+      const bad = ExpenseEntry(
+        name: 'Gym',
+        category: 'Utilities',
+        categoryKey: 'utilities',
+        amount: -1,
+        initial: 'GY',
+        color: Colors.blue,
+        recurrence: 'monthly',
+      );
+
+      await expectLater(
+        repository.importLegacyManualEntries(
+          [good, bad],
+          now: DateTime(2026, 7, 9),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+
+      expect(await repository.allActive(), isEmpty);
     });
   });
 }
