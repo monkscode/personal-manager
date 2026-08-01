@@ -86,17 +86,28 @@ or coordinate regions explicitly.
 
 Add to `test/sms_transaction_parser_test.dart`:
 
-- [ ] The loan-repayment string → `direction == debit`, amount 1500000 paise.
-- [ ] `Rs.5,000.00 credited to A/c XX1234 as refund for order #123` → `direction == credit`
+- [x] The loan-repayment string → `direction == debit`, amount 1500000 paise.
+- [x] `Rs.5,000.00 credited to A/c XX1234 as refund for order #123` → `direction == credit`
       (refund must stay an inflow — guard against over-correcting).
-- [ ] `Rs.2,000.00 reversed to your A/c XX1234` → `direction == credit`.
-- [ ] The cashback string → `direction == credit`, amount 10000 paise.
-- [ ] `Rs.1,250.00 debited from a/c XX1234 to swiggy@okhdfcbank` → `direction == debit`
+- [x] `Rs.2,000.00 reversed to your A/c XX1234` → `direction == credit`.
+- [x] The cashback string → `direction == credit`, amount 10000 paise.
+- [x] `Rs.1,250.00 debited from a/c XX1234 to swiggy@okhdfcbank` → `direction == debit`
       (regression guard on the common case).
-- [ ] A message with **no** verb adjacent to the amount still resolves via the global
+- [x] A message with **no** verb adjacent to the amount still resolves via the global
       fallback and does not crash or return null unexpectedly.
 
 Add the repayment and cashback strings to the golden corpora — coordinate with TASK-07.
+
+> Deferred to TASK-07 as written: `test/golden/*.json` untouched here.
+>
+> Two of the six were red — the EMI (`credit`, wanted `debit`) and the cashback (`debit`,
+> wanted `credit`). The other four are the guards this task asks for and passed before the
+> fix, which is what a guard should do.
+>
+> The fallback test uses `debited with an amount of Rs.750.00`: at the current 12-char
+> window `"debited with "` (13) does not reach the amount, so it exercises the documented
+> whole-message fallback. When TASK-08 widens the window the adjacent rule resolves it
+> directly and the expectation is unchanged either way.
 
 ## Verification
 
@@ -107,9 +118,14 @@ flutter test
 
 ## Definition of done
 
-- [ ] `repayment` reclassified as a debit verb
-- [ ] Direction decided from the verb adjacent to the chosen amount, with the global
+- [x] `repayment` reclassified as a debit verb
+- [x] Direction decided from the verb adjacent to the chosen amount, with the global
       rule as a documented fallback
-- [ ] All six tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Infer transaction direction from the verb governing the amount`
+- [x] All six tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Infer transaction direction from the verb governing the amount`
+
+`_AmountResult` now carries the chosen `RegExpMatch`, so direction reads the same window
+`_verbAdjacent` already used to pick the amount. That window is the named constant
+`_adjacencyWindow` (still 12) — TASK-08 widens it in one place, and both the amount choice
+and the direction rule inherit it.

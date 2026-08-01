@@ -55,17 +55,19 @@ class SmsTransactionParser {
     r'\b[A-Za-z0-9._-]+@[A-Za-z][A-Za-z0-9._-]+\b',
   );
 
-  // Direction verbs. Debit precedence: when both a debit and a credit verb
+  // Direction verbs. `repayment` is a *debit*: in Indian bank SMS it is the
+  // customer paying down a loan, so an EMI alert must not book as income.
+  // Whole-message fallback precedence: when both a debit and a credit verb
   // appear, debit wins unless the credit verb is an explicit inflow
-  // (refund/reversal/repayment) — money genuinely returning to the holder.
+  // (refund/reversal) — money genuinely returning to the holder.
   static final RegExp _debitVerb = RegExp(
-    r'\bdebited\b|\bdeducted\b|\bspent\b|\bpaid\b|\bcharged\b|\bpurchased\b|\bsent to\b|\bwithdrawn\b',
+    r'\bdebited\b|\bdeducted\b|\bspent\b|\bpaid\b|\bcharged\b|\bpurchased\b|\bsent to\b|\bwithdrawn\b|\brepayment\b',
   );
   static final RegExp _creditVerb = RegExp(
-    r'\bcredited\b|\bdeposited\b|\breceived\b|\brefund(?:ed)?\b|\breversed\b|\brepayment\b',
+    r'\bcredited\b|\bdeposited\b|\breceived\b|\brefund(?:ed)?\b|\breversed\b',
   );
   static final RegExp _explicitInflow = RegExp(
-    r'\brefund(?:ed)?\b|\breversed\b|\brepayment\b',
+    r'\brefund(?:ed)?\b|\breversed\b',
   );
   // A balance/limit phrase immediately before an amount marks that amount as a
   // balance (not the transaction value). Anchored to the end of the preceding
@@ -78,6 +80,9 @@ class SmsTransactionParser {
   static final RegExp _txnVerb = RegExp(
     r'debited|credited|spent|paid|deducted|charged|purchased|deposited|received|withdrawn|sent',
   );
+  // How far either side of an amount counts as "beside" it — used both to pick
+  // which amount is the transaction value and to find the verb governing it.
+  static const int _adjacencyWindow = 12;
 
   // Marketing vocabulary. A *strong* marker only ever appears in an offer, so
   // the message is not a transaction at all. A *weak* marker also shows up in
@@ -155,7 +160,7 @@ class SmsTransactionParser {
     ].where((v) => v).length;
     if (amountPaise == null || signals < 2) return null;
 
-    final direction = _direction(lower);
+    final direction = _direction(lower, amount.match);
     if (direction == null) return null;
 
     final instrument = _instrument(lower);
@@ -267,6 +272,7 @@ class SmsTransactionParser {
     if (nonBalance.length == 1) {
       return _AmountResult(
         MoneyParser.tryParseRupeesToPaise(nonBalance.single.group(0)!),
+        match: nonBalance.single,
       );
     }
 
@@ -279,10 +285,12 @@ class SmsTransactionParser {
     if (verbAdjacent.length == 1) {
       return _AmountResult(
         MoneyParser.tryParseRupeesToPaise(verbAdjacent.single.group(0)!),
+        match: verbAdjacent.single,
       );
     }
     return _AmountResult(
       MoneyParser.tryParseRupeesToPaise(nonBalance.first.group(0)!),
+      match: nonBalance.first,
       uncertain: true,
     );
   }
@@ -292,15 +300,22 @@ class SmsTransactionParser {
     return _balancePrefix.hasMatch(lower.substring(windowStart, amountStart));
   }
 
-  bool _verbAdjacent(String lower, RegExpMatch match) {
-    const window = 12;
-    final beforeStart = match.start < window ? 0 : match.start - window;
-    final afterEnd = match.end + window > lower.length
+  bool _verbAdjacent(String lower, RegExpMatch match) =>
+      _txnVerb.hasMatch(_beforeAmount(lower, match)) ||
+      _txnVerb.hasMatch(_afterAmount(lower, match));
+
+  String _beforeAmount(String lower, RegExpMatch match) {
+    final start = match.start < _adjacencyWindow
+        ? 0
+        : match.start - _adjacencyWindow;
+    return lower.substring(start, match.start);
+  }
+
+  String _afterAmount(String lower, RegExpMatch match) {
+    final end = match.end + _adjacencyWindow > lower.length
         ? lower.length
-        : match.end + window;
-    final before = lower.substring(beforeStart, match.start);
-    final after = lower.substring(match.end, afterEnd);
-    return _txnVerb.hasMatch(before) || _txnVerb.hasMatch(after);
+        : match.end + _adjacencyWindow;
+    return lower.substring(match.end, end);
   }
 
   int? _extractBalancePaise(String body, String lower) {
@@ -329,12 +344,34 @@ class SmsTransactionParser {
     return null;
   }
 
-  TransactionDirection? _direction(String lower) {
+  /// Direction of the chosen amount, in preference order:
+  ///
+  /// 1. the debit/credit verb sitting beside that amount — the verb that
+  ///    actually governs it. "Rs.100 credited ... for your bill paid" is a
+  ///    credit, because `paid` describes the *original* bill, not this amount.
+  /// 2. the whole-message rule, used when no verb is adjacent, or when both
+  ///    kinds are.
+  TransactionDirection? _direction(String lower, RegExpMatch? amountMatch) {
+    if (amountMatch != null) {
+      final before = _beforeAmount(lower, amountMatch);
+      final after = _afterAmount(lower, amountMatch);
+      final hasDebit =
+          _debitVerb.hasMatch(before) || _debitVerb.hasMatch(after);
+      final hasCredit =
+          _creditVerb.hasMatch(before) || _creditVerb.hasMatch(after);
+      if (hasDebit != hasCredit) {
+        return hasDebit ? TransactionDirection.debit : TransactionDirection.credit;
+      }
+    }
+    return _wholeMessageDirection(lower);
+  }
+
+  TransactionDirection? _wholeMessageDirection(String lower) {
     final hasDebit = _debitVerb.hasMatch(lower);
     final hasCredit = _creditVerb.hasMatch(lower);
     if (hasDebit && hasCredit) {
       // Both signals present: debit wins unless an explicit inflow verb
-      // (refund/reversal/repayment) shows money returning to the holder.
+      // (refund/reversal) shows money returning to the holder.
       return _explicitInflow.hasMatch(lower)
           ? TransactionDirection.credit
           : TransactionDirection.debit;
@@ -436,8 +473,12 @@ enum _PromoSignal { none, review, reject }
 /// more equally plausible non-balance candidates), in which case the row is
 /// kept but routed to review as [ReviewReason.parserUncertain].
 class _AmountResult {
-  const _AmountResult(this.paise, {this.uncertain = false});
+  const _AmountResult(this.paise, {this.match, this.uncertain = false});
 
   final int? paise;
+
+  /// Where the chosen amount sits in the body, so direction can be read from
+  /// the verb beside it rather than from a scan of the whole message.
+  final RegExpMatch? match;
   final bool uncertain;
 }

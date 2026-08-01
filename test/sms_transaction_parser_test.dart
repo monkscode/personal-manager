@@ -377,4 +377,94 @@ void main() {
       expect(stored.single.reviewStatus, isNot(ReviewStatus.autoAdded));
     });
   });
+
+  group('direction follows the verb governing the amount', () {
+    test('a loan EMI is an outflow, not income', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'HDFC Bank: Rs.15,000.00 debited from A/c XX1234 towards loan '
+              'repayment. Avl Bal Rs.5,000.00.',
+        ),
+        scanBatchId: 'scan-18',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.debit);
+      expect(txn.amountPaise, 1500000);
+    });
+
+    test('a refund credit stays an inflow', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body: 'Rs.5,000.00 credited to A/c XX1234 as refund for order #123',
+        ),
+        scanBatchId: 'scan-19',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.credit);
+    });
+
+    test('a reversal credit stays an inflow', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body: 'Rs.2,000.00 reversed to your A/c XX1234',
+        ),
+        scanBatchId: 'scan-20',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.credit);
+    });
+
+    test('cashback is an inflow despite the bill it refers to being paid', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'HDFC Bank: Rs.100.00 credited to A/c XX1234 as cashback for '
+              'your bill paid on 26-06-25.',
+        ),
+        scanBatchId: 'scan-21',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.credit);
+      expect(txn.amountPaise, 10000);
+    });
+
+    test('the common UPI debit still reads as a debit', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body: 'Rs.1,250.00 debited from a/c XX1234 to swiggy@okhdfcbank',
+        ),
+        scanBatchId: 'scan-22',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.debit);
+    });
+
+    test('no verb beside the amount falls back to the whole-message rule', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'HDFC Bank: A/c XX1234 has been debited with an amount of '
+              'Rs.750.00 for your electricity bill.',
+        ),
+        scanBatchId: 'scan-23',
+        bodyHashSalt: 'test-salt',
+      );
+
+      expect(txn, isNotNull);
+      expect(txn!.direction, TransactionDirection.debit);
+      expect(txn.amountPaise, 75000);
+    });
+  });
 }
