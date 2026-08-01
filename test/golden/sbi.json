@@ -34,5 +34,21 @@
     "body": "Exclusive offer! Enjoy a flat discount on SBI Credit Cards this season. Apply now. T&C apply. -SBI",
     "receivedAt": "2025-06-20T10:00:00",
     "isTxn": false
+  },
+  {
+    "sender": "AD-SBIINB",
+    "body": "Dear UPI user A/C X3456 debited by 1250.0 on date 05Jan25 trf to GROCERY STORE Refno 501234567890 -SBI",
+    "receivedAt": "2025-01-05T11:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 125000
+  },
+  {
+    "sender": "AD-SBIINB",
+    "body": "Rs.10,000.00 debited from A/c XX3456 and credited to your own A/c XX9876 via IMPS Ref 601234567890 -SBI",
+    "receivedAt": "2025-06-24T10:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 1000000
   }
 ]

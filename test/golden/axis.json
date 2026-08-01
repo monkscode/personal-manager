@@ -34,5 +34,21 @@
     "body": "Axis Bank: Flat 20% discount offer on shopping this weekend sale. Shop now with your debit card.",
     "receivedAt": "2025-06-14T10:00:00",
     "isTxn": false
+  },
+  {
+    "sender": "VK-AXISBK",
+    "body": "Axis Bank Acct XX7788 debited with INR 2750.00 on 28-06-25. Info- UPI/P2A/RAHUL. Avl Bal- INR 41000.00",
+    "receivedAt": "2025-06-28T10:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 275000
+  },
+  {
+    "sender": "VK-AXISBK",
+    "body": "Axis Bank: Rs.1,299.00 credited to A/c XX7788 as refund for order 5566. Avl Bal Rs.42,299.00.",
+    "receivedAt": "2025-06-30T10:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 129900
   }
 ]

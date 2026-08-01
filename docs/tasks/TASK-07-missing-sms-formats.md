@@ -100,13 +100,35 @@ directly. Prefer sequential: **05 → 06 → 07 → 08**.
 
 ## Tests to write first
 
-- [ ] Both dropped formats parse: correct amount in paise, correct direction, correct
+- [x] Both dropped formats parse: correct amount in paise, correct direction, correct
       account tail, correct reference.
-- [ ] A bare number with **no** adjacent verb is still rejected as an amount.
-- [ ] `05Jan25` and `501234567890` are never selected as the transaction amount.
-- [ ] The expanded corpora pass the 0.90 precision/recall gate.
-- [ ] `golden_corpus_test.dart`'s "no noise sample is ever auto-added" assertion now runs
+- [x] A bare number with **no** adjacent verb is still rejected as an amount.
+- [x] `05Jan25` and `501234567890` are never selected as the transaction amount.
+- [x] The expanded corpora pass the 0.90 precision/recall gate.
+- [x] `golden_corpus_test.dart`'s "no noise sample is ever auto-added" assertion now runs
       against genuinely hard negatives (promo-with-credit, failed, balance enquiry).
+
+> **Defect 3 measured.** With *both* dropped formats still broken, the expanded corpus
+> reported **precision 1.00, recall 0.917** — it passed the 0.90 gate. Two of India's
+> highest-volume UPI formats returning null is not enough to move a 24-positive corpus
+> past a 10% tolerance, so the gate cannot be the thing that catches this class of bug.
+> The unit tests in `sms_transaction_parser_test.dart` are the real red; the corpus value
+> is in the hard negatives and the new `autoAdd` label. Post-fix: 38 samples,
+> precision 1.00, recall 1.00, 0 false positives, 0 false negatives.
+>
+> `_Sample` gained an optional `autoAdd` field. Set to `false` it asserts a genuine
+> transaction is never auto-added — the AutoPay pre-notice uses it. Absent, the sample
+> makes no claim.
+>
+> **Correct reference** required widening `_ref`: SBI writes `Refno 501234567890`, and the
+> old pattern consumed `Ref` then failed the 6-char group on `no`, capturing nothing.
+>
+> **Not added: an EMI-due reminder row.** `Your EMI of Rs.8,500.00 is due on 05-Jul-25`
+> carries no debit or credit verb, so `_direction` returns null and the row is dropped.
+> Labelling it `isTxn: true` would fail; labelling it `isTxn: false` would bake in
+> "obligation reminders are not signal", which contradicts TASK-05's decision to keep
+> AutoPay pre-notices. It is a real gap, it is not in this task's required table, and no
+> other task file covers it — left for a future task rather than mislabelled here.
 
 ## Verification
 
@@ -117,9 +139,22 @@ flutter test
 
 ## Definition of done
 
-- [ ] `sent` accepted as a debit verb with a proximity guard
-- [ ] Currency token optional when a verb is adjacent, with dates/refs still excluded
-- [ ] All 11 corpus rows above added with expected outcomes
-- [ ] Corpus passes the 0.90 gate **after** the parser fixes, not by weakening the gate
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Parse HDFC and SBI UPI alert formats and harden the golden corpus`
+- [x] `sent` accepted as a debit verb with a proximity guard
+- [x] Currency token optional when a verb is adjacent, with dates/refs still excluded
+- [x] All 11 corpus rows above added with expected outcomes
+- [x] Corpus passes the 0.90 gate **after** the parser fixes, not by weakening the gate
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Parse HDFC and SBI UPI alert formats and harden the golden corpus`
+
+13 rows added, not 11: a refund and a reversal were included from the "missing entirely"
+list above, since both parse cleanly and neither was represented.
+
+The bare-number fallback runs **only** when the body names no currency at all. A body that
+does carry an `Rs.`/`INR` amount but hides it behind a balance keyword still yields no
+amount, rather than falling through to guess at some other number.
+
+The Axis row is present as this task's table requires. It parses with the right amount and
+direction but is still `parserUncertain` — that is TASK-08 Defect 3 (`Avl Bal-` and the
+12-char window), so the row deliberately carries no `autoAdd` label. **TASK-08 should set
+`"autoAdd": true` on it** once its fix lands, which turns that row into the regression
+guard for the Axis review-loop bug.

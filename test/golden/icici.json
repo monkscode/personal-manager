@@ -34,5 +34,13 @@
     "body": "ICICI Bank: Grab the best sale offer on personal loans at low rates. Limited time discount. Apply now.",
     "receivedAt": "2025-06-15T10:00:00",
     "isTxn": false
+  },
+  {
+    "sender": "VM-ICICIB",
+    "body": "ICICI Bank: Rs.2,000.00 reversed to A/c XX5678 on 29-Jun-25. Avl Bal Rs.24,000.00.",
+    "receivedAt": "2025-06-29T12:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 200000
   }
 ]

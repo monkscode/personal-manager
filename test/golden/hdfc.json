@@ -34,5 +34,62 @@
     "body": "HDFC Bank: Enjoy an exclusive discount offer on dining with your Credit Card. Limited period sale. T&C apply.",
     "receivedAt": "2025-06-18T10:00:00",
     "isTxn": false
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "Sent Rs.500.00 From HDFC Bank A/C x1234 To rahul@okhdfcbank On 05/01/25 Ref 501234567890",
+    "receivedAt": "2025-01-05T10:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 50000
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "HDFC Bank: Rs.15,000.00 debited from A/c XX1234 towards loan repayment. Avl Bal Rs.5,000.00.",
+    "receivedAt": "2025-07-05T10:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 1500000
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "HDFC Bank: Rs.100.00 credited to A/c XX1234 as cashback for your bill paid on 26-06-25.",
+    "receivedAt": "2025-06-27T10:00:00",
+    "isTxn": true,
+    "direction": "credit",
+    "amountPaise": 10000
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "Rs.499.00 will be debited from your A/c XX1234 on 05-Jul-25 for NETFLIX UPI Autopay. Ref 512345678901.",
+    "receivedAt": "2025-07-02T10:00:00",
+    "isTxn": true,
+    "direction": "debit",
+    "amountPaise": 49900,
+    "autoAdd": false
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "Congratulations! Rs. 5,00,000 pre-approved Personal Loan can be credited to your HDFC Bank A/c XX1234 instantly. Apply now.",
+    "receivedAt": "2025-06-10T10:00:00",
+    "isTxn": false
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "Rs.2,500.00 debited from A/c XX1234 could not be processed. The amount will be credited back in 3 days.",
+    "receivedAt": "2025-06-21T10:00:00",
+    "isTxn": false
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "Dear Customer, the balance in your HDFC Bank A/c XX1234 has fallen below the required minimum. Avl Bal Rs.2,500.00. Please maintain MAB.",
+    "receivedAt": "2025-06-22T10:00:00",
+    "isTxn": false
+  },
+  {
+    "sender": "VM-HDFCBK",
+    "body": "HDFC Bank: Balance in A/c XX1234 as on 05-Jan-25 is Rs.42,500.00. Thank you for banking with us.",
+    "receivedAt": "2025-01-05T09:00:00",
+    "isTxn": false
   }
 ]

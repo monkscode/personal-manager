@@ -467,4 +467,74 @@ void main() {
       expect(txn.amountPaise, 75000);
     });
   });
+
+  group('high-volume formats that used to parse to nothing', () {
+    test('the HDFC UPI alert that separates "Sent" from "To" parses', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'Sent Rs.500.00 From HDFC Bank A/C x1234 To rahul@okhdfcbank '
+              'On 05/01/25 Ref 501234567890',
+        ),
+        scanBatchId: 'scan-24',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.debit);
+      expect(txn.amountPaise, 50000);
+      expect(txn.accountLast4, '1234');
+      expect(txn.refNumber, '501234567890');
+    });
+
+    test('the SBI UPI alert with no currency token parses', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'AD-SBIINB',
+          body:
+              'Dear UPI user A/C X3456 debited by 1250.0 on date 05Jan25 trf '
+              'to GROCERY STORE Refno 501234567890 -SBI',
+        ),
+        scanBatchId: 'scan-25',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.debit);
+      expect(txn.amountPaise, 125000);
+      expect(txn.accountLast4, '3456');
+      expect(txn.refNumber, '501234567890');
+    });
+
+    test('a date and a reference number are never read as an amount', () {
+      expect(
+        parser.parseOne(
+          sms(
+            sender: 'AD-SBIINB',
+            body:
+                'Dear UPI user A/C X3456 debited on date 05Jan25 trf to '
+                'GROCERY STORE Refno 501234567890 -SBI',
+          ),
+          scanBatchId: 'scan-26',
+          bodyHashSalt: 'test-salt',
+        ),
+        isNull,
+      );
+    });
+
+    test('a bare number with no verb beside it is not an amount', () {
+      expect(
+        parser.parseOne(
+          sms(
+            sender: 'VM-HDFCBK',
+            body:
+                'HDFC Bank: A/c XX1234 debited. Your reward points balance is '
+                '1250.0 as on date. Ref 501234567890',
+          ),
+          scanBatchId: 'scan-27',
+          bodyHashSalt: 'test-salt',
+        ),
+        isNull,
+      );
+    });
+  });
 }

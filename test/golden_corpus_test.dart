@@ -25,7 +25,8 @@ class _Sample {
         receivedAt = DateTime.parse(j['receivedAt'] as String),
         isTxn = j['isTxn'] as bool,
         direction = j['direction'] as String?,
-        amountPaise = j['amountPaise'] as int?;
+        amountPaise = j['amountPaise'] as int?,
+        autoAdd = j['autoAdd'] as bool?;
 
   final String sender;
   final String body;
@@ -33,6 +34,11 @@ class _Sample {
   final bool isTxn;
   final String? direction;
   final int? amountPaise;
+
+  /// Explicitly `false` on a real transaction that must never be auto-added —
+  /// an AutoPay pre-notice, say, which is genuine signal but not a dated
+  /// actual. Null means the sample makes no claim either way.
+  final bool? autoAdd;
 }
 
 void main() {
@@ -108,8 +114,28 @@ void main() {
         final parsed = parse(s);
         if (parsed != null && parsed.reviewStatus == ReviewStatus.autoAdded) {
           expect(s.isTxn, isTrue, reason: 'a non-txn was auto-added: "${s.body}"');
+          expect(
+            s.autoAdd,
+            isNot(false),
+            reason: 'a review-only sample was auto-added: "${s.body}"',
+          );
         }
       }
     }
+  });
+
+  test('the corpus carries the hard negatives the gate depends on', () {
+    final noise = [
+      for (final file in _bankFiles)
+        for (final s in load(file))
+          if (!s.isTxn) s.body.toLowerCase(),
+    ];
+
+    // Without these the precision gate only ever sees OTP and offer copy, which
+    // the sender/verb checks reject for free — it proves almost nothing.
+    expect(noise.any((b) => b.contains('pre-approved')), isTrue);
+    expect(noise.any((b) => b.contains('could not be processed')), isTrue);
+    expect(noise.any((b) => b.contains('below the required minimum')), isTrue);
+    expect(noise.any((b) => b.contains('balance in a/c')), isTrue);
   });
 }

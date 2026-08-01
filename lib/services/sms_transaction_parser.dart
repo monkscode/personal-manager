@@ -47,8 +47,11 @@ class SmsTransactionParser {
     r'\bcard\s+ending\s+(\d{4})\b',
     caseSensitive: false,
   );
+  // The optional `no` absorbs both SBI's `Refno 5012...` and the spaced
+  // `Ref no. 5012...`; without it the digits are read as part of the keyword
+  // and no reference is captured at all.
   static final RegExp _ref = RegExp(
-    r'\b(?:upi\s*)?(?:ref(?:erence)?|rrn|txn(?:\s*id)?|transaction\s*id)\s*[:#-]?\s*([A-Za-z0-9]{6,})',
+    r'\b(?:upi\s*)?(?:ref(?:erence)?\s*(?:no\.?)?|rrn|txn(?:\s*id)?|transaction\s*id)\s*[:#-]?\s*([A-Za-z0-9]{6,})',
     caseSensitive: false,
   );
   static final RegExp _vpa = RegExp(
@@ -60,8 +63,12 @@ class SmsTransactionParser {
   // Whole-message fallback precedence: when both a debit and a credit verb
   // appear, debit wins unless the credit verb is an explicit inflow
   // (refund/reversal) — money genuinely returning to the holder.
+  // `sent` is bare rather than the literal `sent to`: HDFC's UPI debit alert
+  // reads "Sent Rs.500.00 From ... To <vpa>", often across a line break, so the
+  // two words are never adjacent. The lookahead keeps it off unrelated prose by
+  // requiring a `to`/`from` to follow within the same clause.
   static final RegExp _debitVerb = RegExp(
-    r'\bdebited\b|\bdeducted\b|\bspent\b|\bpaid\b|\bcharged\b|\bpurchased\b|\bsent to\b|\bwithdrawn\b|\brepayment\b',
+    r'\bdebited\b|\bdeducted\b|\bspent\b|\bpaid\b|\bcharged\b|\bpurchased\b|\bwithdrawn\b|\brepayment\b|\bsent\b(?=[\s\S]{0,40}?\b(?:to|from)\b)',
   );
   static final RegExp _creditVerb = RegExp(
     r'\bcredited\b|\bdeposited\b|\breceived\b|\brefund(?:ed)?\b|\breversed\b',
@@ -83,6 +90,13 @@ class SmsTransactionParser {
   // How far either side of an amount counts as "beside" it — used both to pick
   // which amount is the transaction value and to find the verb governing it.
   static const int _adjacencyWindow = 12;
+  // SBI's UPI alert carries no ₹/Rs/INR token at all ("debited by 1250.0"). A
+  // bare number is read as money only when a transaction verb anchors it *and*
+  // it carries decimals — that keeps dates (05Jan25), reference numbers and
+  // years out of the candidate pool.
+  static final RegExp _verbAnchoredAmount = RegExp(
+    r'\b(?:debited|credited|deducted|withdrawn|deposited|spent|paid|charged|sent|received)\b\s*(?:by|for|with|of|amount|amt)?\s*([0-9][0-9,]*\.[0-9]{1,2})\b',
+  );
 
   // Marketing vocabulary. A *strong* marker only ever appears in an offer, so
   // the message is not a transaction at all. A *weak* marker also shows up in
@@ -160,7 +174,7 @@ class SmsTransactionParser {
     ].where((v) => v).length;
     if (amountPaise == null || signals < 2) return null;
 
-    final direction = _direction(lower, amount.match);
+    final direction = _direction(lower, amount.start, amount.end);
     if (direction == null) return null;
 
     final instrument = _instrument(lower);
@@ -263,7 +277,10 @@ class SmsTransactionParser {
 
   _AmountResult _extractAmount(String body, String lower) {
     final matches = _amount.allMatches(body).toList();
-    if (matches.isEmpty) return const _AmountResult(null);
+    // Only when the body names no currency at all is the bare-number fallback
+    // tried; a body that *has* an ₹/Rs/INR amount but hides it behind a balance
+    // keyword is still a no-amount body, not an invitation to guess.
+    if (matches.isEmpty) return _bareAmount(lower);
 
     final nonBalance = matches
         .where((match) => !_precededByBalanceKeyword(lower, match.start))
@@ -272,7 +289,8 @@ class SmsTransactionParser {
     if (nonBalance.length == 1) {
       return _AmountResult(
         MoneyParser.tryParseRupeesToPaise(nonBalance.single.group(0)!),
-        match: nonBalance.single,
+        start: nonBalance.single.start,
+        end: nonBalance.single.end,
       );
     }
 
@@ -285,13 +303,30 @@ class SmsTransactionParser {
     if (verbAdjacent.length == 1) {
       return _AmountResult(
         MoneyParser.tryParseRupeesToPaise(verbAdjacent.single.group(0)!),
-        match: verbAdjacent.single,
+        start: verbAdjacent.single.start,
+        end: verbAdjacent.single.end,
       );
     }
     return _AmountResult(
       MoneyParser.tryParseRupeesToPaise(nonBalance.first.group(0)!),
-      match: nonBalance.first,
+      start: nonBalance.first.start,
+      end: nonBalance.first.end,
       uncertain: true,
+    );
+  }
+
+  /// Amount for bodies that name no currency, taken only from a number a
+  /// transaction verb is speaking about.
+  _AmountResult _bareAmount(String lower) {
+    final match = _verbAnchoredAmount.firstMatch(lower);
+    if (match == null) return const _AmountResult(null);
+    final text = match.group(1)!;
+    final start = match.start + match.group(0)!.lastIndexOf(text);
+    if (_precededByBalanceKeyword(lower, start)) return const _AmountResult(null);
+    return _AmountResult(
+      MoneyParser.tryParseRupeesToPaise(text),
+      start: start,
+      end: start + text.length,
     );
   }
 
@@ -301,21 +336,21 @@ class SmsTransactionParser {
   }
 
   bool _verbAdjacent(String lower, RegExpMatch match) =>
-      _txnVerb.hasMatch(_beforeAmount(lower, match)) ||
-      _txnVerb.hasMatch(_afterAmount(lower, match));
+      _txnVerb.hasMatch(_beforeAmount(lower, match.start)) ||
+      _txnVerb.hasMatch(_afterAmount(lower, match.end));
 
-  String _beforeAmount(String lower, RegExpMatch match) {
-    final start = match.start < _adjacencyWindow
+  String _beforeAmount(String lower, int amountStart) {
+    final from = amountStart < _adjacencyWindow
         ? 0
-        : match.start - _adjacencyWindow;
-    return lower.substring(start, match.start);
+        : amountStart - _adjacencyWindow;
+    return lower.substring(from, amountStart);
   }
 
-  String _afterAmount(String lower, RegExpMatch match) {
-    final end = match.end + _adjacencyWindow > lower.length
+  String _afterAmount(String lower, int amountEnd) {
+    final to = amountEnd + _adjacencyWindow > lower.length
         ? lower.length
-        : match.end + _adjacencyWindow;
-    return lower.substring(match.end, end);
+        : amountEnd + _adjacencyWindow;
+    return lower.substring(amountEnd, to);
   }
 
   int? _extractBalancePaise(String body, String lower) {
@@ -351,10 +386,10 @@ class SmsTransactionParser {
   ///    credit, because `paid` describes the *original* bill, not this amount.
   /// 2. the whole-message rule, used when no verb is adjacent, or when both
   ///    kinds are.
-  TransactionDirection? _direction(String lower, RegExpMatch? amountMatch) {
-    if (amountMatch != null) {
-      final before = _beforeAmount(lower, amountMatch);
-      final after = _afterAmount(lower, amountMatch);
+  TransactionDirection? _direction(String lower, int? start, int? end) {
+    if (start != null && end != null) {
+      final before = _beforeAmount(lower, start);
+      final after = _afterAmount(lower, end);
       final hasDebit =
           _debitVerb.hasMatch(before) || _debitVerb.hasMatch(after);
       final hasCredit =
@@ -473,12 +508,18 @@ enum _PromoSignal { none, review, reject }
 /// more equally plausible non-balance candidates), in which case the row is
 /// kept but routed to review as [ReviewReason.parserUncertain].
 class _AmountResult {
-  const _AmountResult(this.paise, {this.match, this.uncertain = false});
+  const _AmountResult(
+    this.paise, {
+    this.start,
+    this.end,
+    this.uncertain = false,
+  });
 
   final int? paise;
 
   /// Where the chosen amount sits in the body, so direction can be read from
   /// the verb beside it rather than from a scan of the whole message.
-  final RegExpMatch? match;
+  final int? start;
+  final int? end;
   final bool uncertain;
 }
