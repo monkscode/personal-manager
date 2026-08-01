@@ -1,3 +1,4 @@
+import '../core/clamped_date.dart';
 import '../core/money.dart';
 import '../data/sms_models.dart';
 import 'sms_ingestion_policy.dart';
@@ -78,6 +79,51 @@ class SmsTransactionParser {
     r'debited|credited|spent|paid|deducted|charged|purchased|deposited|received|withdrawn|sent',
   );
 
+  // Marketing vocabulary. A *strong* marker only ever appears in an offer, so
+  // the message is not a transaction at all. A *weak* marker also shows up in
+  // the promotional tail banks append to genuine alerts, so it is additive
+  // rather than vetoed: it never cancels the promo signal, it forces the row to
+  // review. Weak copy carrying no debit or credit verb is marketing on its own
+  // and is rejected too.
+  static final RegExp _strongPromoMarker = RegExp(
+    r'\bpre[- ]?approved\b|\bapply now\b|\blimited period\b|\bloan offer\b|\bcongratulations\b',
+  );
+  static final RegExp _weakPromoMarker = RegExp(
+    r'\boffer\b|\bdiscount\b|\bsale\b|\bexclusive\b|\bclick\b|\bt&c apply\b|\bknow more\b|\beligible for\b',
+  );
+  // A failed, declined or error-reversed notice describes money that never
+  // moved. The optional "be" covers both "was not processed" and "could not be
+  // processed"; "has been declined" is covered by the bare verb.
+  static final RegExp _failureMarker = RegExp(
+    r'\bfailed\b|\bdeclined\b|\bunsuccessful\b|\bnot (?:be )?processed\b|\breversed due to\b',
+  );
+  // A pre-notice announces money that has not moved yet. It is kept — an
+  // AutoPay mandate is real obligation signal — but it may never become a dated
+  // actual, or it double-counts when the real debit alert lands days later.
+  // Vocabulary matches `_kFutureDebitNoticeMarkers` in `real_insights.dart`.
+  static final RegExp _futureNoticeMarker = RegExp(
+    r'\bwill be (?:debited|credited|deducted)\b|\bis due on\b|\bdue for payment\b|\bscheduled for\b|\bupcoming mandate\b|\bmandate set for\b',
+  );
+  // The date a pre-notice names for the debit: `on 05-Jul-25`, `on 11/08/26`,
+  // `on 05 Jul 2025`.
+  static final RegExp _statedDatePhrase = RegExp(
+    r'\b(?:on|by|for)\s+(\d{1,2})[-/ ]([a-z]{3,9}|\d{1,2})[-/ ](\d{2}|\d{4})\b',
+  );
+  static const _monthByName = {
+    'jan': 1,
+    'feb': 2,
+    'mar': 3,
+    'apr': 4,
+    'may': 5,
+    'jun': 6,
+    'jul': 7,
+    'aug': 8,
+    'sep': 9,
+    'oct': 10,
+    'nov': 11,
+    'dec': 12,
+  };
+
   ParsedTxn? parseOne(
     RawSms sms, {
     required String scanBatchId,
@@ -86,7 +132,10 @@ class SmsTransactionParser {
     final body = sms.body;
     final lower = body.toLowerCase();
     if (!_isStrictBankSms(sms.sender, lower)) return null;
-    if (_isOtpOrPromo(lower)) return null;
+    if (_isOtp(lower)) return null;
+    if (_failureMarker.hasMatch(lower)) return null;
+    final promo = _promoSignal(lower);
+    if (promo == _PromoSignal.reject) return null;
 
     final amount = _extractAmount(body, lower);
     final amountPaise = amount.paise;
@@ -120,11 +169,21 @@ class SmsTransactionParser {
       body: body,
     );
 
+    // A pre-notice is dated the day it announces, not the day it arrived, so
+    // the row lines up with the real debit alert instead of landing days early.
+    final isFutureNotice = _futureNoticeMarker.hasMatch(lower);
+    final txnDate = isFutureNotice
+        ? (_statedDate(lower) ?? sms.receivedAt)
+        : sms.receivedAt;
+
     // A parser-uncertain row is kept but always routed to review, even at high
-    // confidence, so an ambiguous amount is never silently auto-added.
-    final needsReview =
-        confidence < kAutoAddConfidenceThreshold || amount.uncertain;
-    final reviewReason = amount.uncertain
+    // confidence, so an ambiguous amount, a promotional tail or money that has
+    // not moved yet is never silently auto-added. The ingestion policy honours
+    // this reason on every later scan, so the row can never be auto-added.
+    final uncertain =
+        amount.uncertain || isFutureNotice || promo == _PromoSignal.review;
+    final needsReview = confidence < kAutoAddConfidenceThreshold || uncertain;
+    final reviewReason = uncertain
         ? ReviewReason.parserUncertain
         : (confidence < kAutoAddConfidenceThreshold
               ? ReviewReason.lowConfidence
@@ -137,7 +196,7 @@ class SmsTransactionParser {
       instrument: instrument,
       type: type,
       amountPaise: amountPaise,
-      txnDate: sms.receivedAt,
+      txnDate: txnDate,
       accountLast4: accountLast4,
       merchant: merchant,
       upiVpaNorm: upiVpa,
@@ -170,16 +229,31 @@ class SmsTransactionParser {
     return _knownBankFragments.any(normalized.contains);
   }
 
-  bool _isOtpOrPromo(String lower) {
-    final otp = RegExp(r'\botp\b|\bone\s*time\s*password\b').hasMatch(lower);
-    final promo =
-        RegExp(
-          r'\boffer\b|\bcashback offer\b|\bdiscount\b|\bsale\b',
-        ).hasMatch(lower) &&
-        !RegExp(
-          r'\bdebited\b|\bcredited\b|\bspent\b|\bpaid\b|\bcharged\b',
-        ).hasMatch(lower);
-    return otp || promo;
+  bool _isOtp(String lower) =>
+      RegExp(r'\botp\b|\bone\s*time\s*password\b').hasMatch(lower);
+
+  _PromoSignal _promoSignal(String lower) {
+    if (_strongPromoMarker.hasMatch(lower)) return _PromoSignal.reject;
+    if (!_weakPromoMarker.hasMatch(lower)) return _PromoSignal.none;
+    final hasVerb = _debitVerb.hasMatch(lower) || _creditVerb.hasMatch(lower);
+    return hasVerb ? _PromoSignal.review : _PromoSignal.reject;
+  }
+
+  /// The calendar date a future-tense notice names, or null when the body
+  /// carries no readable one (the caller then falls back to the received date).
+  DateTime? _statedDate(String lower) {
+    final match = _statedDatePhrase.firstMatch(lower);
+    if (match == null) return null;
+    final monthText = match.group(2)!;
+    final month =
+        int.tryParse(monthText) ?? _monthByName[monthText.substring(0, 3)];
+    if (month == null || month < 1 || month > 12) return null;
+    final yearText = match.group(3)!;
+    final year = yearText.length == 2
+        ? 2000 + int.parse(yearText)
+        : int.parse(yearText);
+    if (year < 2000 || year > 2100) return null;
+    return clampedDate(year, month, int.parse(match.group(1)!));
   }
 
   _AmountResult _extractAmount(String body, String lower) {
@@ -353,6 +427,10 @@ class SmsTransactionParser {
     return confidence.clamp(0, 1);
   }
 }
+
+/// What the marketing vocabulary in a body implies: nothing, keep the row but
+/// force review, or the body is an offer and not a transaction at all.
+enum _PromoSignal { none, review, reject }
 
 /// The chosen transaction amount plus whether the choice was ambiguous (two or
 /// more equally plausible non-balance candidates), in which case the row is

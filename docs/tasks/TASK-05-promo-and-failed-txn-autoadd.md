@@ -94,20 +94,26 @@ prefer doing 05, 06, 07 in sequence, or coordinate on which regions each edits.
 
 Add to `test/sms_transaction_parser_test.dart`:
 
-- [ ] The `pre-approved Personal Loan` string → either `parseOne` returns null, or the
+- [x] The `pre-approved Personal Loan` string → either `parseOne` returns null, or the
       result is `needsReview` and never `autoAdded`. Assert on `reviewStatus` explicitly.
-- [ ] The `rewards offer` string → same.
-- [ ] A **genuine** credit that happens to contain a promo-adjacent word still parses as
+- [x] The `rewards offer` string → same.
+- [x] A **genuine** credit that happens to contain a promo-adjacent word still parses as
       a real transaction (guard against over-blocking). E.g.
       `Rs.50,000.00 credited to a/c XX1234 by IMPS Ref 112233445566. Avl Bal Rs.75,000.00.`
-- [ ] `could not be processed` → rejected.
-- [ ] `will be debited ... on 05-Jul-25` → not auto-added; if parsed, dated 05-Jul-25 and
+- [x] `could not be processed` → rejected.
+- [x] `will be debited ... on 05-Jul-25` → not auto-added; if parsed, dated 05-Jul-25 and
       flagged for review, not dated today.
-- [ ] An AutoPay pre-notice followed by the real debit SMS produces **one** transaction,
+- [x] An AutoPay pre-notice followed by the real debit SMS produces **one** transaction,
       not two.
 
 Add these six strings to the golden corpora (see TASK-07, which owns corpus expansion —
 coordinate so you don't both edit `test/golden/*.json`).
+
+> Deferred to TASK-07 as written: `test/golden/*.json` was left untouched here. A seventh
+> test was added alongside the six — a real debit carrying a marketing tail
+> (`... exclusive offer ... click here`) must be kept and reviewed, not rejected. That is
+> the case which proves the promo signal is *additive* rather than vetoed; the listed
+> over-blocking guard does not, because its example string contains no promo vocabulary.
 
 ## Verification
 
@@ -118,9 +124,14 @@ flutter test
 
 ## Definition of done
 
-- [ ] Promo markers are additive and block auto-add unconditionally
-- [ ] Failure markers reject the message
-- [ ] Future-tense messages never become dated actuals
-- [ ] All six tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Stop marketing and failed SMS becoming auto-added transactions`
+- [x] Promo markers are additive and block auto-add unconditionally
+- [x] Failure markers reject the message
+- [x] Future-tense messages never become dated actuals
+- [x] All six tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Stop marketing and failed SMS becoming auto-added transactions`
+
+Auto-add is blocked by routing the row to `ReviewReason.parserUncertain`, which
+`SmsIngestionPolicy` already honours on every later scan and which
+`sms_review_screen._preChecked` already excludes from the pre-ticked bulk-confirm set. No
+new `ReviewReason` value was introduced, so no schema, repository or UI change was needed.

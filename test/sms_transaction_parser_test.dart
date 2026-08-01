@@ -216,4 +216,165 @@ void main() {
       expect(decision.transaction.reviewReason, ReviewReason.parserUncertain);
     });
   });
+
+  group('promotional copy never becomes money', () {
+    test('a pre-approved loan offer is not a transaction', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'Congratulations! Rs. 5,00,000 pre-approved Personal Loan can be '
+              'credited to your HDFC Bank A/c XX1234 instantly. Apply now.',
+        ),
+        scanBatchId: 'scan-12',
+        bodyHashSalt: 'test-salt',
+      );
+
+      expect(txn?.reviewStatus, isNot(ReviewStatus.autoAdded));
+      expect(txn, isNull);
+    });
+
+    test('a rewards-offer teaser is kept out of the auto-added ledger', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              "You've spent Rs.50,000 on your card this year - check your "
+              'rewards offer!',
+        ),
+        scanBatchId: 'scan-13',
+        bodyHashSalt: 'test-salt',
+      );
+
+      expect(txn?.reviewStatus, isNot(ReviewStatus.autoAdded));
+      expect(txn?.reviewStatus, ReviewStatus.needsReview);
+      expect(txn?.reviewReason, ReviewReason.parserUncertain);
+    });
+
+    test('a real debit carrying a marketing tail is reviewed, not dropped', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'HDFC Bank: Rs.1,299.00 debited from a/c XX1234 at BIGBAZAAR. '
+              'Avl Bal Rs.20,000.00. Get an exclusive offer on your next '
+              'purchase, click here.',
+        ),
+        scanBatchId: 'scan-14',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.amountPaise, 129900);
+      expect(txn.direction, TransactionDirection.debit);
+      expect(txn.reviewStatus, ReviewStatus.needsReview);
+      expect(txn.reviewReason, ReviewReason.parserUncertain);
+      expect(txn.coverageBucket, CoverageBucket.reviewPending);
+    });
+
+    test('a genuine IMPS credit is not caught by the promo filter', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          body:
+              'Rs.50,000.00 credited to a/c XX1234 by IMPS Ref 112233445566. '
+              'Avl Bal Rs.75,000.00.',
+        ),
+        scanBatchId: 'scan-15',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.direction, TransactionDirection.credit);
+      expect(txn.amountPaise, 5000000);
+      expect(txn.reviewStatus, ReviewStatus.autoAdded);
+      expect(txn.reviewReason, isNull);
+    });
+  });
+
+  group('money that has not moved', () {
+    test('a failed debit notice is rejected outright', () {
+      expect(
+        parser.parseOne(
+          sms(
+            sender: 'VM-HDFCBK',
+            body:
+                'Rs.2,500.00 debited from A/c XX1234 could not be processed. '
+                'The amount will be credited back in 3 days.',
+          ),
+          scanBatchId: 'scan-16',
+          bodyHashSalt: 'test-salt',
+        ),
+        isNull,
+      );
+    });
+
+    test('an autopay pre-notice takes the stated date and never auto-adds', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK',
+          receivedAt: DateTime(2025, 7, 2, 10),
+          body:
+              'Rs.499.00 will be debited from your A/c XX1234 on 05-Jul-25 for '
+              'NETFLIX UPI Autopay. Ref 512345678901.',
+        ),
+        scanBatchId: 'scan-17',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.txnLocalDate, '2025-07-05');
+      expect(txn.reviewStatus, ReviewStatus.needsReview);
+      expect(txn.reviewReason, ReviewReason.parserUncertain);
+      expect(txn.coverageBucket, CoverageBucket.reviewPending);
+
+      final decision = SmsIngestionPolicy.classify(
+        incoming: txn,
+        existing: const [],
+        isFirstScan: false,
+      );
+
+      expect(decision.action, IngestionAction.queueReview);
+      expect(decision.transaction.reviewStatus, ReviewStatus.needsReview);
+    });
+
+    test('a pre-notice plus the real debit ingest as one transaction', () {
+      final messages = [
+        sms(
+          sender: 'VM-HDFCBK',
+          receivedAt: DateTime(2025, 7, 2, 10),
+          body:
+              'Rs.499.00 will be debited from your A/c XX1234 on 05-Jul-25 for '
+              'NETFLIX UPI Autopay. Ref 512345678901.',
+        ),
+        sms(
+          sender: 'VM-HDFCBK',
+          receivedAt: DateTime(2025, 7, 5, 6, 30),
+          body:
+              'Rs.499.00 debited from A/c XX1234 for NETFLIX UPI Autopay. '
+              'Ref 512345678901.',
+        ),
+      ];
+
+      final stored = <ParsedTxn>[];
+      for (final message in messages) {
+        final parsed = parser.parseOne(
+          message,
+          scanBatchId: 'autopay',
+          bodyHashSalt: 'test-salt',
+        );
+        if (parsed == null) continue;
+        final decision = SmsIngestionPolicy.classify(
+          incoming: parsed,
+          existing: stored,
+          isFirstScan: false,
+        );
+        if (decision.action != IngestionAction.skipDuplicate) {
+          stored.add(decision.transaction);
+        }
+      }
+
+      expect(stored, hasLength(1));
+      expect(stored.single.amountPaise, 49900);
+      expect(stored.single.txnLocalDate, '2025-07-05');
+      expect(stored.single.reviewStatus, isNot(ReviewStatus.autoAdded));
+    });
+  });
 }
