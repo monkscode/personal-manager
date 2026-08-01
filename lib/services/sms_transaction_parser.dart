@@ -131,7 +131,7 @@ class SmsTransactionParser {
               : null);
 
     return ParsedTxn(
-      smsId: SmsPrivacy.stableSmsId(sms),
+      smsId: SmsPrivacy.stableSmsId(sms, salt: bodyHashSalt),
       sender: sms.sender,
       direction: direction,
       instrument: instrument,

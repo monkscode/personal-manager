@@ -89,8 +89,8 @@ void main() {
           amountPaise: 2000000,
           balancePaise: 5432100,
           body: '[JD-HDFCBK-S] debit 2000000p :: [amount] withdrawn from HDFC '
-              'Bank Card x1111 at MAIN STREET ATM on 2026-07-17:20:20:43 '
-              'Avl bal: 54321.00',
+              'Bank Card [account] at MAIN STREET ATM on 17-07-26:20:20:43 '
+              'Avl bal: [amount]',
         ),
         txn(
           smsId: 'b',
@@ -98,8 +98,8 @@ void main() {
           amountPaise: 2000000,
           balancePaise: 3432100,
           body: '[JD-HDFCBK-S] debit 2000000p :: [amount] withdrawn from HDFC '
-              'Bank Card x1111 at MAIN STREET ATM on 2026-07-17:20:21:42 '
-              'Avl bal: 34321.00',
+              'Bank Card [account] at MAIN STREET ATM on 17-07-26:20:21:42 '
+              'Avl bal: [amount]',
         ),
       ]);
       expect(rows, hasLength(2));
@@ -122,7 +122,7 @@ void main() {
       final out = normalizer.enrich(
         txn(
           smsId: 'a',
-          body: '[amount] spent on HDFC Bank Card x7115 at RAZ*SWIGGY '
+          body: '[amount] spent on HDFC Bank Card [account] at RAZ*SWIGGY '
               'on 2026-07-11:22:03:27',
         ),
       );

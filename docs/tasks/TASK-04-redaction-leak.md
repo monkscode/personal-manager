@@ -126,14 +126,14 @@ The salt itself is correct: `lib/data/sms_meta_store.dart:27-52` uses `Random.se
 
 Add to `test/sms_privacy_test.dart`:
 
-- [ ] Each of the three leaking inputs in the table above redacts to a string containing
+- [x] Each of the three leaking inputs in the table above redacts to a string containing
       **no** 4-digit card tail and **no** bare balance number.
-- [ ] `Card x1111`, `Card 5555`, `A/C X3456`, `card ending 1234`, `**1234` all redact.
-- [ ] `Avl bal: 54321.00`, `Bal 12345.67`, `debited by 1250.0` all redact.
-- [ ] `HDFC Credit Card ending 4321` keeps the word `Card` in the output.
-- [ ] A property/fuzz test: for a corpus of bodies, the redacted output contains no
+- [x] `Card x1111`, `Card 5555`, `A/C X3456`, `card ending 1234`, `**1234` all redact.
+- [x] `Avl bal: 54321.00`, `Bal 12345.67`, `debited by 1250.0` all redact.
+- [x] `HDFC Credit Card ending 4321` keeps the word `Card` in the output.
+- [x] A property/fuzz test: for a corpus of bodies, the redacted output contains no
       run of 4+ consecutive digits. This is the assertion that catches the *next* gap.
-- [ ] Synthetic `sms_id` differs for the same body under two different salts, and is
+- [x] Synthetic `sms_id` differs for the same body under two different salts, and is
       stable for the same body under one salt.
 
 Then update the leaking fixtures in `test/merchant_display_test.dart` and
@@ -148,11 +148,11 @@ flutter test
 
 ## Definition of done
 
-- [ ] Account pattern covers `card` + single-masking-char + bare tails
-- [ ] Bare balances redacted via keyword-anchored patterns
-- [ ] Redaction preserves the noun (`Card`) while removing digits
-- [ ] Synthetic `sms_id` salted
-- [ ] The no-4-consecutive-digits property test exists and passes
-- [ ] Leaking test fixtures scrubbed
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Close redaction gaps leaking card tails and balances`
+- [x] Account pattern covers `card` + single-masking-char + bare tails
+- [x] Bare balances redacted via keyword-anchored patterns
+- [x] Redaction preserves the noun (`Card`) while removing digits
+- [x] Synthetic `sms_id` salted
+- [x] The no-4-consecutive-digits property test exists and passes
+- [x] Leaking test fixtures scrubbed
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Close redaction gaps leaking card tails and balances`

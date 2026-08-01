@@ -77,13 +77,13 @@ SmsAnalysisSnapshot _snapshot(List<ParsedTxn> currentMonthTxns) =>
 final _swiggy = _txn(
   amountPaise: 250000,
   body:
-      'Rs.2500 spent on HDFC Bank Card x7115 at RAZ*SWIGGY on 2026-08-05:22:03:27.Not U?',
+      'Rs.2500 spent on HDFC Bank Card x3333 at RAZ*SWIGGY on 05-08-26:22:03:27.Not U?',
 );
 // Cash withdrawal mis-tagged as POS because the body names the debit card.
 final _cashOut = _txn(
   amountPaise: 2000000,
   body:
-      'Rs.20000 withdrawn from HDFC Bank Card x1111 at MAIN STREET ATM on 2026-08-05 Avl bal: 20572.18',
+      'Rs.20000 withdrawn from HDFC Bank Card x2222 at MAIN STREET ATM on 05-08-26 Avl bal: 33333.00',
 );
 // Recurring SIP auto-debit via a mutual-fund clearing house.
 final _sip = _txn(

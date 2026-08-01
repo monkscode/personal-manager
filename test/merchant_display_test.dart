@@ -44,8 +44,8 @@ void main() {
       final d = resolver.resolve(
         txn(
           body:
-              'Paid [amount] On HDFC Bank Card 5555 at KANDOI BHOGILAL MULCHA '
-              'on 21-JUL-26 09:07 AM Bal [amount]',
+              'Paid [amount] On HDFC Bank Card [account] at KANDOI BHOGILAL '
+              'MULCHA on 21-JUL-26 09:07 AM Bal [amount]',
         ),
       );
       expect(d.name, 'Kandoi Bhogilal Mulcha');
@@ -55,7 +55,7 @@ void main() {
       final d = resolver.resolve(
         txn(
           body:
-              '[amount] spent on HDFC Bank Card x7115 at RAZ*SWIGGY '
+              '[amount] spent on HDFC Bank Card [account] at RAZ*SWIGGY '
               'on 2026-07-11:22:03:27.Not U?',
         ),
       );
@@ -94,7 +94,7 @@ void main() {
       final d = resolver.resolve(
         txn(
           body:
-              '[amount] spent on HDFC Bank Card x7115 at Freeze land '
+              '[amount] spent on HDFC Bank Card [account] at Freeze land '
               'on 2026-07-12:14:35:39.',
         ),
       );
@@ -108,8 +108,8 @@ void main() {
         txn(
           type: TxnType.atm,
           body:
-              '[amount] withdrawn from HDFC Bank Card x1111 at MAIN STREET ATM '
-              'on 2026-07-17:20:20:43 Avl bal: [amount].',
+              '[amount] withdrawn from HDFC Bank Card [account] at SCIENCE '
+              'CITY-II on 17-07-26:20:20:43 Avl bal: [amount].',
         ),
       );
       expect(d.name, 'Cash withdrawal');
@@ -127,7 +127,7 @@ void main() {
           instrument: PaymentInstrument.bank,
           body:
               'Received! [amount] in HDFC Bank [account] On 21-07-26 '
-              'For IMPS -Federal bank- 620218359066 Avl bal [amount]',
+              'For IMPS -Federal bank- [number] Avl bal [amount]',
         ),
       );
       expect(d.categoryKey, 'income');
