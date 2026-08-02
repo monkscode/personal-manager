@@ -17,12 +17,16 @@ class IngestionDecision {
   const IngestionDecision({
     required this.action,
     required this.transaction,
-    this.existingToFlag,
+    this.existingToFlag = const [],
   });
 
   final IngestionAction action;
   final ParsedTxn transaction;
-  final ParsedTxn? existingToFlag;
+
+  /// Already-stored rows that must be re-written because [transaction] joined
+  /// their collision set. Every member is listed, not just the first — a third
+  /// or fourth duplicate otherwise leaves earlier members in a stale set.
+  final List<ParsedTxn> existingToFlag;
 }
 
 class SmsIngestionPolicy {
@@ -88,12 +92,16 @@ class SmsIngestionPolicy {
       );
     }
 
+    // Every stored row that shares the tuple *and* has nothing to tell it apart
+    // from `incoming` is a member. Testing each candidate — rather than only the
+    // first — is what stops a row that differs from the earliest member but
+    // matches a later one from escaping as an auto-add.
     final collision = weakCollisionCandidates
         .where((txn) => _weakCollision(txn, incoming))
+        .where((txn) => !_hasDistinguishingSignal(incoming, txn))
         .toList();
-    if (collision.isNotEmpty &&
-        !_hasDistinguishingSignal(incoming, collision.first)) {
-      final collisionSetId = _collisionSetId(incoming, collision.first);
+    if (collision.isNotEmpty) {
+      final collisionSetId = collisionSetIdFor(incoming);
       return IngestionDecision(
         action: IngestionAction.queueReview,
         transaction: incoming.copyWith(
@@ -102,12 +110,15 @@ class SmsIngestionPolicy {
           collisionSetId: collisionSetId,
           coverageBucket: CoverageBucket.reviewPending,
         ),
-        existingToFlag: collision.first.copyWith(
-          reviewStatus: ReviewStatus.needsReview,
-          reviewReason: ReviewReason.dedupCollision,
-          collisionSetId: collisionSetId,
-          coverageBucket: CoverageBucket.reviewPending,
-        ),
+        existingToFlag: [
+          for (final member in collision)
+            member.copyWith(
+              reviewStatus: ReviewStatus.needsReview,
+              reviewReason: ReviewReason.dedupCollision,
+              collisionSetId: collisionSetId,
+              coverageBucket: CoverageBucket.reviewPending,
+            ),
+        ],
       );
     }
 
@@ -169,6 +180,13 @@ class SmsIngestionPolicy {
     return true;
   }
 
+  /// Whether anything separates two rows that already share amount, day,
+  /// account and direction: differing reference numbers, differing merchants,
+  /// or differing balances. Public so [SmsLiveNormalizer] applies the same
+  /// definition at read time that ingestion applied at write time.
+  static bool hasDistinguishingSignal(ParsedTxn a, ParsedTxn b) =>
+      _hasDistinguishingSignal(a, b);
+
   static bool _hasDistinguishingSignal(ParsedTxn a, ParsedTxn b) {
     final refA = a.refNumber?.trim();
     final refB = b.refNumber?.trim();
@@ -195,14 +213,22 @@ class SmsIngestionPolicy {
         a.balancePaise != b.balancePaise;
   }
 
-  static String _collisionSetId(ParsedTxn a, ParsedTxn b) {
+  /// The collision set a row belongs to, derived from its tuple **only**.
+  ///
+  /// Deliberately free of any `sms_id`: mixing one in made the id depend on
+  /// which duplicate happened to arrive first, so a third message re-keyed the
+  /// earliest member and orphaned the middle one in a set of its own. Keying on
+  /// the tuple alone makes the id order-independent, so re-running ingestion is
+  /// idempotent and every duplicate of the same tuple lands in one set.
+  ///
+  /// Shared with [SmsLiveNormalizer] so a set flagged at ingest time and one
+  /// spotted at read time carry the same id.
+  static String collisionSetIdFor(ParsedTxn txn) {
     final raw = [
-      a.amountPaise,
-      a.txnLocalDate,
-      a.accountLast4,
-      a.direction.storageValue,
-      b.smsId,
-      a.smsId,
+      txn.amountPaise,
+      txn.txnLocalDate,
+      txn.accountLast4 ?? '',
+      txn.direction.storageValue,
     ].join('|');
     return 'collision:${sha256.convert(utf8.encode(raw))}';
   }

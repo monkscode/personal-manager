@@ -14,6 +14,9 @@ ParsedTxn txn({
   DateTime? date,
   String? merchant,
   String? upiVpaNorm,
+  String? accountLast4,
+  String? refNumber,
+  ReviewStatus reviewStatus = ReviewStatus.autoAdded,
   String categoryKey = 'other',
   int? balancePaise,
   required String body,
@@ -25,12 +28,14 @@ ParsedTxn txn({
   type: type,
   amountPaise: amountPaise,
   txnDate: date ?? DateTime(2026, 7, 5),
+  accountLast4: accountLast4,
+  refNumber: refNumber,
   merchant: merchant,
   upiVpaNorm: upiVpaNorm,
   payeeType: PayeeType.unknown,
   categoryKey: categoryKey,
   confidence: 0.9,
-  reviewStatus: ReviewStatus.autoAdded,
+  reviewStatus: reviewStatus,
   source: TxnSource.sms,
   coverageBucket: CoverageBucket.datedEvent,
   balancePaise: balancePaise,
@@ -103,6 +108,112 @@ void main() {
         ),
       ]);
       expect(rows, hasLength(2));
+    });
+  });
+
+  group('collision — genuine same-day repeats are never silently dropped', () {
+    // The redacted shape a bare Axis/UPI debit reduces to. It carries no ref,
+    // no intra-body timestamp and no balance, so two of them are byte-identical
+    // no matter how many distinct payments produced them.
+    const contentless = '[amount] debited [account] Axis Bank';
+
+    test('keeps both payments when their reference numbers differ', () {
+      final rows = normalizer.dedup([
+        txn(
+          smsId: 'provider:1',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          refNumber: 'REF111',
+          body: contentless,
+        ),
+        txn(
+          smsId: 'provider:2',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          refNumber: 'REF222',
+          body: contentless,
+        ),
+      ]);
+
+      expect(rows, hasLength(2));
+      expect(
+        rows.map((r) => r.reviewReason),
+        everyElement(isNot(ReviewReason.dedupCollision)),
+      );
+    });
+
+    test('routes indistinguishable payments to a collision set, drops neither', () {
+      final rows = normalizer.dedup([
+        txn(
+          smsId: 'provider:1',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          body: contentless,
+        ),
+        txn(
+          smsId: 'provider:2',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          body: contentless,
+        ),
+      ]);
+
+      expect(rows, hasLength(2));
+      expect(
+        rows.map((r) => r.reviewStatus),
+        everyElement(ReviewStatus.needsReview),
+      );
+      expect(
+        rows.map((r) => r.reviewReason),
+        everyElement(ReviewReason.dedupCollision),
+      );
+      expect(rows.first.collisionSetId, isNotNull);
+      expect(rows.first.collisionSetId, rows.last.collisionSetId);
+    });
+
+    test('collapses the same message seen twice to exactly one row', () {
+      final rows = normalizer.dedup([
+        txn(
+          smsId: 'provider:1',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          body: contentless,
+        ),
+        txn(
+          smsId: 'provider:1',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          body: contentless,
+        ),
+      ]);
+
+      expect(rows, hasLength(1));
+      expect(rows.single.reviewReason, isNot(ReviewReason.dedupCollision));
+    });
+
+    test('does not re-open a collision the user has already resolved', () {
+      final rows = normalizer.dedup([
+        txn(
+          smsId: 'provider:1',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          reviewStatus: ReviewStatus.confirmed,
+          body: contentless,
+        ),
+        txn(
+          smsId: 'provider:2',
+          amountPaise: 10000,
+          accountLast4: '1234',
+          reviewStatus: ReviewStatus.confirmed,
+          body: contentless,
+        ),
+      ]);
+
+      expect(rows, hasLength(2));
+      expect(
+        rows.map((r) => r.reviewStatus),
+        everyElement(ReviewStatus.confirmed),
+      );
     });
   });
 

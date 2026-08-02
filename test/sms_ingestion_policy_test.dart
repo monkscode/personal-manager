@@ -1,8 +1,5 @@
-import 'dart:convert';
-
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/sms_ingestion_policy.dart';
-import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ParsedTxn txn({
@@ -94,11 +91,14 @@ void main() {
         expect(decision.transaction.reviewStatus, ReviewStatus.needsReview);
         expect(decision.transaction.reviewReason, ReviewReason.dedupCollision);
         expect(decision.transaction.collisionSetId, isNotNull);
-        expect(decision.existingToFlag, isNotNull);
-        expect(decision.existingToFlag!.smsId, 'provider:1');
-        expect(decision.existingToFlag!.reviewStatus, ReviewStatus.needsReview);
+        expect(decision.existingToFlag, hasLength(1));
+        expect(decision.existingToFlag.single.smsId, 'provider:1');
         expect(
-          decision.existingToFlag!.collisionSetId,
+          decision.existingToFlag.single.reviewStatus,
+          ReviewStatus.needsReview,
+        );
+        expect(
+          decision.existingToFlag.single.collisionSetId,
           decision.transaction.collisionSetId,
         );
       },
@@ -223,40 +223,141 @@ void main() {
       },
     );
 
-    test('collision set ids hash UTF-8 text consistently', () {
-      final existing = txn(
-        smsId: 'provider:पुराना',
-        amountPaise: 50000,
-        date: DateTime(2026, 7, 9, 9),
-        scanBatchId: 'old',
-        accountLast4: '1234',
-      );
-      final incoming = txn(
-        smsId: 'provider:नया',
-        amountPaise: 50000,
-        date: DateTime(2026, 7, 9, 18),
-        scanBatchId: 'new',
-        accountLast4: '1234',
-      );
+    test('collision set ids are stable for the same tuple, whoever collides', () {
+      // Behavioural, not a restatement of the hash recipe: the same tuple must
+      // always produce the same id, and a different tuple a different one.
+      String idFor({required String amountOwner, required int amountPaise}) {
+        final decision = SmsIngestionPolicy.classify(
+          incoming: txn(
+            smsId: 'provider:नया$amountOwner',
+            amountPaise: amountPaise,
+            date: DateTime(2026, 7, 9, 18),
+            scanBatchId: 'new',
+            accountLast4: '1234',
+          ),
+          existing: [
+            txn(
+              smsId: 'provider:पुराना$amountOwner',
+              amountPaise: amountPaise,
+              date: DateTime(2026, 7, 9, 9),
+              scanBatchId: 'old',
+              accountLast4: '1234',
+            ),
+          ],
+          isFirstScan: false,
+        );
+        return decision.transaction.collisionSetId!;
+      }
 
-      final decision = SmsIngestionPolicy.classify(
-        incoming: incoming,
-        existing: [existing],
-        isFirstScan: false,
-      );
-      final raw = [
-        incoming.amountPaise,
-        incoming.txnLocalDate,
-        incoming.accountLast4,
-        incoming.direction.storageValue,
-        existing.smsId,
-        incoming.smsId,
-      ].join('|');
-
+      expect(idFor(amountOwner: 'x', amountPaise: 50000), startsWith('collision:'));
       expect(
-        decision.transaction.collisionSetId,
-        'collision:${sha256.convert(utf8.encode(raw))}',
+        idFor(amountOwner: 'x', amountPaise: 50000),
+        idFor(amountOwner: 'y', amountPaise: 50000),
+        reason: 'same tuple, different sms ids — the set id must not move',
+      );
+      expect(
+        idFor(amountOwner: 'x', amountPaise: 50000),
+        isNot(idFor(amountOwner: 'x', amountPaise: 60000)),
+        reason: 'a different amount is a different collision set',
       );
     });
+
+    test('three duplicates land in one collision set', () {
+      final stored = _ingestAll(_duplicates(3));
+
+      expect(stored, hasLength(3));
+      expect(stored.map((t) => t.collisionSetId).toSet(), hasLength(1));
+      expect(stored.first.collisionSetId, isNotNull);
+    });
+
+    test('ingest order does not change the collision set id', () {
+      final forwards = _ingestAll(_duplicates(3));
+      final backwards = _ingestAll(_duplicates(3).reversed.toList());
+
+      expect(
+        forwards.map((t) => t.collisionSetId).toSet(),
+        backwards.map((t) => t.collisionSetId).toSet(),
+      );
+    });
+
+    test('every member of a three-way collision is flagged for review', () {
+      final stored = _ingestAll(_duplicates(3));
+
+      expect(
+        stored.map((t) => t.reviewStatus),
+        everyElement(ReviewStatus.needsReview),
+      );
+      expect(
+        stored.map((t) => t.reviewReason),
+        everyElement(ReviewReason.dedupCollision),
+      );
+    });
+
+    test('four duplicates: all four flagged, still a single set', () {
+      final stored = _ingestAll(_duplicates(4));
+
+      expect(stored, hasLength(4));
+      expect(stored.map((t) => t.collisionSetId).toSet(), hasLength(1));
+      expect(
+        stored.map((t) => t.reviewStatus),
+        everyElement(ReviewStatus.needsReview),
+      );
+    });
+
+    test(
+      'a row indistinguishable from a later member still collides',
+      () {
+        // A carries a ref, B does not. C carries a different ref, so C is
+        // distinguishable from A — but nothing separates C from B, so C must
+        // still collide instead of being auto-added.
+        final stored = _ingestAll([
+          _duplicate('a', refNumber: 'REF111'),
+          _duplicate('b'),
+          _duplicate('c', refNumber: 'REF222'),
+        ]);
+
+        final c = stored.singleWhere((t) => t.smsId == 'provider:c');
+        final b = stored.singleWhere((t) => t.smsId == 'provider:b');
+        expect(c.reviewStatus, ReviewStatus.needsReview);
+        expect(c.reviewReason, ReviewReason.dedupCollision);
+        expect(b.reviewStatus, ReviewStatus.needsReview);
+        expect(c.collisionSetId, b.collisionSetId);
+      },
+    );
   });
+}
+
+/// One member of a same amount/day/account/direction duplicate group.
+ParsedTxn _duplicate(String id, {String? refNumber}) => txn(
+  smsId: 'provider:$id',
+  amountPaise: 200000,
+  date: DateTime(2026, 1, 6),
+  scanBatchId: 'batch',
+  accountLast4: '1234',
+  refNumber: refNumber,
+);
+
+List<ParsedTxn> _duplicates(int count) => [
+  for (var i = 0; i < count; i++) _duplicate(String.fromCharCode(97 + i)),
+];
+
+/// Replays a scan: each row is classified against everything stored so far and
+/// the decision is applied, exactly as `TransactionRepository.ingestParsedTxn`
+/// does. Returns the resulting table in insertion order.
+List<ParsedTxn> _ingestAll(List<ParsedTxn> incoming) {
+  final store = <String, ParsedTxn>{};
+  for (final row in incoming) {
+    final decision = SmsIngestionPolicy.classify(
+      incoming: row,
+      existing: store.values.toList(),
+      isFirstScan: false,
+    );
+    for (final flagged in decision.existingToFlag) {
+      store[flagged.smsId] = flagged;
+    }
+    if (decision.action != IngestionAction.skipDuplicate) {
+      store[decision.transaction.smsId] = decision.transaction;
+    }
+  }
+  return store.values.toList();
 }

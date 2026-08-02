@@ -61,8 +61,8 @@ class TransactionRepository {
         now: now,
       );
 
-      if (decision.existingToFlag != null) {
-        await _insertRow(txn, decision.existingToFlag!, DateTime.now());
+      for (final flagged in decision.existingToFlag) {
+        await _insertRow(txn, flagged, DateTime.now());
       }
       if (decision.action != IngestionAction.skipDuplicate) {
         await _insertRow(txn, decision.transaction, now ?? DateTime.now());

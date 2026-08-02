@@ -73,19 +73,59 @@ Then flag **every member** of `collision`, not just `first`.
 
 Add to `test/sms_live_normalizer_test.dart`:
 
-- [ ] Two same-amount, same-day payments with **different** reference numbers both
-      survive as separate transactions.
-- [ ] Two same-amount, same-day payments with **no** distinguishing content produce a
-      collision set for review — and **neither is dropped**.
-- [ ] The same message ingested twice (identical `sms_id`) produces exactly one row.
-      (This is real dedupe and must keep working.)
+- [x] Two same-amount, same-day payments with **different** reference numbers both
+      survive as separate transactions. — **RED** (collapsed to 1 row)
+- [x] Two same-amount, same-day payments with **no** distinguishing content produce a
+      collision set for review — and **neither is dropped**. — **RED** (collapsed to 1 row)
+- [x] The same message ingested twice (identical `sms_id`) produces exactly one row.
+      (This is real dedupe and must keep working.) — **green guard**, passed before the
+      fix; it is what stops the new collision path from swallowing true re-deliveries.
+- [x] *Added:* a collision the user already confirmed/dismissed is not re-opened on
+      reload. Guard proven by deleting the `_undecided` check and watching it fail.
 
 Add to `test/sms_ingestion_policy_test.dart`:
 
-- [ ] Three duplicates A, B, C all land in **one** collision set with the same id.
-- [ ] Ingest order A→B→C and C→B→A produce the **same** set id (order independence).
-- [ ] All three members are flagged for review; none stays `autoAdded`.
-- [ ] Four duplicates: all four flagged, one set.
+- [x] Three duplicates A, B, C all land in **one** collision set with the same id. — **RED** (2 sets)
+- [x] Ingest order A→B→C and C→B→A produce the **same** set id (order independence). — **RED**
+- [x] All three members are flagged for review; none stays `autoAdded`. — **green guard**
+      (see the correction below)
+- [x] Four duplicates: all four flagged, one set. — **RED** (3 sets)
+- [x] *Added:* a row distinguishable from `collision.first` but identical to a later
+      member still collides. — **RED** (`autoAdded`); this is the reachable form of the
+      "3rd and 4th duplicate stay autoAdded" claim.
+
+### Correction to this file's Defect 2 description
+
+> "only `collision.first` is ever flagged, so a 3rd and 4th stored duplicate stay
+> `autoAdded` and never surface for review"
+
+Not true for a plain sequential ingest of identical duplicates: every row is `incoming`
+at some point, so it flags itself. Verified against the author's own device database —
+all 11 rows carrying a `collision_set_id` were flagged, none stayed `autoAdded`.
+
+The leak is real but needs an asymmetry: A has a ref, B has none, C has a *different*
+ref. `_hasDistinguishingSignal` only ever consulted `collision.first` (A), so C looked
+distinguishable and was auto-added — even though nothing separates C from B. The fix
+tests each candidate rather than just the first.
+
+### Verified against live device data
+
+Defect 2 reproduced in the wild before the fix (`adb`, 210 stored rows, 11 with a
+`collision_set_id`): the tuple `200000|2026-01-06|1234|debit` held **3 rows across 2
+collision sets**, one of them orphaned alone — exactly the A/B/C walkthrough above.
+Recomputing with the tuple-only id collapses it to **1 set**, and leaves the four
+healthy 2-row tuples at 1 set each.
+
+Defect 1 did **not** lose money on this dataset: the old key dropped 5 rows at read
+time, and all 5 carried an intra-body timestamp or RRN, so all 5 were genuine
+re-deliveries. That is the "luck, not design" the defect describes — the new key drops
+the same 5 for a *provable* reason. Re-running the new read-time pass over all 210 rows
+flags **0** additional rows, so the review queue is not disturbed.
+
+No migration is needed for the 11 existing rows: they are all `confirmed`/`dismissed`,
+`sms_id` short-circuits re-ingestion, and the review screen only groups rows in the live
+queue. Their stale ids are inert. Separately confirmed that TASK-04's salted `sms_id`
+orphaned nothing — all 210 rows are `provider:<id>`, zero `synthetic:` rows.
 
 Note `test/sms_ingestion_policy_test.dart:247-259` currently **recomputes
 `_collisionSetId`'s exact join-and-hash**, so it passes for any implementation including
@@ -101,12 +141,17 @@ flutter test
 
 ## Definition of done
 
-- [ ] Normalizer keys on `refNumber` when present
-- [ ] Indistinguishable rows go to `dedupCollision` review, never dropped
-- [ ] Same-message dedupe path kept separate and clearly named
-- [ ] `_collisionSetId` derived from the tuple only, order-independent
-- [ ] Every collision member flagged
-- [ ] The implementation-restating test replaced with behavioural assertions
-- [ ] All seven tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Surface duplicate SMS as collision sets instead of dropping them`
+- [x] Normalizer keys on `refNumber` when present
+- [x] Indistinguishable rows go to `dedupCollision` review, never dropped
+- [x] Same-message dedupe path kept separate and clearly named
+      (`collapseRedeliveries` vs `flagCollisions`)
+- [x] `_collisionSetId` derived from the tuple only, order-independent
+      (now `SmsIngestionPolicy.collisionSetIdFor`, shared with the normalizer so an
+      ingest-time set and a read-time set carry the same id)
+- [x] Every collision member flagged — `existingToFlag` is now a `List<ParsedTxn>`
+- [x] The implementation-restating test replaced with behavioural assertions
+      (also closes the duplicate note at `TASK-11-parser-minors.md:90`)
+- [x] All seven tests written failing-first, then passing — 5 genuinely RED, 2 green
+      guards, honestly marked above; 2 further tests added, 1 RED and 1 guard
+- [x] `flutter analyze` clean, `flutter test` green — 658 passing, 0 failing (was 649)
+- [x] Suggested commit: `Surface duplicate SMS as collision sets instead of dropping them`
