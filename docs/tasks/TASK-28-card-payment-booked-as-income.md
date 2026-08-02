@@ -40,9 +40,10 @@ understated, and the bank cash outflow forecast from it is too small.
 
 ### Measured on live data
 
-26 card-side credit rows totalling **roughly ₹1.2 lakh** on the author's device, all of which
-were being subtracted from observed card spend. On 2026-08-01 alone the device held a
-₹4,990 bank debit paired with a ₹5,000 card credit — the two legs of one bill payment.
+26 card-side credit rows totalling roughly **₹1.2 lakh** on the author's device, all of which
+were being subtracted from observed card spend. On one day alone the device held a
+bank debit paired with a card credit a few rupees larger — the two legs of one bill
+payment.
 
 **Why this surfaced now.** The card-side alerts were always parsed. The *bank-side* UPI
 debits were not, until TASK-07 landed, so before Phase 1 only half the pair was visible.

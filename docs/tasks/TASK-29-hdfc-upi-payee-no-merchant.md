@@ -59,9 +59,9 @@ ownerless, roughly ₹4.3 lakh of newly-visible spend cannot form obligations. T
 **0 obligations** despite a populated forecast — the mechanism that is supposed to make
 the forecast explainable has nothing to work with.
 
-The payees are real and useful: `CRED Club`, `ACME DIGITAL PRIVATE LIMI` (merchants) and
-`PAYEE FULL NAME` (a person — P2P, which `payee_classifier` should treat
-differently from a merchant).
+The payees are real and useful. On the sample they were a mix of business names
+(`ACME DIGITAL PRIVATE LIMI`, `CRED Club`) and individuals' full names — the latter being
+P2P transfers, which `payee_classifier` should treat differently from a merchant.
 
 ---
 
@@ -88,7 +88,8 @@ Add to `test/sms_transaction_parser_test.dart`:
       the failure mode a careless `To|From` alternation introduces). — **green guard**
 - [x] An `at`-introduced merchant still wins over a `To` elsewhere. — **green guard**,
       added to pin the precedence the fallback ordering relies on.
-- [ ] ~~A person payee (`To PAYEE FULL NAME`) is classified P2P, not merchant.~~
+- [ ] ~~A person payee (a `To <individual's full name>` line) is classified P2P, not
+      merchant.~~
       **Deliberately not done.** `_payeeType` returns `unknown` when there is no VPA, and
       `unknown` is the honest value — telling a person from a merchant by the shape of a
       bare name would manufacture false classifications in both directions. Revisit only
