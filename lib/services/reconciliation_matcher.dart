@@ -14,6 +14,13 @@ import 'transfer_bridge_matcher.dart';
 /// months without fresh evidence (D8 spec default).
 const int kAnnualHeadsUpExpiryMonths = 15;
 
+/// How far back a refund may reach for the purchase it reverses when it has no
+/// reference number to match on. Not a spec value — chosen to be permissive
+/// (merchant refunds land well inside it) while stopping a refund from binding
+/// to an unrelated purchase months earlier. In production the matcher only ever
+/// sees one month of actuals, so this bites only on longer windows.
+const int kRefundLookbackDays = 90;
+
 /// Retired. The discretionary residual used to be dropped on this day, which
 /// fabricated the "you need ₹X by the 28th" headline and made the whole estimate
 /// vanish on the 29th. It is now spread over the days still ahead of the anchor
@@ -330,6 +337,14 @@ class ReconciliationMatcher {
   ) {
     final folded = <String>{};
     final foldable = owners.where((o) => o.foldable).toList();
+    final byId = {for (final owner in foldable) owner.id: owner};
+    // Resolved globally, then assigned — assigning as we go made the answer
+    // depend on the order `actuals` happened to arrive in: an ambiguous debit
+    // processed after a unique one downgraded the owner it had already settled
+    // and dropped it from the ledger entirely.
+    final settledBy = <String, List<ParsedTxn>>{};
+    final contested = <String>{};
+
     for (final debit in debits) {
       final matched = [
         for (final owner in foldable)
@@ -345,31 +360,40 @@ class ReconciliationMatcher {
         for (final owner in matched)
           if (_amountCompatible(debit, owner)) owner,
       ];
+      folded.add(debit.smsId);
       if (candidates.isEmpty) {
         // Reached by reference alone. The reference is evidence of a
         // relationship, not of payment — hold it for review.
-        folded.add(debit.smsId);
-        for (final owner in matched) {
-          owner.paymentStatus = ReconciliationPaymentStatus.possiblyPaid;
-        }
+        contested.addAll(matched.map((o) => o.id));
         continue;
       }
-      folded.add(debit.smsId);
 
       final distinctKeys = candidates.map((o) => o.matchKey ?? o.id).toSet();
       if (distinctKeys.length == 1) {
         // Same logical obligation (possibly described by multiple sources).
         for (final owner in candidates) {
-          owner.actualDate ??= debit.txnDate;
-          owner.paymentStatus = ReconciliationPaymentStatus.paid;
+          settledBy.putIfAbsent(owner.id, () => []).add(debit);
         }
       } else {
         // Genuinely ambiguous: hold every candidate for review rather than
         // silently merging or double-subtracting.
-        for (final owner in candidates) {
-          owner.paymentStatus = ReconciliationPaymentStatus.possiblyPaid;
-        }
+        contested.addAll(candidates.map((o) => o.id));
       }
+    }
+
+    for (final entry in settledBy.entries) {
+      final owner = byId[entry.key]!;
+      final earliest = entry.value.reduce(
+        (a, b) => a.txnDate.isBefore(b.txnDate) ? a : b,
+      );
+      owner.actualDate = earliest.txnDate;
+      owner.paymentStatus = ReconciliationPaymentStatus.paid;
+    }
+    for (final id in contested) {
+      // A confirmed unique match wins outright: an ambiguous debit may raise a
+      // question about an owner, never overturn an answer another debit gave.
+      if (settledBy.containsKey(id)) continue;
+      byId[id]!.paymentStatus = ReconciliationPaymentStatus.possiblyPaid;
     }
     return folded;
   }
@@ -717,66 +741,80 @@ class ReconciliationMatcher {
       for (final txn in actuals)
         if (txn.direction == TransactionDirection.debit) txn,
     ];
-    // Cumulative refunds per original debit are capped at the original amount.
-    final grouped = <String, List<ParsedTxn>>{};
-    for (final refund in refunds) {
-      grouped.putIfAbsent(_refundGroupKey(refund), () => []).add(refund);
-    }
+    // The cap belongs to the *original debit*, not to a group. Two refunds for
+    // one order carrying different reference numbers formed two groups, each
+    // resolved to the same purchase, and each was capped at the full amount —
+    // crediting up to twice the purchase as bank inflow.
+    final sorted = [...refunds]..sort((a, b) => a.txnDate.compareTo(b.txnDate));
+    final appliedByDebit = <String, int>{};
 
     final items = <ReconciliationItem>[];
-    for (final entry in grouped.entries) {
-      final group = [...entry.value]
-        ..sort((a, b) => a.txnDate.compareTo(b.txnDate));
-      final original = _findOriginalDebit(group.first, debits);
-      final cap = original?.amountPaise;
-      var applied = 0;
-      for (final refund in group) {
-        var creditable = refund.amountPaise;
-        if (cap != null) {
-          final remaining = math.max(0, cap - applied);
-          creditable = math.min(refund.amountPaise, remaining);
-        }
-        if (creditable > 0) {
-          items.add(
-            ReconciliationItem(
-              id: 'refund:${refund.smsId}',
-              label: refund.merchant ?? 'Refund',
-              amountPaise: creditable,
-              direction: LedgerDirection.inflow,
-              owner: ForecastOwner.refund,
-              source: ForecastItemSource.sms,
-              actualDate: refund.txnDate,
-              refundOfId: original == null ? null : 'actual:${original.smsId}',
-              confidence: refund.confidence,
-            ),
-          );
-          applied += creditable;
-        }
-        final excess = refund.amountPaise - creditable;
-        if (excess > 0) {
-          // Over-refund is reviewable income, never a negative expense.
-          items.add(
-            ReconciliationItem(
-              id: 'refund-excess:${refund.smsId}',
-              label: '${refund.merchant ?? 'Refund'} (over-refund)',
-              amountPaise: excess,
-              direction: LedgerDirection.inflow,
-              owner: ForecastOwner.otherIncome,
-              source: ForecastItemSource.sms,
-              actualDate: refund.txnDate,
-              userCadenceStatus: UserCadenceStatus.algorithmDetected,
-              confidence: refund.confidence,
-            ),
-          );
-        }
+    for (final refund in sorted) {
+      final original = _findOriginalDebit(refund, debits);
+      if (original == null) {
+        // Nothing plausible to refund. A credit with no purchase behind it is
+        // held for review rather than invented as income.
+        items.add(
+          ReconciliationItem(
+            id: 'refund:${refund.smsId}',
+            label: refund.merchant ?? 'Refund',
+            amountPaise: refund.amountPaise,
+            direction: LedgerDirection.inflow,
+            owner: ForecastOwner.refund,
+            source: ForecastItemSource.sms,
+            actualDate: refund.txnDate,
+            needsAttributionReview: true,
+            confidence: refund.confidence,
+          ),
+        );
+        continue;
+      }
+
+      final applied = appliedByDebit[original.smsId] ?? 0;
+      final remaining = math.max(0, original.amountPaise - applied);
+      final creditable = math.min(refund.amountPaise, remaining);
+      if (creditable > 0) {
+        items.add(
+          ReconciliationItem(
+            id: 'refund:${refund.smsId}',
+            label: refund.merchant ?? 'Refund',
+            amountPaise: creditable,
+            direction: LedgerDirection.inflow,
+            owner: ForecastOwner.refund,
+            source: ForecastItemSource.sms,
+            actualDate: refund.txnDate,
+            refundOfId: 'actual:${original.smsId}',
+            confidence: refund.confidence,
+          ),
+        );
+        appliedByDebit[original.smsId] = applied + creditable;
+      }
+      final excess = refund.amountPaise - creditable;
+      if (excess > 0) {
+        // Over-refund is reviewable income, never a negative expense.
+        items.add(
+          ReconciliationItem(
+            id: 'refund-excess:${refund.smsId}',
+            label: '${refund.merchant ?? 'Refund'} (over-refund)',
+            amountPaise: excess,
+            direction: LedgerDirection.inflow,
+            owner: ForecastOwner.otherIncome,
+            source: ForecastItemSource.sms,
+            actualDate: refund.txnDate,
+            userCadenceStatus: UserCadenceStatus.algorithmDetected,
+            confidence: refund.confidence,
+          ),
+        );
       }
     }
     return items;
   }
 
-  String _refundGroupKey(ParsedTxn refund) =>
-      refund.refNumber ?? _norm(refund.merchant ?? refund.sender);
-
+  /// The purchase a refund plausibly reverses. A reference number is an exact
+  /// identifier and stands on its own; a merchant-name match must additionally
+  /// be large enough to have produced the refund and close enough in time —
+  /// without those, a ₹3,000 refund capped against a ₹200 same-merchant debit
+  /// manufactured ₹2,800 of "over-refund income".
   ParsedTxn? _findOriginalDebit(ParsedTxn refund, List<ParsedTxn> debits) {
     if (refund.refNumber != null) {
       for (final debit in debits) {
@@ -785,10 +823,19 @@ class ReconciliationMatcher {
     }
     final target = _norm(refund.merchant ?? '');
     if (target.isEmpty) return null;
+    ParsedTxn? best;
     for (final debit in debits) {
-      if (_norm(debit.merchant ?? '') == target) return debit;
+      if (_norm(debit.merchant ?? '') != target) continue;
+      if (debit.amountPaise < refund.amountPaise) continue;
+      if (debit.txnDate.isAfter(refund.txnDate)) continue;
+      if (refund.txnDate.difference(debit.txnDate).inDays >
+          kRefundLookbackDays) {
+        continue;
+      }
+      // The most recent qualifying purchase is the likeliest source.
+      if (best == null || debit.txnDate.isAfter(best.txnDate)) best = debit;
     }
-    return null;
+    return best;
   }
 
   // ---- atm / transfers ----------------------------------------------------

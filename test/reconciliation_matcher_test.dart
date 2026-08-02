@@ -502,6 +502,157 @@ void main() {
     });
   });
 
+  group('refunds are capped per original debit', () {
+    ParsedTxn purchase({
+      required int amountPaise,
+      required int day,
+      String merchant = 'AMAZON',
+      String? refNumber,
+      String smsId = 'buy',
+    }) => actual(
+      amountPaise: amountPaise,
+      date: DateTime(2026, 8, day),
+      merchant: merchant,
+      categoryKey: 'shopping',
+      refNumber: refNumber,
+      smsId: smsId,
+    );
+
+    ParsedTxn refund({
+      required int amountPaise,
+      required int day,
+      String merchant = 'AMAZON',
+      String? refNumber,
+      required String smsId,
+    }) => actual(
+      amountPaise: amountPaise,
+      date: DateTime(2026, 8, day),
+      direction: TransactionDirection.credit,
+      merchant: merchant,
+      categoryKey: 'shopping_refund',
+      refNumber: refNumber,
+      smsId: smsId,
+    );
+
+    int refundTotal(List<ReconciliationItem> items) => items
+        .where((i) => i.owner == ForecastOwner.refund)
+        .fold<int>(0, (sum, i) => sum + i.amountPaise!);
+
+    test('two refunds with different references share one cap', () {
+      // Item-level refunds on one multi-item order: routine, and each group
+      // used to be capped at the full purchase independently.
+      final items = build(
+        actuals: [
+          purchase(amountPaise: 1000000, day: 3),
+          refund(amountPaise: 600000, day: 10, refNumber: 'R1', smsId: 'r1'),
+          refund(amountPaise: 700000, day: 12, refNumber: 'R2', smsId: 'r2'),
+        ],
+      );
+      expect(refundTotal(items), 1000000);
+    });
+
+    test('a refund with no plausible purchase goes to review, not income', () {
+      final items = build(
+        actuals: [
+          purchase(amountPaise: 20000, day: 3),
+          refund(amountPaise: 300000, day: 10, smsId: 'r-big'),
+        ],
+      );
+      expect(items.where((i) => i.owner == ForecastOwner.otherIncome), isEmpty);
+      final held = items.singleWhere((i) => i.id == 'refund:r-big');
+      expect(held.needsAttributionReview, isTrue);
+    });
+
+    test('a refund dated before its candidate purchase is not matched to it', () {
+      final items = build(
+        actuals: [
+          purchase(amountPaise: 500000, day: 20),
+          refund(amountPaise: 500000, day: 4, smsId: 'r-early'),
+        ],
+      );
+      expect(
+        items.singleWhere((i) => i.id == 'refund:r-early').needsAttributionReview,
+        isTrue,
+      );
+    });
+
+    test('a single refund within its cap still credits normally', () {
+      final items = build(
+        actuals: [
+          purchase(amountPaise: 1000000, day: 3),
+          refund(amountPaise: 400000, day: 10, smsId: 'r-ok'),
+        ],
+      );
+      expect(refundTotal(items), 400000);
+      final credited = items.singleWhere((i) => i.id == 'refund:r-ok');
+      expect(credited.refundOfId, 'actual:buy');
+      expect(credited.needsAttributionReview, isFalse);
+    });
+  });
+
+  group('the fold does not depend on the order actuals arrive in', () {
+    // X is reachable by both debits; Y only by the ambiguous one.
+    final namedObligation = obligation(
+      sourceType: ObligationSourceType.gmail,
+      amountPaise: 1000000,
+      dueDate: DateTime(2026, 8, 10),
+      dedupeKey: 'gmail:sip',
+    );
+    final anonymousCommitment = commitment(
+      amountPaise: 1000000,
+      merchantNorm: '',
+      nextExpected: DateTime(2026, 8, 10),
+    );
+    final ambiguous = actual(
+      amountPaise: 1000000,
+      date: DateTime(2026, 8, 9),
+      merchant: 'ICICI Pru MF',
+      categoryKey: 'investment',
+      smsId: 'debit-a',
+    );
+    final unique = actual(
+      amountPaise: 1000000,
+      date: DateTime(2026, 8, 11),
+      merchant: 'ICICI Pru MF',
+      categoryKey: 'other',
+      smsId: 'debit-b',
+    );
+
+    List<ReconciliationItem> foldWith(List<ParsedTxn> actuals) => build(
+      obligations: [namedObligation],
+      commitments: [anonymousCommitment],
+      actuals: actuals,
+    );
+
+    test('a unique match is not downgraded by a later ambiguous one', () {
+      final forwards = foldWith([ambiguous, unique]);
+      final backwards = foldWith([unique, ambiguous]);
+
+      ReconciliationPaymentStatus statusOf(List<ReconciliationItem> items) =>
+          items.singleWhere((i) => i.id == 'obl:gmail:sip').paymentStatus;
+
+      expect(statusOf(forwards), statusOf(backwards));
+      expect(statusOf(forwards), ReconciliationPaymentStatus.paid);
+    });
+
+    test('both orderings give the same ledger total', () {
+      int totalFor(List<ParsedTxn> actuals) {
+        final items = foldWith(actuals);
+        final result = reconcile(
+          targetMonth: _target,
+          anchor: _anchor,
+          items: items,
+          now: DateTime(2026, 8, 15),
+        );
+        return result.events
+            .where((e) => e.direction == LedgerDirection.outflow)
+            .fold<int>(0, (sum, e) => sum + e.amountPaise);
+      }
+
+      expect(totalFor([ambiguous, unique]), totalFor([unique, ambiguous]));
+    });
+  });
+
   group('month-to-date spend is netted out of the seasonal estimate', () {
     // 22 July: anchor read this morning, ₹7,000 of food already spent this
     // month, seasonal food estimate ₹10,000. Only ₹3,000 is still to come.

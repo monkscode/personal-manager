@@ -125,7 +125,9 @@ class ForecastReconciliationEngine {
       _assignCoverage(
         item,
         CoverageReason.reviewNeeded,
-        CoverageAction.setCardCycle,
+        item.owner == ForecastOwner.cardPayment
+            ? CoverageAction.setCardCycle
+            : CoverageAction.review,
         ForecastLineStatus.review,
         CoverageBucket.reviewPending,
         coverageLines,
