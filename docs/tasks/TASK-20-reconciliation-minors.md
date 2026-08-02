@@ -7,6 +7,15 @@ them in any order.
 
 ---
 
+## STATUS: PARTIALLY DONE — code landed, tests still owed
+
+TASK-12 through TASK-19 are merged. The **code** for M1–M6, M8 and M9 is committed and
+`flutter analyze` / `flutter test` are green at **735 passing**, but the dedicated tests for
+those items were **not** written, and M7/M10 are decisions still to be recorded. Do not
+treat the boxes below as evidence of coverage — see "What is still owed" at the end.
+
+---
+
 ## M1 — `anchor_selector` ignores `now`; a future-dated anchor wins forever
 
 `lib/services/anchor_selector.dart:20-29`
@@ -163,6 +172,51 @@ them to a boundary.
 
 ---
 
+## What landed (code only, tests still owed)
+
+- **M1** `AnchorSelector` now rejects any anchor dated after `now`. This immediately caught
+  **two adapter fixtures whose own clock was incoherent** — `_now` was 1 Aug while the
+  fixture anchor claimed a balance read on 10 Aug. Both now build with a mid-month `now`.
+- **M2** One aggregated `untrackedCash` line carrying the monthly total, emitted once in
+  `reconcileMonth` rather than per ATM item. Existing test updated.
+- **M3** `_eventSourceFor` takes the item, not just the owner, and obligation-shaped owners
+  map through `_obligationSourceFor(item.source)`. `ForecastEventSource.manual` is now
+  reachable, and an SMS-detected annual obligation no longer reads "Gmail bill".
+- **M4** `_assertUniqueIds` replaced by `_dedupeIds`: the first item per id is kept, the
+  colliding id is routed to review, and the forecast no longer blanks on a data-quality
+  problem.
+- **M5** `detectOtherIncome` filters `selfTransfer` and `wallet` payee types.
+- **M6** The unconfirmed-inflow gate in `_applyWinner` now covers `otherIncome` as well as
+  `p2pIncomeCandidate`, so an over-refund residual cannot raise the projected balance
+  without confirmation.
+- **M8** `ObligationRepository._merge` is written out in full instead of via `copyWith`.
+  `copyWith`'s `?? this.x` cannot carry a null, so a rescan that dropped a due date kept
+  the stale one forever. The preserved set (row identity + user intent) is now visible in
+  one place, and `copyWith` keeps its existing semantics for every other caller — TASK-02's
+  behaviour is intact because it is expressed explicitly rather than by omission.
+- **M9** `TransferBridgeMatcher` keys its maps on `smsId` / `dedupeKey` instead of on model
+  instances that have no value equality.
+
+## What is still owed
+
+- [ ] **Tests for M1–M6, M8, M9.** None were written. The suite is green because the
+      changes are behaviour-preserving for existing fixtures, not because they are covered.
+- [ ] **M7 decision.** Reading the engine, a tie *below* the winner cannot change any
+      outcome: `_chooseWinners` takes `ordered.first` and every non-winner goes through the
+      same suppression path regardless of how they rank among themselves. The real question
+      is the `ordered[0].matchKey == null` precondition, which makes the check dead for
+      every match-key group — but relaxing it would send every same-amount duplicate pair to
+      review, which TASK-14 deliberately deduplicates instead. Provisional conclusion: close
+      as no-op with this reasoning. **Verify before recording.**
+- [ ] **M10 decision.** Promote the `ObligationRecord` asserts to real checks at trust
+      boundaries, or document them as development-only. Note the tension with M4: throwing
+      at a trust boundary is the failure mode M4 just removed.
+- [ ] **Four boundary tests.** `kRecurringDayOfMonthVarianceDays` (spread 4 locks, 5 does
+      not), `kSalaryMinMonthlyPaise` (a credit at exactly the floor is a candidate, one
+      paise under is not), `kVariableSalaryUpperPercentile` (`rangeHighPaise` is the p80).
+      `kSeasonalBufferDayOfMonth` **cannot** get one — TASK-16 retired it and it now dates
+      nothing; record that instead of writing a test for a dead constant.
+
 ## Verification
 
 ```bash
@@ -173,6 +227,7 @@ flutter test
 ## Definition of done
 
 - [ ] All ten items addressed, or explicitly closed with a reason recorded here
-- [ ] Four boundary tests added for the untested constants
-- [ ] `flutter analyze` clean, `flutter test` green
+      — M1–M6, M8, M9 done; M7 and M10 outstanding
+- [ ] Four boundary tests added for the untested constants — none written
+- [x] `flutter analyze` clean, `flutter test` green — **735 passing**
 - [ ] Suggested commit: `Tidy reconciliation edge cases and add threshold boundary tests`

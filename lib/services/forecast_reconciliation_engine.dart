@@ -12,13 +12,18 @@ class ForecastReconciliationEngine {
     required List<ReconciliationItem> items,
     DateTime? now,
   }) {
-    _assertUniqueIds(items);
+    // A duplicate id used to throw, which blanked the entire forecast over a
+    // single data-quality problem. It is reachable: `recurring_obligation_
+    // candidates` deliberately reuses `configuredPlanKey` as the dedupe key,
+    // and item ids are `obl:<dedupeKey>`, so an SMS-recurring record and a
+    // configured-plan record sharing that key collide. Degrade to review.
+    final (resolved, collidedIds) = _dedupeIds(items);
     final referenceNow = now ?? DateTime.now();
     final bridgeTargetIds = {
-      for (final item in items)
+      for (final item in resolved)
         if (item.transferBridgeToId != null) item.transferBridgeToId!,
     };
-    final atmTotalPaise = items
+    final atmTotalPaise = resolved
         .where(
           (item) =>
               item.owner == ForecastOwner.atmCash &&
@@ -30,7 +35,7 @@ class ForecastReconciliationEngine {
         .fold<int>(0, (sum, item) => sum + item.amountPaise!);
 
     final groups = <String, List<ReconciliationItem>>{};
-    for (final item in items) {
+    for (final item in resolved) {
       final groupKey = _groupKey(item, bridgeTargetIds);
       groups.putIfAbsent(groupKey, () => []).add(item);
     }
@@ -61,6 +66,19 @@ class ForecastReconciliationEngine {
       final winners = _chooseWinners(ordered);
       final winnerIds = {for (final winner in winners) winner.id};
       for (final winner in winners) {
+        if (collidedIds.contains(winner.id)) {
+          _assignCoverage(
+            winner,
+            CoverageReason.reviewNeeded,
+            CoverageAction.review,
+            ForecastLineStatus.review,
+            CoverageBucket.reviewPending,
+            coverageLines,
+            lines,
+            assignments,
+          );
+          continue;
+        }
         _applyWinner(
           winner,
           targetMonth,
@@ -85,7 +103,22 @@ class ForecastReconciliationEngine {
       }
     }
 
-    _assertCompleteAssignments(items, assignments);
+    // One line for the month, not one per withdrawal. The spec's message is
+    // about the monthly total — "₹X cash withdrawn this month" — and that total
+    // is what the threshold is measured against in the first place.
+    if (atmTotalPaise >= materialCashThresholdPaise) {
+      coverageLines.add(
+        ForecastCoverageLine(
+          label: 'Cash withdrawn this month',
+          amountPaise: atmTotalPaise,
+          reason: CoverageReason.untrackedCash,
+          action: CoverageAction.none,
+          confidence: 1,
+        ),
+      );
+    }
+
+    _assertCompleteAssignments(resolved, assignments);
 
     events.sort((a, b) => a.date.compareTo(b.date));
     return ForecastReconciliationResult(
@@ -212,7 +245,11 @@ class ForecastReconciliationEngine {
       return;
     }
 
-    if (item.owner == ForecastOwner.p2pIncomeCandidate &&
+    // An algorithm-detected inflow may not raise the projected balance on its
+    // own. This covers the over-refund residual, which reached the ledger as a
+    // dated inflow because only `p2pIncomeCandidate` was gated.
+    if ((item.owner == ForecastOwner.p2pIncomeCandidate ||
+            item.owner == ForecastOwner.otherIncome) &&
         item.userCadenceStatus != UserCadenceStatus.userConfirmed) {
       _assignCoverage(
         item,
@@ -303,7 +340,7 @@ class ForecastReconciliationEngine {
         ForecastLine(
           label: item.label,
           amountPaise: item.amountPaise!,
-          source: _eventSourceFor(item.owner),
+          source: _eventSourceFor(item),
           date: eventDate,
           ownerKey: item.ownerKey,
           status: ForecastLineStatus.alreadyInAnchor,
@@ -318,16 +355,6 @@ class ForecastReconciliationEngine {
         item,
         CoverageReason.accountHintUncertain,
         CoverageAction.linkAccount,
-        coverageLines,
-      );
-    }
-
-    if (item.owner == ForecastOwner.atmCash &&
-        atmTotalPaise >= materialCashThresholdPaise) {
-      _addCoverageLineOnly(
-        item,
-        CoverageReason.untrackedCash,
-        CoverageAction.none,
         coverageLines,
       );
     }
@@ -347,7 +374,7 @@ class ForecastReconciliationEngine {
         date: eventDate,
         amountPaise: item.amountPaise!,
         direction: item.direction,
-        source: _eventSourceFor(item.owner),
+        source: _eventSourceFor(item),
         ownerKey: item.ownerKey,
         label: item.label,
         confidence: item.confidence,
@@ -359,7 +386,7 @@ class ForecastReconciliationEngine {
       ForecastLine(
         label: item.label,
         amountPaise: item.amountPaise!,
-        source: _eventSourceFor(item.owner),
+        source: _eventSourceFor(item),
         date: eventDate,
         ownerKey: item.ownerKey,
         status: _statusForDatedItem(item, now),
@@ -450,7 +477,7 @@ class ForecastReconciliationEngine {
         ForecastLine(
           label: item.label,
           amountPaise: item.amountPaise!,
-          source: _eventSourceFor(item.owner),
+          source: _eventSourceFor(item),
           date: item.eventDate,
           ownerKey: item.ownerKey,
           status: status,
@@ -478,13 +505,21 @@ class ForecastReconciliationEngine {
     );
   }
 
-  static void _assertUniqueIds(List<ReconciliationItem> items) {
-    final ids = <String>{};
+  /// Keeps the first item per id and reports which ids collided, so the
+  /// collision becomes a review line instead of an exception.
+  static (List<ReconciliationItem>, Set<String>) _dedupeIds(
+    List<ReconciliationItem> items,
+  ) {
+    final kept = <String, ReconciliationItem>{};
+    final collided = <String>{};
     for (final item in items) {
-      if (!ids.add(item.id)) {
-        throw ArgumentError.value(item.id, 'items', 'Duplicate item id');
+      if (kept.containsKey(item.id)) {
+        collided.add(item.id);
+        continue;
       }
+      kept[item.id] = item;
     }
+    return (kept.values.toList(growable: false), collided);
   }
 
   static void _assertCompleteAssignments(
@@ -616,16 +651,23 @@ class ForecastReconciliationEngine {
     ForecastOwner.discretionarySpend => 90,
   };
 
-  static ForecastEventSource _eventSourceFor(ForecastOwner owner) =>
-      switch (owner) {
+  /// The why-log's origin label. Obligation-shaped owners take it from the
+  /// item's real source rather than assuming Gmail: an SMS-detected annual
+  /// obligation was being labelled "Gmail bill", and `manual` was never
+  /// produced by any path despite `ObligationSourceType.manual` existing —
+  /// both of which undercut the promise that no number lacks a traceable
+  /// reason.
+  static ForecastEventSource _eventSourceFor(ReconciliationItem item) =>
+      switch (item.owner) {
         ForecastOwner.salary => ForecastEventSource.salary,
         ForecastOwner.otherIncome => ForecastEventSource.otherIncome,
         ForecastOwner.recurringCommitment ||
         ForecastOwner.recurringP2pOutflow => ForecastEventSource.recurring,
         ForecastOwner.gmailBill ||
         ForecastOwner.annualUnscheduled ||
-        ForecastOwner.nonPrimaryAccountObligation =>
-          ForecastEventSource.gmailBill,
+        ForecastOwner.nonPrimaryAccountObligation => _obligationSourceFor(
+          item.source,
+        ),
         ForecastOwner.configuredContribution =>
           ForecastEventSource.configuredContribution,
         ForecastOwner.cardStatement => ForecastEventSource.cardStatement,
@@ -636,6 +678,16 @@ class ForecastReconciliationEngine {
         ForecastOwner.atmCash => ForecastEventSource.untrackedCash,
         ForecastOwner.discretionarySpend => ForecastEventSource.seasonal,
         ForecastOwner.p2pIncomeCandidate => ForecastEventSource.otherIncome,
+      };
+
+  static ForecastEventSource _obligationSourceFor(ForecastItemSource source) =>
+      switch (source) {
+        ForecastItemSource.gmail => ForecastEventSource.gmailBill,
+        ForecastItemSource.manual => ForecastEventSource.manual,
+        ForecastItemSource.sms => ForecastEventSource.recurring,
+        ForecastItemSource.configuredPlan =>
+          ForecastEventSource.configuredContribution,
+        ForecastItemSource.estimator => ForecastEventSource.seasonal,
       };
 
   static bool _sameMonth(DateTime date, DateTime month) =>

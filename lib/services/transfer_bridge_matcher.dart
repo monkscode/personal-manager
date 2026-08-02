@@ -65,7 +65,7 @@ class TransferBridgeMatcher {
         if (obligation.paymentAccountScope == AccountScope.secondary &&
             obligation.dueDate != null &&
             obligation.amountPaise != null &&
-            !directlyPaid.contains(obligation))
+            !directlyPaid.contains(obligation.dedupeKey))
           obligation,
     ];
 
@@ -76,29 +76,36 @@ class TransferBridgeMatcher {
           txn,
     ];
 
-    // Bipartite adjacency: which obligations each transfer can fund.
-    final matchesByTransfer = <ParsedTxn, List<ObligationRecord>>{};
-    final transfersByObligation = <ObligationRecord, List<ParsedTxn>>{};
+    // Bipartite adjacency: which obligations each transfer can fund. Keyed by
+    // `smsId`/`dedupeKey` rather than by the model instances — neither has
+    // value equality, so a `copyWith` anywhere between the two passes would
+    // have silently broken the pairing.
+    final matchesByTransfer = <String, List<ObligationRecord>>{};
+    final transfersByObligation = <String, List<ParsedTxn>>{};
+    final transferById = <String, ParsedTxn>{};
     for (final transfer in transfers) {
       final matched = [
         for (final obligation in obligations)
           if (_bridges(transfer, obligation)) obligation,
       ];
       if (matched.isEmpty) continue;
-      matchesByTransfer[transfer] = matched;
+      matchesByTransfer[transfer.smsId] = matched;
+      transferById[transfer.smsId] = transfer;
       for (final obligation in matched) {
-        transfersByObligation.putIfAbsent(obligation, () => []).add(transfer);
+        transfersByObligation
+            .putIfAbsent(obligation.dedupeKey, () => [])
+            .add(transfer);
       }
     }
 
     final candidates = <TransferBridgeCandidate>[];
     for (final entry in matchesByTransfer.entries) {
-      final transfer = entry.key;
+      final transfer = transferById[entry.key]!;
       final matched = entry.value;
       // Unique iff this transfer maps to a single obligation AND that
       // obligation is contested by no other transfer.
       final unique = matched.length == 1 &&
-          transfersByObligation[matched.single]!.length == 1;
+          transfersByObligation[matched.single.dedupeKey]!.length == 1;
       candidates.add(
         TransferBridgeCandidate(
           transfer: transfer,
@@ -112,7 +119,11 @@ class TransferBridgeMatcher {
     return candidates;
   }
 
-  Set<ObligationRecord> _directlyPaidOnPrimary(
+  /// The `dedupeKey`s of obligations observed being paid directly on the
+  /// primary account. Keyed by value, not by instance — `ObligationRecord` has
+  /// no `==`, so a set of records only works while the identical instances flow
+  /// through both passes.
+  Set<String> _directlyPaidOnPrimary(
     List<ParsedTxn> primaryEvents,
     List<ObligationRecord> obligations,
   ) {
@@ -122,7 +133,7 @@ class TransferBridgeMatcher {
             txn.direction == TransactionDirection.debit)
           txn,
     ];
-    final resolved = <ObligationRecord>{};
+    final resolved = <String>{};
     for (final obligation in obligations) {
       final amount = obligation.amountPaise;
       final due = obligation.dueDate;
@@ -137,7 +148,7 @@ class TransferBridgeMatcher {
           continue;
         }
         if (_merchantNorm(debit.merchant) == obligation.merchantNorm) {
-          resolved.add(obligation);
+          resolved.add(obligation.dedupeKey);
           break;
         }
       }

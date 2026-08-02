@@ -122,8 +122,8 @@ SmsAnalysisSnapshot _snap({
   anchorFreshness: anchor?.freshnessAsOf(_now),
 );
 
-ForecastOutlook _build(SmsAnalysisSnapshot snap, {AppState? state}) =>
-    const ForecastAdapter().build(state ?? _state, snap, now: _now);
+ForecastOutlook _build(SmsAnalysisSnapshot snap, {AppState? state, DateTime? now}) =>
+    const ForecastAdapter().build(state ?? _state, snap, now: now ?? _now);
 
 ObligationRecord _confirmedObligation({
   required String dedupeKey,
@@ -303,6 +303,9 @@ void main() {
 
   group('ForecastAdapter — coverage and forward earmarks', () {
     test('an already-paid obligation is not subtracted again', () {
+      // Read mid-month: an anchor dated after `now` is impossible and is now
+      // rejected by AnchorSelector, so the fixture's own clock has to be
+      // consistent with the balance reading it claims.
       final outlook = _build(
         _snap(
           anchor: _anchor(5000000, DateTime(2026, 8, 10)),
@@ -317,6 +320,7 @@ void main() {
             ),
           ],
         ),
+        now: DateTime(2026, 8, 15),
       );
 
       expect(outlook.closingBalancePaise, 5000000); // unchanged
@@ -844,6 +848,7 @@ void main() {
                 ),
               ],
             ),
+            now: DateTime(2026, 8, 15),
           );
 
           // Must have the informational line in outlook.lines.

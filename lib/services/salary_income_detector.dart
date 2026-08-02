@@ -176,6 +176,14 @@ class SalaryIncomeDetector {
     final byLabel = <String, List<ParsedTxn>>{};
     for (final txn in credits) {
       if (salaryChosen.contains(txn)) continue;
+      // Self-transfers and own-wallet movements are excluded before any
+      // recurring-income promotion (spec §7): moving your own money between
+      // your own accounts is not income, and surfacing it as a candidate is
+      // review noise the user has to clear by hand.
+      if (txn.payeeType == PayeeType.selfTransfer ||
+          txn.payeeType == PayeeType.wallet) {
+        continue;
+      }
       byLabel.putIfAbsent(_label(txn), () => []).add(txn);
     }
 

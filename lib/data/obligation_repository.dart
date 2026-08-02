@@ -60,10 +60,29 @@ class ObligationRepository {
   /// and `outstandingPaise` — plus the row identity (`id`, `sourceType`).
   /// Nothing a user can change through the UI may be sourced from the incoming
   /// scan record.
+  /// Written out in full rather than via `copyWith`. `copyWith` resolves every
+  /// argument with `?? this.x`, so it cannot carry a *null* across: an
+  /// obligation that loses its due date on a rescan would keep the stale one
+  /// forever. Constructing explicitly makes the preserved set visible in one
+  /// place and lets a cleared field actually clear.
   static ObligationRecord _merge(
     ObligationRecord existing,
     ObligationRecord incoming,
-  ) => existing.copyWith(
+  ) => ObligationRecord(
+    // Row identity — never re-derived.
+    id: existing.id,
+    sourceType: existing.sourceType,
+    dedupeKey: existing.dedupeKey,
+    createdAt: existing.createdAt,
+    // User intent — never sourced from a scan.
+    reserveEnabled: existing.reserveEnabled,
+    reserveFundedPaise: existing.reserveFundedPaise,
+    userCadenceStatus: existing.userCadenceStatus,
+    reviewStatus: existing.reviewStatus,
+    paymentStatus: existing.paymentStatus,
+    amountPaidPaise: existing.amountPaidPaise,
+    outstandingPaise: existing.outstandingPaise,
+    // Derived — refreshed from the incoming record, nulls included.
     sourceId: incoming.sourceId,
     merchant: incoming.merchant,
     merchantNorm: incoming.merchantNorm,
@@ -80,6 +99,7 @@ class ObligationRepository {
     upiVpaNorm: incoming.upiVpaNorm,
     payeeType: incoming.payeeType,
     confidence: incoming.confidence,
+    updatedAt: incoming.updatedAt,
   );
 
   Future<List<ObligationRecord>> allActive() async {

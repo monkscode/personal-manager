@@ -13,18 +13,28 @@ class AnchorSelector {
   /// Returns the anchor that should drive the opening balance, or `null` when
   /// neither source has one.
   ///
-  /// [now] is part of the stable selection contract so callers thread the same
-  /// clock they use elsewhere. Anchor *freshness* (current/amber/stale) is not
-  /// decided here — it is applied downstream by the ledger engine via
-  /// [BalanceAnchor.freshnessAsOf].
+  /// A future-dated anchor is rejected outright. [BalanceAnchor.freshnessAsOf]
+  /// classifies a *negative* age as `current`, so one bad SMS timestamp would
+  /// otherwise produce an anchor that is permanently fresh and permanently wins
+  /// selection — pinning the opening balance to a reading that never happened.
+  ///
+  /// Anchor *freshness* (current/amber/stale) is still decided downstream by
+  /// the ledger engine; only the impossible case is filtered here.
   static BalanceAnchor? select({
     BalanceAnchor? smsAnchor,
     BalanceAnchor? manualAnchor,
     required DateTime now,
   }) {
-    if (smsAnchor == null) return manualAnchor;
-    if (manualAnchor == null) return smsAnchor;
+    final sms = _rejectFutureDated(smsAnchor, now);
+    final manual = _rejectFutureDated(manualAnchor, now);
+    if (sms == null) return manual;
+    if (manual == null) return sms;
     // Newest wins; on an exact tie the SMS bank balance is preferred.
-    return manualAnchor.asOf.isAfter(smsAnchor.asOf) ? manualAnchor : smsAnchor;
+    return manual.asOf.isAfter(sms.asOf) ? manual : sms;
   }
+
+  static BalanceAnchor? _rejectFutureDated(
+    BalanceAnchor? anchor,
+    DateTime now,
+  ) => anchor != null && anchor.asOf.isAfter(now) ? null : anchor;
 }

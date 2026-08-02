@@ -680,11 +680,11 @@ void main() {
       );
 
       expect(result.events, hasLength(2));
-      expect(
-        result.coverageLines.map((line) => line.reason),
-        everyElement(CoverageReason.untrackedCash),
-      );
-      expect(result.coverageLines, hasLength(2));
+      // One line for the month, carrying the monthly total — the spec's message
+      // is "₹X cash withdrawn this month", not one caveat per withdrawal.
+      expect(result.coverageLines, hasLength(1));
+      expect(result.coverageLines.single.reason, CoverageReason.untrackedCash);
+      expect(result.coverageLines.single.amountPaise, 600000);
     });
 
     test(
