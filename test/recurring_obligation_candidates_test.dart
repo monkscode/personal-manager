@@ -60,6 +60,28 @@ void main() {
     expect(netflixObligation.dueDate, isNotNull);
   });
 
+  test('an algorithm-detected commitment is not stamped user-confirmed', () async {
+    final repo = await openRepository();
+    for (final month in [4, 5, 6, 7]) {
+      await repo.upsertParsedTxn(netflix(month));
+    }
+
+    final source = RecurringObligationCandidates(transactions: repo);
+    final candidates = await source.derive(
+      persisted: const [],
+      scanBatchId: 'batch',
+      now: DateTime(2026, 7, 20),
+    );
+
+    final derived = candidates.singleWhere((o) => o.merchantNorm == 'netflix');
+    expect(derived.userCadenceStatus, UserCadenceStatus.algorithmDetected);
+    expect(
+      derived.reviewStatus,
+      ObligationReviewStatus.needsReview,
+      reason: 'a guess must not present itself as the user\'s own decision',
+    );
+  });
+
   test('produces no candidates when there is no recurring history', () async {
     final repo = await openRepository();
     await repo.upsertParsedTxn(netflix(7)); // a single occurrence

@@ -502,6 +502,61 @@ void main() {
     });
   });
 
+  group('an algorithm guess does not harden the forecast', () {
+    // A plain 3-occurrence commitment carries confidence 0.7, below the 0.8
+    // reserve bar, so `isUserConfirmed` was the only thing lifting it over.
+    ObligationRecord smsRecurring({
+      required ObligationReviewStatus reviewStatus,
+    }) => ObligationRecord(
+      id: 7,
+      sourceType: ObligationSourceType.smsRecurring,
+      dedupeKey: 'sms_recurring:netflix:monthly',
+      merchant: 'netflix',
+      merchantNorm: 'netflix',
+      categoryKey: 'subscriptions',
+      amountPaise: 50000,
+      amountStatus: AmountStatus.known,
+      recurrence: ReconciliationRecurrence.monthly,
+      dueDate: DateTime(2026, 8, 5),
+      paymentAccountScope: AccountScope.primary,
+      paymentStatus: ReconciliationPaymentStatus.unpaid,
+      nextExpectedSource: NextExpectedSource.lockedCadence,
+      payeeType: PayeeType.merchant,
+      userCadenceStatus: UserCadenceStatus.algorithmDetected,
+      confidence: kRecurringBaseConfidence,
+      reviewStatus: reviewStatus,
+      createdAt: DateTime(2026, 1),
+      updatedAt: DateTime(2026, 7),
+    );
+
+    bool hardensFor(ObligationReviewStatus reviewStatus) {
+      final items = build(
+        obligations: [smsRecurring(reviewStatus: reviewStatus)],
+        targetMonth: _target,
+        anchor: anchorFor(_target),
+      );
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: anchorFor(_target),
+        items: items,
+        now: DateTime(2026, 8, 2),
+      );
+      final event = result.events.singleWhere(
+        (e) => e.ownerKey.contains('netflix'),
+      );
+      // Mirrors ForecastAdapter._isHard: user-confirmed, or over the bar.
+      return event.isUserConfirmed || event.confidence >= kReserveHardConfidence;
+    }
+
+    test('an unconfirmed guess stays soft at 0.7 confidence', () {
+      expect(hardensFor(ObligationReviewStatus.needsReview), isFalse);
+    });
+
+    test('once the user confirms it, it hardens', () {
+      expect(hardensFor(ObligationReviewStatus.confirmed), isTrue);
+    });
+  });
+
   group('refunds are capped per original debit', () {
     ParsedTxn purchase({
       required int amountPaise,

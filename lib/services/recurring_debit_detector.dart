@@ -107,7 +107,7 @@ class RecurringDebitDetector {
   }) {
     final commitments = <RecurringCommitment>[];
     for (final group in _groups(history).values) {
-      final analysis = _analyze(group, configuredPlans);
+      final analysis = _analyze(group, configuredPlans, now);
       if (analysis.commitment != null) commitments.add(analysis.commitment!);
     }
     return commitments;
@@ -121,7 +121,7 @@ class RecurringDebitDetector {
   }) {
     final candidates = <ReviewCandidate>[];
     for (final group in _groups(history).values) {
-      final analysis = _analyze(group, configuredPlans);
+      final analysis = _analyze(group, configuredPlans, now);
       if (analysis.candidate != null) candidates.add(analysis.candidate!);
     }
     return candidates;
@@ -137,7 +137,11 @@ class RecurringDebitDetector {
     return groups;
   }
 
-  _GroupAnalysis _analyze(List<ParsedTxn> group, List<ContribPlan> plans) {
+  _GroupAnalysis _analyze(
+    List<ParsedTxn> group,
+    List<ContribPlan> plans,
+    DateTime now,
+  ) {
     final sorted = [...group]..sort((a, b) => a.txnDate.compareTo(b.txnDate));
     final occurrences = sorted.length;
     if (occurrences < 2) return const _GroupAnalysis();
@@ -192,7 +196,7 @@ class RecurringDebitDetector {
           amountPaise: median,
           cadence: cadence,
           categoryKey: categoryKey,
-          nextExpected: _addCadence(sorted.last.txnDate, cadence),
+          nextExpected: _nextExpected(sorted.last.txnDate, cadence, now),
           confidence: confidence,
           occurrences: occurrences,
           matchedConfiguredPlan: matchedPlan != null,
@@ -266,7 +270,32 @@ class RecurringDebitDetector {
   String _planKey(ContribPlan plan, int medianPaise) =>
       'configured:${plan.frequency}:$medianPaise:${plan.month}';
 
-  DateTime _addCadence(DateTime last, RecurringCadence cadence) {
+  /// The next occurrence at or after [now]. Advancing one period from the last
+  /// *observed* payment left a live commitment dated in the past — history
+  /// ending in April with `now` in July produced 10 May, which the engine filed
+  /// as a `futureEarmark` and excluded from the ledger entirely.
+  DateTime _nextExpected(
+    DateTime last,
+    RecurringCadence cadence,
+    DateTime now,
+  ) {
+    final today = DateTime(now.year, now.month, now.day);
+    var periods = 1;
+    var next = _addCadence(last, cadence, periods);
+    // Each step is measured from the original day, not from the clamped result,
+    // so a month-end cadence does not walk 31 Jan → 28 Feb → 28 Mar.
+    while (next.isBefore(today)) {
+      periods++;
+      next = _addCadence(last, cadence, periods);
+    }
+    return next;
+  }
+
+  DateTime _addCadence(
+    DateTime last,
+    RecurringCadence cadence, [
+    int periods = 1,
+  ]) {
     final months = switch (cadence) {
       RecurringCadence.monthly => 1,
       RecurringCadence.quarterly => 3,
@@ -276,7 +305,7 @@ class RecurringDebitDetector {
     // Clamped so a month-end cadence advances to the next month's last day
     // (31 Jan + 1 month = 28 Feb) instead of overflowing past it and skipping
     // that month entirely.
-    return clampedDate(last.year, last.month + months, last.day);
+    return clampedDate(last.year, last.month + months * periods, last.day);
   }
 
   String _ownerNorm(ParsedTxn txn) {

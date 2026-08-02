@@ -65,10 +65,14 @@ class RecurringObligationCandidates implements ObligationCandidateSource {
       paymentStatus: ReconciliationPaymentStatus.unpaid,
       nextExpectedSource: NextExpectedSource.lockedCadence,
       payeeType: PayeeType.merchant,
-      // Algorithm-detected until the user confirms the cadence in review.
+      // Algorithm-detected until the user confirms the cadence in review — and
+      // the review status has to say so too. Stamping `confirmed` here made the
+      // matcher report `isUserConfirmed`, which is the only thing that lifts a
+      // 0.7-confidence guess over the 0.8 hard-commitment bar: an algorithm's
+      // guess was being presented back as the user's own decision.
       userCadenceStatus: UserCadenceStatus.algorithmDetected,
       confidence: commitment.confidence,
-      reviewStatus: ObligationReviewStatus.confirmed,
+      reviewStatus: ObligationReviewStatus.needsReview,
       createdAt: now,
       updatedAt: now,
     );

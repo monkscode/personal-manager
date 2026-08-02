@@ -85,14 +85,28 @@ expect `31 Jan → 3 Mar` and do TASK-01 first.
 
 ---
 
-## Related, lower confidence — one skipped month unlocks a real commitment
+## Decision — no skipped-month tolerance (not added)
 
 A bounced auto-debit produces a ~60-day gap, `_cadence` returns null, and twelve months of
-history never locks into a recurring commitment.
+history never locks into a recurring commitment. It degrades to an
+`irregularRepeatingDebit` review candidate, so it is surfaced, not silent.
 
-It degrades to a review candidate rather than disappearing, so it is **not silent** — but
-it is a meaningful false negative. Consider a tolerance for one missed period. Record the
-decision here either way.
+**Not adding a tolerance.** The two failure directions are not symmetric. Today's false
+negative costs a review prompt — the user sees the group and can confirm it. A tolerance
+that reads a ~60-day gap as monthly also makes a genuinely bi-monthly series look monthly,
+which *doubles* that commitment in the forecast and overstates required-in-bank. Given this
+layer exists to answer "how much do I need in the bank", inflating a commitment silently is
+the worse error, and the safe failure already has a user-visible escape hatch.
+
+Revisit if review-queue volume becomes the complaint; a tolerance keyed on "the amount and
+day-of-month both still match the established pattern" would be far narrower than widening
+the raw gap window.
+
+## Correction — the roll-forward must step from the original day
+
+Iterating `next = _addCadence(next, cadence)` on the *clamped result* drifts a month-end
+cadence: 31 Jan → 28 Feb → 28 Mar → 28 Apr. Each step is therefore measured from the last
+observed date with a period multiplier, so 31 Jan + 2 periods is 31 March.
 
 ---
 
@@ -100,19 +114,30 @@ decision here either way.
 
 Add to `test/recurring_obligation_candidates_test.dart`:
 
-- [ ] An algorithm-detected candidate has `reviewStatus == needsReview`, not `confirmed`.
-- [ ] It is therefore **not** `isUserConfirmed` downstream, and does **not** pass `_isHard`
+- [x] An algorithm-detected candidate has `reviewStatus == needsReview`, not `confirmed`.
+      — **RED** (`confirmed`)
+
+Add to `test/reconciliation_matcher_test.dart` — the downstream consequence is measured
+where `_isHard`'s inputs are actually produced:
+
+- [x] It is therefore **not** `isUserConfirmed` downstream, and does **not** pass `_isHard`
       at confidence 0.7.
-- [ ] After a user confirms it, it *does* harden (and TASK-02 keeps that across rescans).
+- [x] After a user confirms it, it *does* harden (and TASK-02 keeps that across rescans).
 
 Add to `test/recurring_debit_detector_test.dart`:
 
-- [ ] History ending 10 April with `now` = 1 July → `nextExpected` is **10 July**, not
-      10 May. (This replaces the assertion at `:66-78`.)
-- [ ] `nextExpected` is never before `now` for any cadence.
-- [ ] Month-end cadence: history ending 31 Jan, `now` = 15 Mar → `nextExpected` is
-      31 Mar (via the clamped helper).
-- [ ] `now` is genuinely used — a test that changes only `now` changes the result.
+- [x] History ending 10 April with `now` = 1 July → `nextExpected` is **10 July**, not
+      10 May. (This replaces the assertion at `:66-78`.) — **RED**
+- [x] `nextExpected` is never before `now` for any cadence. — **RED**
+- [x] Month-end cadence: history ending 31 Jan, `now` = 15 Mar → `nextExpected` is
+      31 Mar (via the clamped helper). — **RED** (28 Feb — the drift above)
+- [x] `now` is genuinely used — a test that changes only `now` changes the result. — **RED**
+
+**Three further stale assertions were found and corrected**, all the same defect the plan
+named at `:66-78`: `quarterly cadence locks` expected Oct 2025, `annual cadence locks`
+expected Jun 2026, and `a month-end monthly cadence advances to the last day` expected Feb
+2026 — every one a date already in the past relative to the test's own `now`. The month-end
+one now reads from 5 Feb so it still proves the clamp rather than the roll-forward.
 
 ## Verification
 
@@ -123,10 +148,11 @@ flutter test
 
 ## Definition of done
 
-- [ ] Algorithm-detected records use `needsReview`
-- [ ] `nextExpected` rolls forward past `now`
-- [ ] The stale assertion at `recurring_debit_detector_test.dart:66-78` is corrected
-- [ ] Skipped-month tolerance decided and recorded
-- [ ] All seven tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Stop marking algorithm guesses as user-confirmed and roll due dates forward`
+- [x] Algorithm-detected records use `needsReview`
+- [x] `nextExpected` rolls forward past `now`
+- [x] The stale assertion at `recurring_debit_detector_test.dart:66-78` is corrected, plus
+      three others carrying the same past date
+- [x] Skipped-month tolerance decided and recorded — not added, reasoning above
+- [x] All seven tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green — **728 passing** (was 722)
+- [x] Suggested commit: `Stop marking algorithm guesses as user-confirmed and roll due dates forward`

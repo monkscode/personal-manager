@@ -74,7 +74,52 @@ void main() {
       expect(c.merchantNorm, 'icici pru mf');
       expect(c.categoryKey, 'investment');
       expect(c.confidence, greaterThanOrEqualTo(kRecurringBaseConfidence));
-      expect(c.nextExpected, DateTime(2026, 5, 10));
+      // History ends 10 April and `now` is 1 July, so the next occurrence is
+      // 10 July. The old assertion here was 10 May — two months in the past,
+      // which the engine filed as a futureEarmark and excluded from the ledger.
+      expect(c.nextExpected, DateTime(2026, 7, 10));
+    });
+
+    test('nextExpected is never in the past, for any cadence', () {
+      for (final history in [
+        monthly(count: 4, amountPaise: 500000),
+        [
+          debit(date: DateTime(2025, 1, 15), amountPaise: 300000, smsId: 'q1'),
+          debit(date: DateTime(2025, 4, 15), amountPaise: 300000, smsId: 'q2'),
+          debit(date: DateTime(2025, 7, 15), amountPaise: 300000, smsId: 'q3'),
+        ],
+      ]) {
+        for (final commitment in detect(history)) {
+          expect(commitment.nextExpected.isBefore(_now), isFalse);
+        }
+      }
+    });
+
+    test('now genuinely drives the answer', () {
+      final history = monthly(count: 4, amountPaise: 500000);
+      final early = detector
+          .detect(history, configuredPlans: const [], now: DateTime(2026, 5, 1))
+          .single;
+      final late = detector
+          .detect(history, configuredPlans: const [], now: DateTime(2026, 9, 1))
+          .single;
+      expect(early.nextExpected, DateTime(2026, 5, 10));
+      expect(late.nextExpected, DateTime(2026, 9, 10));
+    });
+
+    test('a month-end cadence rolls forward without drifting off the 31st', () {
+      final history = [
+        debit(date: DateTime(2025, 10, 31), amountPaise: 200000, smsId: 'm1'),
+        debit(date: DateTime(2025, 11, 30), amountPaise: 200000, smsId: 'm2'),
+        debit(date: DateTime(2025, 12, 31), amountPaise: 200000, smsId: 'm3'),
+        debit(date: DateTime(2026, 1, 31), amountPaise: 200000, smsId: 'm4'),
+      ];
+      final commitment = detector
+          .detect(history, configuredPlans: const [], now: DateTime(2026, 3, 15))
+          .single;
+      // Advancing from the original day each time, not from the clamped result:
+      // 31 Jan + 2 months is 31 March, not 28 March.
+      expect(commitment.nextExpected, DateTime(2026, 3, 31));
     });
 
     test('quarterly cadence locks', () {
@@ -85,7 +130,8 @@ void main() {
       ]);
 
       expect(result.single.cadence, RecurringCadence.quarterly);
-      expect(result.single.nextExpected, DateTime(2025, 10, 15));
+      // Rolled forward past `now` (1 Jul 2026): Oct 25, Jan 26, Apr 26, Jul 26.
+      expect(result.single.nextExpected, DateTime(2026, 7, 15));
     });
 
     test('annual cadence locks', () {
@@ -96,15 +142,22 @@ void main() {
       ]);
 
       expect(result.single.cadence, RecurringCadence.annual);
-      expect(result.single.nextExpected, DateTime(2026, 6, 10));
+      // 10 Jun 2026 is already behind `now`, so the next one is a year later.
+      expect(result.single.nextExpected, DateTime(2027, 6, 10));
     });
 
     test('a month-end monthly cadence advances to the last day, not overflow', () {
-      final result = detect([
-        debit(date: DateTime(2025, 11, 30), amountPaise: 300000, smsId: 'a'),
-        debit(date: DateTime(2025, 12, 31), amountPaise: 300000, smsId: 'b'),
-        debit(date: DateTime(2026, 1, 31), amountPaise: 300000, smsId: 'c'),
-      ]);
+      final result = detector.detect(
+        [
+          debit(date: DateTime(2025, 11, 30), amountPaise: 300000, smsId: 'a'),
+          debit(date: DateTime(2025, 12, 31), amountPaise: 300000, smsId: 'b'),
+          debit(date: DateTime(2026, 1, 31), amountPaise: 300000, smsId: 'c'),
+        ],
+        configuredPlans: const [],
+        // Read from mid-February so the first future occurrence is the one the
+        // clamp has to get right.
+        now: DateTime(2026, 2, 5),
+      );
 
       expect(result.single.cadence, RecurringCadence.monthly);
       // 31 Jan + 1 month must be 28 Feb, not 3 March (which skips February).
