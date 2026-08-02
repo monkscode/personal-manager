@@ -122,6 +122,45 @@ void main() {
       expect(commitment.nextExpected, DateTime(2026, 3, 31));
     });
 
+    test('a late-night to early-morning monthly pair is still monthly', () {
+      // 27 days and 11 hours truncates to 27 with `inDays`, falling outside the
+      // (28, 33) window and unlocking a real commitment.
+      final result = detect([
+        debit(
+          date: DateTime(2026, 1, 30, 22, 0),
+          amountPaise: 500000,
+          smsId: 't1',
+        ),
+        debit(
+          date: DateTime(2026, 2, 27, 9, 0),
+          amountPaise: 500000,
+          smsId: 't2',
+        ),
+        debit(
+          date: DateTime(2026, 3, 30, 14, 0),
+          amountPaise: 500000,
+          smsId: 't3',
+        ),
+      ]);
+
+      expect(result, hasLength(1));
+      expect(result.single.cadence, RecurringCadence.monthly);
+    });
+
+    test('the time of day does not change the cadence', () {
+      List<RecurringCommitment> at(int hour) => detect([
+        for (var i = 0; i < 4; i++)
+          debit(
+            date: DateTime(2026, 1 + i, 10, hour),
+            amountPaise: 500000,
+            smsId: 'h$i',
+          ),
+      ]);
+
+      expect(at(0).single.cadence, at(23).single.cadence);
+      expect(at(0), hasLength(at(23).length));
+    });
+
     test('quarterly cadence locks', () {
       final result = detect([
         debit(date: DateTime(2025, 1, 15), amountPaise: 300000, smsId: 'a'),

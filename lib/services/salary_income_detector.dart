@@ -1,3 +1,4 @@
+import '../core/circular_days.dart';
 import '../core/money.dart';
 import '../data/sms_models.dart';
 
@@ -60,8 +61,12 @@ class SalaryProfile {
   /// Observed day-of-month the salary posts, or null when undetected.
   final int? expectedDay;
 
-  /// Observed drift around [expectedDay]; the pessimistic (latest) edge is used
-  /// for minimum-balance planning.
+  /// Total observed spread of salary landing days, measured on a circle so a
+  /// month-end wrap counts as a day rather than a month. The pessimistic edge
+  /// of this window is what minimum-balance planning is meant to use.
+  ///
+  /// Nothing consumes it yet. Whoever wires it up should pin the meaning then:
+  /// this is an **arc width**, not a half-width around [expectedDay].
   final int expectedDayWindowDays;
 
   /// Whether the current calendar month's salary has already posted (so the
@@ -103,7 +108,12 @@ class SalaryIncomeDetector {
     String? configuredSalaryRupees,
     required DateTime now,
   }) {
-    final salaryCredits = credits.where(_isSalaryCandidate).toList();
+    final candidates = credits.where(_isSalaryCandidate).toList();
+    // Salary is a recurring credit from an identified payer (spec §7), not
+    // merely the biggest credit each month. Without this a freelancer paid by
+    // three different clients — or three FD maturities — became a "stable"
+    // salary the forecast then anchored on, with nothing obliging it to recur.
+    final salaryCredits = _dominantPayerCredits(candidates);
     final monthlyMax = _monthlyMax(salaryCredits);
 
     if (monthlyMax.length < kSalaryMinCleanCredits) {
@@ -133,9 +143,10 @@ class SalaryIncomeDetector {
 
     final days = clean.map((t) => t.txnDate.day).toList();
     final expectedDay = _median(days).round();
-    final windowDays = days
-        .map((d) => (d - expectedDay).abs())
-        .fold(0, (a, b) => a > b ? a : b);
+    // Circular: the 31st of one month and the 1st of the next are a day apart,
+    // not thirty. Measured linearly the weekend/holiday drift the spec calls
+    // out produced a 30-day window and made the salary date meaningless.
+    final windowDays = circularDaySpread(days, 31);
 
     return SalaryProfile(
       confidence: stable
@@ -222,6 +233,66 @@ class SalaryIncomeDetector {
       txn.payeeType != PayeeType.selfTransfer &&
       txn.payeeType != PayeeType.wallet &&
       txn.amountPaise >= kSalaryMinMonthlyPaise;
+
+  /// The credits from the single payer most likely to be the employer: the one
+  /// paying across the most distinct months, then the largest, then by name so
+  /// the answer is deterministic.
+  ///
+  /// The payer key falls back to the SMS sender when no merchant or VPA was
+  /// parsed, which for a bank-generic credit alert is the *bank*, not the
+  /// employer. That is weaker than it looks, but it is the strongest signal
+  /// available and it is strictly better than treating every large credit as
+  /// interchangeable.
+  List<ParsedTxn> _dominantPayerCredits(List<ParsedTxn> candidates) {
+    if (candidates.isEmpty) return const [];
+    final byPayer = <String, List<ParsedTxn>>{};
+    for (final txn in candidates) {
+      byPayer.putIfAbsent(_payerKey(txn), () => []).add(txn);
+    }
+    if (byPayer.length == 1) return byPayer.values.single;
+
+    List<ParsedTxn>? best;
+    String? bestKey;
+    for (final entry in byPayer.entries) {
+      if (best == null) {
+        best = entry.value;
+        bestKey = entry.key;
+        continue;
+      }
+      final months = _distinctMonths(entry.value);
+      final bestMonths = _distinctMonths(best);
+      if (months != bestMonths) {
+        if (months > bestMonths) {
+          best = entry.value;
+          bestKey = entry.key;
+        }
+        continue;
+      }
+      final median = _median(entry.value.map((t) => t.amountPaise).toList());
+      final bestMedian = _median(best.map((t) => t.amountPaise).toList());
+      if (median != bestMedian) {
+        if (median > bestMedian) {
+          best = entry.value;
+          bestKey = entry.key;
+        }
+        continue;
+      }
+      if (entry.key.compareTo(bestKey!) < 0) {
+        best = entry.value;
+        bestKey = entry.key;
+      }
+    }
+    return best!;
+  }
+
+  int _distinctMonths(List<ParsedTxn> txns) =>
+      txns.map((t) => t.txnMonth).toSet().length;
+
+  String _payerKey(ParsedTxn txn) =>
+      (txn.merchant ?? txn.upiVpaNorm ?? txn.sender)
+          .toLowerCase()
+          .trim()
+          .replaceAll(RegExp(r'\s+'), ' ');
 
   /// The largest salary-candidate credit per calendar month (salary is the
   /// dominant monthly credit; refunds/top-ups are smaller).

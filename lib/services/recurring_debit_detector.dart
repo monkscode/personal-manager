@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../core/circular_days.dart';
 import '../core/clamped_date.dart';
 import '../data/models.dart';
 import '../data/sms_models.dart';
@@ -160,7 +161,7 @@ class RecurringDebitDetector {
         amounts.every((a) => (a - median).abs() <= tolerance);
 
     final cadence = _cadence(sorted);
-    final daySpread = _circularSpread(
+    final daySpread = circularDaySpread(
       sorted.map((t) => t.txnDate.day).toList(),
       31,
     );
@@ -230,7 +231,10 @@ class RecurringDebitDetector {
   RecurringCadence? _cadence(List<ParsedTxn> sorted) {
     RecurringCadence? cadence;
     for (var i = 1; i < sorted.length; i++) {
-      final gap = sorted[i].txnDate.difference(sorted[i - 1].txnDate).inDays;
+      // Whole days between the two *dates*. Raw timestamps truncate toward
+      // zero, so 30 Jan 22:00 → 27 Feb 09:00 measured as 27 days, fell outside
+      // the (28, 33) monthly window, and unlocked a real commitment.
+      final gap = _wholeDaysBetween(sorted[i - 1].txnDate, sorted[i].txnDate);
       final classified = _classifyGap(gap);
       if (classified == null) return null;
       if (cadence == null) {
@@ -241,6 +245,13 @@ class RecurringDebitDetector {
     }
     return cadence;
   }
+
+  /// Calendar days between two dates, ignoring the clock. Compared in UTC so a
+  /// 23- or 25-hour day cannot round the answer.
+  int _wholeDaysBetween(DateTime a, DateTime b) =>
+      DateTime.utc(b.year, b.month, b.day)
+          .difference(DateTime.utc(a.year, a.month, a.day))
+          .inDays;
 
   RecurringCadence? _classifyGap(int days) {
     for (final entry in kRecurringCadenceGapDays.entries) {
@@ -330,18 +341,6 @@ class RecurringDebitDetector {
     return ((sorted[mid - 1] + sorted[mid]) / 2).round();
   }
 
-  /// Smallest arc (in day units) covering all day-of-month values on a circle
-  /// of [modulus] days — handles month-end wrap (e.g. 30 and 2).
-  int _circularSpread(List<int> values, int modulus) {
-    final sorted = [...values]..sort();
-    if (sorted.length <= 1) return 0;
-    var maxGap = modulus - (sorted.last - sorted.first);
-    for (var i = 1; i < sorted.length; i++) {
-      final gap = sorted[i] - sorted[i - 1];
-      if (gap > maxGap) maxGap = gap;
-    }
-    return modulus - maxGap;
-  }
 }
 
 class _GroupAnalysis {

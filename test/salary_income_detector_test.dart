@@ -40,6 +40,83 @@ const _detector = SalaryIncomeDetector();
 final _now = DateTime(2026, 7, 15);
 
 void main() {
+  group('detectSalary — day drift is circular', () {
+    test('a salary that slips to the prior month-end keeps a tight window', () {
+      // The weekend/holiday drift the spec calls out: normally the 1st, but
+      // 31 March instead of 1 April. Measured linearly that is 30 days of
+      // drift, which makes the minimum-balance date meaningless.
+      final profile = _detector.detectSalary(
+        [
+          credit(yyyymm: '2026-03', amountPaise: 5000000, day: 31),
+          credit(yyyymm: '2026-05', amountPaise: 5000000, day: 1),
+          credit(yyyymm: '2026-06', amountPaise: 5000000, day: 1),
+        ],
+        now: _now,
+      );
+
+      expect(profile.confidence, SalaryConfidence.detectedStable);
+      expect(profile.expectedDayWindowDays, lessThanOrEqualTo(2));
+    });
+
+    test('the 28th, 29th and 30th span two days', () {
+      final profile = _detector.detectSalary(
+        [
+          credit(yyyymm: '2026-03', amountPaise: 5000000, day: 28),
+          credit(yyyymm: '2026-04', amountPaise: 5000000, day: 29),
+          credit(yyyymm: '2026-05', amountPaise: 5000000, day: 30),
+        ],
+        now: _now,
+      );
+
+      expect(profile.expectedDayWindowDays, 2);
+      expect(profile.expectedDay, 29);
+    });
+  });
+
+  group('detectSalary — payer consistency', () {
+    test('three credits from three different payers are not a salary', () {
+      // A freelancer with three clients, or three FD maturities. Nothing here
+      // has a reason to recur, so the forecast must not anchor on it.
+      final profile = _detector.detectSalary(
+        [
+          credit(yyyymm: '2026-04', amountPaise: 5000000, merchant: 'CLIENT A'),
+          credit(yyyymm: '2026-05', amountPaise: 5000000, merchant: 'CLIENT B'),
+          credit(yyyymm: '2026-06', amountPaise: 5000000, merchant: 'CLIENT C'),
+        ],
+        now: _now,
+      );
+
+      expect(profile.confidence, isNot(SalaryConfidence.detectedStable));
+    });
+
+    test('three credits from the same payer still promote', () {
+      final profile = _detector.detectSalary(
+        [
+          for (final m in ['2026-04', '2026-05', '2026-06'])
+            credit(yyyymm: m, amountPaise: 5000000, merchant: 'ACME PAYROLL'),
+        ],
+        now: _now,
+      );
+
+      expect(profile.confidence, SalaryConfidence.detectedStable);
+      expect(profile.basePaise, 5000000);
+    });
+
+    test('a one-off larger credit does not displace the salary payer', () {
+      final profile = _detector.detectSalary(
+        [
+          for (final m in ['2026-04', '2026-05', '2026-06'])
+            credit(yyyymm: m, amountPaise: 5000000, merchant: 'ACME PAYROLL'),
+          credit(yyyymm: '2026-05', amountPaise: 9000000, merchant: 'FD MATURITY'),
+        ],
+        now: _now,
+      );
+
+      expect(profile.confidence, SalaryConfidence.detectedStable);
+      expect(profile.basePaise, 5000000);
+    });
+  });
+
   group('detectSalary — stable', () {
     test('detects a stable monthly salary as the cluster median', () {
       final profile = _detector.detectSalary(

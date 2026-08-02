@@ -85,18 +85,48 @@ same class of bug as TASK-01 — time-of-day leaking into date arithmetic.
 
 Add to `test/salary_income_detector_test.dart` (which currently only ever uses `day: 1`):
 
-- [ ] Salary posting on the 1st, 1st, and 31st-of-prior-month → `expectedDayWindowDays` is
-      small (≤ 2), not 30.
-- [ ] Salary on the 28th, 29th, 30th → window is 2, and `expectedDay` is sensible.
-- [ ] Three credits from **three different payers** → **not** promoted to `detectedStable`.
-- [ ] Three credits from the **same** payer → promoted as before (regression guard).
-- [ ] A single large credit still cannot become the base (regression guard — this is
-      already covered at `:108-116`, keep it green).
+- [x] Salary posting on the 1st, 1st, and 31st-of-prior-month → `expectedDayWindowDays` is
+      small (≤ 2), not 30. — **RED** (30, exactly as described)
+- [x] Salary on the 28th, 29th, 30th → window is 2, and `expectedDay` is sensible. —
+      **RED** (1, see the semantic note below)
+- [x] Three credits from **three different payers** → **not** promoted to `detectedStable`.
+      — **RED** (`detectedStable`)
+- [x] Three credits from the **same** payer → promoted as before (regression guard).
+- [x] Added beyond the plan: a one-off larger credit from another payer in the middle of a
+      salary run does not displace the salary payer. — **RED** (`insufficientData`: the
+      one-off won its month, leaving only two clean salary months)
+- [x] A single large credit still cannot become the base (regression guard — already
+      covered at `:108-116`, still green).
 
 Add to `test/recurring_debit_detector_test.dart`:
 
-- [ ] A monthly pair at 30 Jan 22:00 → 27 Feb 09:00 is recognised as monthly.
-- [ ] Cadence detection gives the same answer regardless of the time-of-day component.
+- [x] A monthly pair at 30 Jan 22:00 → 27 Feb 09:00 is recognised as monthly. — **RED**
+      (no commitment locked at all)
+- [x] Cadence detection gives the same answer regardless of the time-of-day component.
+
+## Note — `expectedDayWindowDays` changes meaning
+
+`_circularSpread` measures an **arc width**, while the old linear code measured a
+**half-width around `expectedDay`**. Reusing the primitive as the plan asks therefore
+redefines the field: days 28/29/30 now report 2 (the arc) where they used to report 1 (the
+max deviation from 29). Both are defensible; the plan states 2, so 2 it is.
+
+This is safe to change because **nothing consumes the field** — a grep over `lib/` finds no
+reader outside the detector itself, so the "pessimistic edge drives minimum-balance
+planning" behaviour the spec describes is not implemented anywhere yet. The doc comment now
+says which of the two it is, so whoever wires it up does not have to guess.
+
+The primitive moved to `lib/core/circular_days.dart` rather than being copied, so the two
+detectors cannot drift apart.
+
+## Note — payer identity is weaker than it reads
+
+The payer key is `merchant ?? upiVpaNorm ?? sender`. When a bank sends a generic credit
+alert with no merchant parsed, that resolves to the **bank**, not the employer, and every
+such credit shares one key — so the consistency check passes vacuously for that shape of
+SMS. It is still strictly better than treating all large credits as interchangeable, and it
+is the strongest signal available without a payer-name parser. Worth revisiting if salary
+SMS on real devices turn out to land without a merchant.
 
 ## Verification
 
@@ -107,9 +137,13 @@ flutter test
 
 ## Definition of done
 
-- [ ] Salary day-drift uses circular distance, reusing `_circularSpread`
-- [ ] Salary requires payer consistency before `detectedStable`
-- [ ] Cadence gaps computed on normalised dates, not raw timestamps
-- [ ] All seven tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Measure salary drift circularly and require a consistent payer`
+- [x] Salary day-drift uses circular distance, reusing `_circularSpread` (now shared as
+      `circularDaySpread`)
+- [x] Salary requires payer consistency before `detectedStable` — candidates are grouped by
+      payer and only the dominant payer's credits are clustered; ties break on distinct
+      months, then median amount, then name, so the answer is deterministic
+- [x] Cadence gaps computed on normalised dates, not raw timestamps — differenced in UTC so
+      a 23- or 25-hour day cannot round the answer either
+- [x] All seven tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green — **735 passing** (was 728)
+- [x] Suggested commit: `Measure salary drift circularly and require a consistent payer`
