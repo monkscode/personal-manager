@@ -497,6 +497,131 @@ void main() {
     });
   });
 
+  group('every observed card payment reaches the ledger', () {
+    CardCycleEstimate card({
+      required String last4,
+      required int statementPaise,
+      int dueDay = 20,
+    }) => CardCycleEstimate(
+      cardLast4: last4,
+      cardCycleKey: 'card:$last4:2026-08',
+      observedPurchasesPaise: statementPaise,
+      cardRefundsPaise: 0,
+      cycleSpendSeenPaise: statementPaise,
+      statementEventAmountPaise: statementPaise,
+      statementTotalPaise: statementPaise,
+      paymentStatus: ReconciliationPaymentStatus.unpaid,
+      dueDate: DateTime(2026, 8, dueDay),
+      needsCycleSetup: false,
+      confidence: 0.9,
+    );
+
+    ParsedTxn payment({
+      required int amountPaise,
+      required int day,
+      required String smsId,
+    }) => actual(
+      amountPaise: amountPaise,
+      date: DateTime(2026, 8, day),
+      merchant: 'CRED',
+      categoryKey: 'card_payment',
+      smsId: smsId,
+    );
+
+    test('two payments in one cycle are both cash out, not one', () {
+      final items = build(
+        cards: [card(last4: '4321', statementPaise: 5000000)],
+        actuals: [
+          payment(amountPaise: 2000000, day: 10, smsId: 'pay-1'),
+          payment(amountPaise: 3000000, day: 18, smsId: 'pay-2'),
+        ],
+      );
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 25),
+      );
+      final cardCash = result.events.where(
+        (e) => e.source == ForecastEventSource.cardPayment,
+      );
+      expect(cardCash.fold<int>(0, (sum, e) => sum + e.amountPaise), 5000000);
+    });
+
+    test('two cards with distinct amounts each take their own payment', () {
+      final items = build(
+        cards: [
+          card(last4: '4321', statementPaise: 2000000),
+          card(last4: '9876', statementPaise: 7500000),
+        ],
+        actuals: [
+          payment(amountPaise: 2000000, day: 15, smsId: 'pay-small'),
+          payment(amountPaise: 7500000, day: 16, smsId: 'pay-large'),
+        ],
+      );
+
+      String cycleOf(String smsId) => items
+          .singleWhere((i) => i.id == 'cardpay:$smsId')
+          .cardCycleKey!;
+      expect(cycleOf('pay-small'), 'card:4321:2026-08');
+      expect(cycleOf('pay-large'), 'card:9876:2026-08');
+    });
+
+    test('two cards with indistinguishable amounts go to review, not a guess', () {
+      final items = build(
+        cards: [
+          card(last4: '4321', statementPaise: 3000000),
+          card(last4: '9876', statementPaise: 3000000),
+        ],
+        actuals: [payment(amountPaise: 3000000, day: 15, smsId: 'pay-x')],
+      );
+
+      final pay = items.singleWhere((i) => i.id == 'cardpay:pay-x');
+      expect(pay.cardCycleKey, isNull);
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 25),
+      );
+      expect(
+        result.assignments
+            .singleWhere((a) => a.itemId == 'cardpay:pay-x')
+            .coverageBucket,
+        CoverageBucket.reviewPending,
+      );
+      expect(
+        result.coverageLines.any(
+          (l) => l.ownerKey == 'cardPayment:cardpay:pay-x',
+        ),
+        isTrue,
+      );
+    });
+
+    test('a single payment in a cycle still settles its statement', () {
+      final items = build(
+        cards: [card(last4: '4321', statementPaise: 5000000)],
+        actuals: [payment(amountPaise: 5000000, day: 18, smsId: 'pay-solo')],
+      );
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 25),
+      );
+      final cardCash = result.events.where(
+        (e) =>
+            e.source == ForecastEventSource.cardPayment ||
+            e.source == ForecastEventSource.cardStatement,
+      );
+      expect(cardCash, hasLength(1));
+      expect(cardCash.single.amountPaise, 5000000);
+    });
+  });
+
   group('transfer-typed debits fold before falling back to the transfer lane', () {
     ObligationRecord lic({String? sourceId}) => obligation(
       sourceType: ObligationSourceType.gmail,

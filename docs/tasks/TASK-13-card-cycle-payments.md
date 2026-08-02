@@ -71,21 +71,50 @@ a precise target.
 
 ---
 
+## Reachability — measured, not assumed
+
+Both defects are **unreachable in the shipped app today.** `CardCycle` is never
+constructed anywhere in `lib/` — there is no storage, no UI and no default for it — and
+`_cardEstimates` (`sms_analysis_snapshot.dart:294-307`) calls the estimator with only
+`statementMonth`. So in production:
+
+- `needsCycleSetup` is always true, so `_cardItems` emits `cardPurchase`, never
+  `cardStatement`;
+- `dueDate` is always null, so the cycle lookup finds no candidate and every `cardpay:`
+  item carries a null `cardCycleKey`;
+- the `cardCycle:` group therefore never forms, and two payments already both reach the
+  ledger as separate groups.
+
+Same category as the Paytm wallet defect recorded in TASK-10 — real in the code, not
+currently reachable through the app. The fix still lands: the defect goes live the moment
+anything supplies a `CardCycle`, and the tests drive it through the matcher's public API.
+
 ## Tests to write first
 
 Add to `test/reconciliation_matcher_test.dart`:
 
-- [ ] Two card payments in one cycle (₹20,000 on the 10th, ₹30,000 on the 18th) → the
-      ledger reflects **₹50,000** total, not ₹20,000.
-- [ ] Neither payment is silently excluded: every assignment that is not a `datedEvent`
-      has a corresponding coverage line.
-- [ ] Two cards due in the same month with distinct amounts → each payment attributes to
-      the correct card.
-- [ ] Two cards due in the same month with **indistinguishable** amounts → the attribution
-      is routed to review, not guessed.
-- [ ] A single card payment in a cycle still behaves exactly as before (regression guard).
-- [ ] A partial payment (₹20,000 against a ₹50,000 statement) sets `outstandingPaise`
-      to ₹30,000.
+- [x] Two card payments in one cycle (₹20,000 on the 10th, ₹30,000 on the 18th) → the
+      ledger reflects **₹50,000** total, not ₹20,000. — **RED** (₹20,000; ₹30,000 gone)
+- [x] Neither payment is silently excluded: every assignment that is not a `datedEvent`
+      has a corresponding coverage line. — via TASK-14's helper, which every reconcile in
+      the file routes through
+- [x] Two cards due in the same month with distinct amounts → each payment attributes to
+      the correct card. — **RED** (both went to `card:9876`, the last in the list)
+- [x] Two cards due in the same month with **indistinguishable** amounts → the attribution
+      is routed to review, not guessed. — **RED** (silently picked `card:9876`)
+- [x] A single card payment in a cycle still behaves exactly as before (regression guard).
+- [x] A partial payment (₹20,000 against a ₹50,000 statement) sets `outstandingPaise`
+      to ₹30,000. — **already covered** at `test/card_cycle_estimator_test.dart:199-210`
+      ("partial payment produces an outstanding quantified obligation"); not duplicated.
+
+## Deliberately not done — the `amountPaidPaise` wiring
+
+TASK-28 deferred "route the bill payment into `amountPaidPaise`" to this task. It is **not**
+done here, because it would be dead code: `estimate()` only reads `amountPaidPaise` inside
+`if (statementTotalPaise != null)`, and nothing in `lib/` ever supplies a statement total
+(same missing-`CardCycle` gap as above). Wiring it now would add an untestable branch with
+no observable effect. It belongs with whatever first gives a card a configured cycle and a
+statement total; the estimator side of it is already correct and tested.
 
 ## Verification
 
@@ -96,10 +125,15 @@ flutter test
 
 ## Definition of done
 
-- [ ] `_cardCycleKeyFor` is amount-aware and returns ambiguous rather than guessing
-- [ ] The `best` overwrite bug at line 389 is fixed
-- [ ] Two observed payments in one cycle both reach the ledger
-- [ ] `_assignReconciledDuplicate` always emits a coverage line
-- [ ] All six tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Keep every observed card payment in the ledger`
+- [x] `_cardCycleKeyFor` is amount-aware and returns ambiguous rather than guessing — now
+      `_cardCycleFor`, returning a `_CardCycleAttribution`. One card due in the month owns
+      the payment whatever the amount (a partial payment is still that card's); with two or
+      more, exactly one within jitter wins and anything else is ambiguous.
+- [x] The `best` overwrite bug at line 389 is fixed — the whole scan is replaced
+- [x] Two observed payments in one cycle both reach the ledger — `_chooseWinner` became
+      `_chooseWinners`; observed actuals are never deduplicated against each other, only
+      forecast estimates are
+- [x] `_assignReconciledDuplicate` always emits a coverage line — landed in TASK-14
+- [x] All six tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green — **704 passing** (was 700)
+- [x] Suggested commit: `Keep every observed card payment in the ledger`

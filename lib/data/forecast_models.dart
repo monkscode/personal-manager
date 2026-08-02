@@ -287,6 +287,7 @@ class ReconciliationItem {
     this.effectiveMonth,
     this.isUserConfirmed = false,
     this.obligationDedupeKey,
+    this.needsAttributionReview = false,
   }) : assert(amountPaise == null || amountPaise >= 0),
        assert(confidence >= 0 && confidence <= 1);
 
@@ -316,6 +317,11 @@ class ReconciliationItem {
 
   /// Canonical obligation dedupe key for stable risk-decision matching.
   final String? obligationDedupeKey;
+
+  /// The amount is certain but *what it belongs to* is not — two card
+  /// statements a payment could equally have settled, say. The spec's rule is
+  /// that an ambiguous attribution goes to review rather than being guessed.
+  final bool needsAttributionReview;
 
   DateTime? get eventDate => actualDate ?? dueDate;
   String get ownerKey => '${owner.name}:$id';

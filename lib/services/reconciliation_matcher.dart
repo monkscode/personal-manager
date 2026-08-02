@@ -468,7 +468,7 @@ class ReconciliationMatcher {
 
     for (var i = 0; i < cardPayments.length; i++) {
       final payment = cardPayments[i];
-      final cycleKey = _cardCycleKeyFor(payment, cards);
+      final attribution = _cardCycleFor(payment, cards);
       items.add(
         ReconciliationItem(
           id: 'cardpay:${payment.smsId}',
@@ -480,7 +480,8 @@ class ReconciliationMatcher {
           actualDate: payment.txnDate,
           instrument: ReconciliationInstrument.bank,
           paymentStatus: ReconciliationPaymentStatus.paid,
-          cardCycleKey: cycleKey,
+          cardCycleKey: attribution.cardCycleKey,
+          needsAttributionReview: attribution.ambiguous,
           confidence: payment.confidence,
         ),
       );
@@ -488,21 +489,39 @@ class ReconciliationMatcher {
     return items;
   }
 
-  /// Card-bill payments (CRED/BillDesk) hide the issuer, so match by due-window
-  /// (same statement month), not merchant text (spec §7 card-bill payment rule).
-  String? _cardCycleKeyFor(ParsedTxn payment, List<CardCycleEstimate> cards) {
-    CardCycleEstimate? best;
-    for (final estimate in cards) {
-      final due = estimate.dueDate;
-      if (due == null) continue;
-      if (due.year == payment.txnDate.year &&
-          due.month == payment.txnDate.month) {
-        if (best == null || estimate.statementEventAmountPaise > 0) {
-          best = estimate;
-        }
-      }
+  /// Card-bill payments (CRED/BillDesk) hide the issuer, so the cycle is matched
+  /// by due-window (same statement month) and then by amount (spec §7 card-bill
+  /// payment rule). Two cards a payment could equally have settled are **not**
+  /// guessed between — an ambiguous attribution goes to review.
+  _CardCycleAttribution _cardCycleFor(
+    ParsedTxn payment,
+    List<CardCycleEstimate> cards,
+  ) {
+    final inWindow = [
+      for (final estimate in cards)
+        if (estimate.dueDate != null &&
+            estimate.dueDate!.year == payment.txnDate.year &&
+            estimate.dueDate!.month == payment.txnDate.month)
+          estimate,
+    ];
+    if (inWindow.isEmpty) return const _CardCycleAttribution.none();
+    if (inWindow.length == 1) {
+      // One card due this month owns it, whatever the amount — a partial
+      // payment is still that card's payment.
+      return _CardCycleAttribution(inWindow.single.cardCycleKey);
     }
-    return best?.cardCycleKey;
+
+    final plausible = [
+      for (final estimate in inWindow)
+        if (_amountWithinJitter(
+          payment.amountPaise,
+          estimate.statementEventAmountPaise,
+        ))
+          estimate,
+    ];
+    if (plausible.length == 1) return _CardCycleAttribution(plausible.single.cardCycleKey);
+    // Either several cards match the amount or none does. Both are guesses.
+    return const _CardCycleAttribution.none(ambiguous: true);
   }
 
   // ---- salary / seasonal --------------------------------------------------
@@ -699,6 +718,16 @@ class ReconciliationMatcher {
 
   String _norm(String value) =>
       value.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+}
+
+/// Which card cycle a bill payment settles, or that it cannot be told.
+class _CardCycleAttribution {
+  const _CardCycleAttribution(this.cardCycleKey) : ambiguous = false;
+  const _CardCycleAttribution.none({this.ambiguous = false})
+    : cardCycleKey = null;
+
+  final String? cardCycleKey;
+  final bool ambiguous;
 }
 
 /// The jitter tolerance the whole reconciliation slice shares: the larger of a

@@ -58,19 +58,24 @@ class ForecastReconciliationEngine {
         continue;
       }
 
-      final winner = _chooseWinner(ordered);
-      _applyWinner(
-        winner,
-        targetMonth,
-        anchor,
-        referenceNow,
-        atmTotalPaise,
-        events,
-        coverageLines,
-        lines,
-        assignments,
-      );
-      for (final duplicate in ordered.where((item) => item.id != winner.id)) {
+      final winners = _chooseWinners(ordered);
+      final winnerIds = {for (final winner in winners) winner.id};
+      for (final winner in winners) {
+        _applyWinner(
+          winner,
+          targetMonth,
+          anchor,
+          referenceNow,
+          atmTotalPaise,
+          events,
+          coverageLines,
+          lines,
+          assignments,
+        );
+      }
+      for (final duplicate in ordered.where(
+        (item) => !winnerIds.contains(item.id),
+      )) {
         _assignReconciledDuplicate(
           duplicate,
           bridgeTargetIds,
@@ -107,6 +112,20 @@ class ForecastReconciliationEngine {
         item,
         CoverageReason.reviewNeeded,
         CoverageAction.review,
+        ForecastLineStatus.review,
+        CoverageBucket.reviewPending,
+        coverageLines,
+        lines,
+        assignments,
+      );
+      return;
+    }
+
+    if (item.needsAttributionReview) {
+      _assignCoverage(
+        item,
+        CoverageReason.reviewNeeded,
+        CoverageAction.setCardCycle,
         ForecastLineStatus.review,
         CoverageBucket.reviewPending,
         coverageLines,
@@ -509,19 +528,28 @@ class ForecastReconciliationEngine {
     return first == second && ordered[0].matchKey == null;
   }
 
-  static ReconciliationItem _chooseWinner(List<ReconciliationItem> ordered) {
+  /// The members of a group whose amounts the ledger keeps. Normally one — a
+  /// group exists to resolve competing *descriptions* of one rupee.
+  ///
+  /// Observed card payments are the exception: two payments in a cycle are two
+  /// debits that already left the bank, not two estimates of one. Forecast
+  /// obligations can be deduplicated; observed actuals cannot.
+  static List<ReconciliationItem> _chooseWinners(
+    List<ReconciliationItem> ordered,
+  ) {
     for (final item in ordered) {
       if (item.transferBridgeToId != null &&
           item.owner == ForecastOwner.transfer) {
-        return item;
+        return [item];
       }
     }
-    for (final item in ordered) {
-      if (item.owner == ForecastOwner.cardPayment && item.actualDate != null) {
-        return item;
-      }
-    }
-    return ordered.first;
+    final payments = [
+      for (final item in ordered)
+        if (item.owner == ForecastOwner.cardPayment && item.actualDate != null)
+          item,
+    ];
+    if (payments.isNotEmpty) return payments;
+    return [ordered.first];
   }
 
   static ForecastLineStatus _statusForDatedItem(
