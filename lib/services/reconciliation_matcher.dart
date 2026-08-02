@@ -61,10 +61,18 @@ class ReconciliationMatcher {
       } else if (txn.type == TxnType.atm &&
           txn.direction == TransactionDirection.debit) {
         atmWithdrawals.add(txn);
+      } else if (referencesObligation) {
+        // The reference wins: a debit naming a known obligation is that
+        // obligation's payment, whatever rail carried it. Bills paid by NEFT
+        // or IMPS used to skip the fold entirely and be subtracted twice —
+        // once as an unpaid obligation, once as a standalone transfer.
+        debits.add(txn);
       } else if (txn.type == TxnType.transfer &&
           txn.direction == TransactionDirection.debit) {
+        // Try the fold first; only a transfer that settles nothing stays a
+        // transfer outflow. The discriminator is whether it matches a known
+        // obligation, not whether the body says "transfer".
         transfers.add(txn);
-      } else if (referencesObligation) {
         debits.add(txn);
       } else if (_isCardPayment(txn)) {
         cardPayments.add(txn);
@@ -77,7 +85,7 @@ class ReconciliationMatcher {
       }
     }
 
-    _foldActualsIntoOwners(debits, owners, targetMonth);
+    final folded = _foldActualsIntoOwners(debits, owners, targetMonth);
 
     final items = <ReconciliationItem>[];
     items.addAll(owners.map((o) => o.toItem()));
@@ -87,7 +95,12 @@ class ReconciliationMatcher {
     items.addAll(_seasonalItems(seasonal, targetMonth));
     items.addAll(_refundItems(refunds, actuals));
     items.addAll(_atmItems(atmWithdrawals));
-    items.addAll(_transferItems(transfers));
+    items.addAll(
+      _transferItems([
+        for (final txn in transfers)
+          if (!folded.contains(txn.smsId)) txn,
+      ]),
+    );
     return items;
   }
 
@@ -259,11 +272,15 @@ class ReconciliationMatcher {
 
   // ---- the join -----------------------------------------------------------
 
-  void _foldActualsIntoOwners(
+  /// Folds each debit into the owner(s) it settles. Returns the `smsId`s that
+  /// reached an owner, so a transfer-typed debit that settled an obligation is
+  /// not *also* emitted as a standalone transfer outflow.
+  Set<String> _foldActualsIntoOwners(
     List<ParsedTxn> debits,
     List<_JoinOwner> owners,
     DateTime targetMonth,
   ) {
+    final folded = <String>{};
     final foldable = owners.where((o) => o.foldable).toList();
     for (final debit in debits) {
       final matched = [
@@ -283,11 +300,13 @@ class ReconciliationMatcher {
       if (candidates.isEmpty) {
         // Reached by reference alone. The reference is evidence of a
         // relationship, not of payment — hold it for review.
+        folded.add(debit.smsId);
         for (final owner in matched) {
           owner.paymentStatus = ReconciliationPaymentStatus.possiblyPaid;
         }
         continue;
       }
+      folded.add(debit.smsId);
 
       final distinctKeys = candidates.map((o) => o.matchKey ?? o.id).toSet();
       if (distinctKeys.length == 1) {
@@ -304,6 +323,7 @@ class ReconciliationMatcher {
         }
       }
     }
+    return folded;
   }
 
   bool _matches(ParsedTxn debit, _JoinOwner owner, DateTime targetMonth) {

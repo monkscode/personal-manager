@@ -497,6 +497,114 @@ void main() {
     });
   });
 
+  group('transfer-typed debits fold before falling back to the transfer lane', () {
+    ObligationRecord lic({String? sourceId}) => obligation(
+      sourceType: ObligationSourceType.gmail,
+      amountPaise: 4700000,
+      merchant: 'LIC OF INDIA',
+      merchantNorm: 'lic of india',
+      categoryKey: 'insurance',
+      dueDate: DateTime(2026, 8, 14),
+      dedupeKey: 'gmail:lic',
+      sourceId: sourceId,
+    );
+
+    ParsedTxn licDebit({String? refNumber, String smsId = 'neft'}) => actual(
+      amountPaise: 4700000,
+      date: DateTime(2026, 8, 14),
+      type: TxnType.transfer,
+      merchant: 'LIC OF INDIA',
+      categoryKey: 'insurance',
+      refNumber: refNumber,
+      smsId: smsId,
+    );
+
+    void expectSettledOnce(List<ReconciliationItem> items) {
+      expect(
+        byOwner(items, ForecastOwner.gmailBill).paymentStatus,
+        ReconciliationPaymentStatus.paid,
+      );
+      expect(
+        items.where((i) => i.owner == ForecastOwner.transfer),
+        isEmpty,
+        reason: 'a transfer that settled an obligation is not also an outflow',
+      );
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 20),
+      );
+      expect(
+        result.events.fold<int>(0, (sum, e) => sum + e.amountPaise),
+        4700000,
+      );
+    }
+
+    test('a NEFT bill payment is subtracted once, not twice', () {
+      expectSettledOnce(
+        build(
+          obligations: [lic(sourceId: 'REF123')],
+          actuals: [licDebit(refNumber: 'REF123')],
+        ),
+      );
+    });
+
+    test('an IMPS bill payment behaves the same', () {
+      expectSettledOnce(
+        build(
+          obligations: [lic(sourceId: 'REF456')],
+          actuals: [licDebit(refNumber: 'REF456', smsId: 'imps')],
+        ),
+      );
+    });
+
+    test('amount, merchant and date fold it even with no reference', () {
+      expectSettledOnce(
+        build(obligations: [lic()], actuals: [licDebit()]),
+      );
+    });
+
+    test('a self-transfer matching no obligation stays a transfer', () {
+      final items = build(
+        obligations: [lic()],
+        actuals: [
+          actual(
+            amountPaise: 2500000,
+            date: DateTime(2026, 8, 9),
+            type: TxnType.transfer,
+            merchant: 'SELF ACCOUNT 9012',
+            categoryKey: 'transfer',
+            smsId: 'self',
+          ),
+        ],
+      );
+      final transfer = byOwner(items, ForecastOwner.transfer);
+      expect(transfer.amountPaise, 2500000);
+      expect(
+        byOwner(items, ForecastOwner.gmailBill).paymentStatus,
+        ReconciliationPaymentStatus.unpaid,
+      );
+    });
+
+    test('a NEFT debit matching no obligation stays a transfer', () {
+      final items = build(
+        actuals: [
+          actual(
+            amountPaise: 1500000,
+            date: DateTime(2026, 8, 9),
+            type: TxnType.transfer,
+            merchant: 'RAMESH KUMAR',
+            categoryKey: 'transfer',
+            smsId: 'neft-p2p',
+          ),
+        ],
+      );
+      expect(byOwner(items, ForecastOwner.transfer).amountPaise, 1500000);
+    });
+  });
+
   group('match keys separate obligations by amount (§7 one owner per rupee)', () {
     // A card bill and a home-loan EMI at the same bank, both monthly. Before
     // amount bands these shared `merch:hdfc:monthly` and the loser vanished.

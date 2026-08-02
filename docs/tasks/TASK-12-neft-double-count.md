@@ -76,17 +76,30 @@ first** — it is the simpler, higher-severity fix — then TASK-15 on top.
 
 Add to `test/reconciliation_matcher_test.dart`:
 
-- [ ] The LIC scenario above → **one** ₹47,000 outflow in the ledger, not two. The
-      obligation is marked paid and no standalone `transfer:` item exists.
-- [ ] Same, with `IMPS` instead of `NEFT`.
-- [ ] Same, where the SMS body contains the word `transfer` but no reference — the
-      amount+merchant+date match should still fold it into the obligation.
-- [ ] **Regression guard:** a genuine primary→secondary self-transfer that matches **no**
+- [x] The LIC scenario above → **one** ₹47,000 outflow in the ledger, not two. The
+      obligation is marked paid and no standalone `transfer:` item exists. — **RED**
+      (obligation came back `unpaid`, with a second ₹47,000 transfer outflow)
+- [x] Same, with `IMPS` instead of `NEFT`. — **RED**
+- [x] Same, where the SMS body contains the word `transfer` but no reference — the
+      amount+merchant+date match should still fold it into the obligation. — **RED**
+- [x] **Regression guard:** a genuine primary→secondary self-transfer that matches **no**
       obligation still produces a `transfer:` item and is not treated as spend.
-- [ ] A NEFT debit that matches no obligation at all stays a transfer item (unchanged).
+- [x] A NEFT debit that matches no obligation at all stays a transfer item (unchanged).
 
-Also add a rupee-conservation assertion for this scenario — TASK-14 builds the general
-helper, so if TASK-14 is already merged, reuse it here.
+Rupee conservation is asserted on all five via TASK-14's helper — every reconcile in this
+test file routes through the wrapper that calls it.
+
+## How the fallback is decided
+
+A transfer-typed debit now enters **both** lanes: it is offered to the fold, and it is held
+as a transfer candidate. `_foldActualsIntoOwners` returns the `smsId`s that reached an
+owner, and only the transfers absent from that set become `transfer:` items. So the
+discriminator is what the plan asked for — whether the debit matched a known obligation —
+rather than whether the word "transfer" appears in the body.
+
+A debit that reaches an owner but is held for review (ambiguous, or reference-only with an
+incompatible amount) also counts as folded and emits no transfer item: its rupees are named
+by the owners' coverage lines, and emitting a transfer too would restore the double count.
 
 ## Verification
 
@@ -97,10 +110,10 @@ flutter test
 
 ## Definition of done
 
-- [ ] `referencesObligation` is evaluated before the transfer lane
-- [ ] Transfer-typed debits attempt the owner fold before falling back
-- [ ] A folded transfer never also emits a `transfer:` item
-- [ ] Genuine self-transfers still classify as transfers
-- [ ] All five tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Fold NEFT and IMPS bill payments into their obligation`
+- [x] `referencesObligation` is evaluated before the transfer lane
+- [x] Transfer-typed debits attempt the owner fold before falling back
+- [x] A folded transfer never also emits a `transfer:` item
+- [x] Genuine self-transfers still classify as transfers
+- [x] All five tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green — **700 passing** (was 695)
+- [x] Suggested commit: `Fold NEFT and IMPS bill payments into their obligation`
