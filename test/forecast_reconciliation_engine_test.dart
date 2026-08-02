@@ -3,12 +3,32 @@ import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/forecast_reconciliation_engine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/reconciliation_invariants.dart';
+
 void main() {
   BalanceAnchor anchorAt(DateTime asOf) => BalanceAnchor(
     amountPaise: 10000000,
     asOf: asOf,
     source: BalanceAnchorSource.smsBankBalance,
   );
+
+  /// Every reconciliation in this file goes through here so rupee conservation
+  /// is asserted on every fixture, not only where someone remembered to.
+  ForecastReconciliationResult reconcile({
+    required DateTime targetMonth,
+    required BalanceAnchor anchor,
+    required List<ReconciliationItem> items,
+    DateTime? now,
+  }) {
+    final result = const ForecastReconciliationEngine().reconcileMonth(
+      targetMonth: targetMonth,
+      anchor: anchor,
+      items: items,
+      now: now,
+    );
+    expectRupeeConservation(result, items);
+    return result;
+  }
 
   void expectEveryInputAssigned(
     ForecastReconciliationResult result,
@@ -24,7 +44,7 @@ void main() {
     test(
       'assigns a duplicated rupee to the higher-precedence Gmail owner once',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: BalanceAnchor(
             amountPaise: 10000000,
@@ -78,7 +98,7 @@ void main() {
     test(
       'holds past-due unmatched current-month obligations for review after a post-due anchor',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8, 10)),
           now: DateTime(2026, 8, 10),
@@ -111,7 +131,7 @@ void main() {
     test(
       'keeps card purchases out of the bank ledger and counts the statement once',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -159,7 +179,7 @@ void main() {
     test(
       'uses the actual card payment debit instead of duplicating the statement',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -202,7 +222,7 @@ void main() {
     test(
       'routes card refunds to card-cycle coverage instead of phantom bank cash',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -236,7 +256,7 @@ void main() {
     test(
       'keeps material ATM cash as a bank event plus an untracked-cash caveat',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -264,7 +284,7 @@ void main() {
     test(
       'uses primary transfer bridge instead of subtracting secondary obligation twice',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -308,7 +328,7 @@ void main() {
     test(
       'flags unknown account hints while still subtracting from the primary forecast',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -337,7 +357,7 @@ void main() {
     test(
       'surfaces unscheduled annual obligations instead of guessing a due month',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -366,7 +386,7 @@ void main() {
     test(
       'requires confirmation before promoting algorithmic P2P outflows and income',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -408,7 +428,7 @@ void main() {
     );
 
     test('keeps amountless obligations in review instead of dropping them', () {
-      final result = const ForecastReconciliationEngine().reconcileMonth(
+      final result = reconcile(
         targetMonth: DateTime(2026, 8),
         anchor: anchorAt(DateTime(2026, 8)),
         now: DateTime(2026, 8),
@@ -448,7 +468,7 @@ void main() {
             dueDate: DateTime(2026, 9, 14),
           ),
         ];
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -493,7 +513,7 @@ void main() {
             cardCycleKey: 'hdfc-4321:2026-08',
           ),
         ];
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -537,7 +557,7 @@ void main() {
             transferBridgeToId: 'unknown-rent',
           ),
         ];
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),
@@ -557,7 +577,7 @@ void main() {
     test(
       'marks actual, overdue, and future expected lines with paid/unpaid state',
       () {
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8, 10),
@@ -617,7 +637,7 @@ void main() {
           cardCycleKey: 'hdfc-4321:2026-08',
         ),
       ];
-      final result = const ForecastReconciliationEngine().reconcileMonth(
+      final result = reconcile(
         targetMonth: DateTime(2026, 8),
         anchor: anchorAt(DateTime(2026, 8)),
         now: DateTime(2026, 8),
@@ -633,7 +653,7 @@ void main() {
     });
 
     test('uses monthly ATM total for material untracked-cash caveats', () {
-      final result = const ForecastReconciliationEngine().reconcileMonth(
+      final result = reconcile(
         targetMonth: DateTime(2026, 8),
         anchor: anchorAt(DateTime(2026, 8)),
         now: DateTime(2026, 8),
@@ -701,7 +721,7 @@ void main() {
             confidence: 0.7,
           ),
         ];
-        final result = const ForecastReconciliationEngine().reconcileMonth(
+        final result = reconcile(
           targetMonth: DateTime(2026, 8),
           anchor: anchorAt(DateTime(2026, 8)),
           now: DateTime(2026, 8),

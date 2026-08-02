@@ -382,7 +382,16 @@ class ForecastReconciliationEngine {
         CoverageAction.review,
         coverageLines,
       );
+      return;
     }
+    // Unconditional: a suppressed duplicate leaves the ledger, so without a
+    // line naming it the user cannot tell it from a rupee that vanished.
+    _addCoverageLineOnly(
+      item,
+      CoverageReason.duplicateSuppressed,
+      CoverageAction.none,
+      coverageLines,
+    );
   }
 
   void _assignCoverage(

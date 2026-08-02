@@ -42,6 +42,11 @@ enum CoverageReason {
   overBudgetDiscretionary,
   cardCycleOnly,
   futureEarmark,
+
+  /// Suppressed because a higher-precedence owner already carries this rupee.
+  /// The amount is accounted for — by the winner — but it must still be named,
+  /// or a dropped duplicate is indistinguishable from money that vanished.
+  duplicateSuppressed,
 }
 
 enum CoverageAction {

@@ -16,6 +16,8 @@ import 'package:expense_insight/services/salary_income_detector.dart';
 import 'package:expense_insight/services/seasonal_estimator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/reconciliation_invariants.dart';
+
 // ---- fixtures -------------------------------------------------------------
 
 final _target = DateTime(2026, 8);
@@ -156,6 +158,24 @@ ReconciliationItem byOwner(
   List<ReconciliationItem> items,
   ForecastOwner owner,
 ) => items.firstWhere((i) => i.owner == owner);
+
+/// Reconcile and assert rupee conservation on the way through, so every
+/// end-to-end fixture in this file is held to the invariant.
+ForecastReconciliationResult reconcile({
+  required DateTime targetMonth,
+  required BalanceAnchor anchor,
+  required List<ReconciliationItem> items,
+  DateTime? now,
+}) {
+  final result = _engine.reconcileMonth(
+    targetMonth: targetMonth,
+    anchor: anchor,
+    items: items,
+    now: now,
+  );
+  expectRupeeConservation(result, items);
+  return result;
+}
 
 void main() {
   test('D8 annual heads-up expiry constant is the confirmed 15 months', () {
@@ -322,7 +342,7 @@ void main() {
       expect(item.paymentStatus, ReconciliationPaymentStatus.paid);
       expect(item.actualDate, DateTime(2026, 8, 10));
 
-      final result = _engine.reconcileMonth(
+      final result = reconcile(
         targetMonth: _target,
         anchor: _anchor,
         items: items,
@@ -462,7 +482,7 @@ void main() {
       expect(configured.matchKey, detected.matchKey);
       expect(configured.matchKey, isNotNull);
 
-      final result = _engine.reconcileMonth(
+      final result = reconcile(
         targetMonth: _target,
         anchor: _anchor,
         items: items,
@@ -473,6 +493,179 @@ void main() {
       expect(
         result.events.single.source,
         ForecastEventSource.configuredContribution,
+      );
+    });
+  });
+
+  group('match keys separate obligations by amount (§7 one owner per rupee)', () {
+    // A card bill and a home-loan EMI at the same bank, both monthly. Before
+    // amount bands these shared `merch:hdfc:monthly` and the loser vanished.
+    List<ObligationRecord> hdfcPair({
+      int billPaise = 500000,
+      int emiPaise = 4500000,
+    }) => [
+      obligation(
+        sourceType: ObligationSourceType.gmail,
+        amountPaise: billPaise,
+        merchant: 'HDFC',
+        merchantNorm: 'hdfc',
+        dueDate: DateTime(2026, 8, 12),
+        dedupeKey: 'gmail:hdfc-card',
+        id: 1,
+      ),
+      obligation(
+        sourceType: ObligationSourceType.manual,
+        amountPaise: emiPaise,
+        merchant: 'HDFC',
+        merchantNorm: 'hdfc',
+        dueDate: DateTime(2026, 8, 20),
+        dedupeKey: 'manual:hdfc-emi',
+        id: 2,
+      ),
+    ];
+
+    test('two amounts at one merchant both reach the ledger', () {
+      final items = build(obligations: hdfcPair());
+      expect(
+        items.map((i) => i.matchKey).toSet(),
+        hasLength(2),
+        reason: 'a ₹5,000 bill and a ₹45,000 EMI are not the same obligation',
+      );
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 2),
+      );
+      expect(
+        result.events.map((e) => e.amountPaise).toSet(),
+        {500000, 4500000},
+      );
+    });
+
+    test('the same amount twice is still deduped, and the loser is named', () {
+      final items = build(obligations: hdfcPair(emiPaise: 500000));
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 2),
+      );
+
+      expect(result.events, hasLength(1));
+      final suppressed = result.coverageLines.singleWhere(
+        (line) => line.reason == CoverageReason.duplicateSuppressed,
+      );
+      expect(suppressed.amountPaise, 500000);
+      expect(suppressed.ownerKey, 'gmailBill:obl:manual:hdfc-emi');
+    });
+
+    test('a ₹5,000 debit does not clear the ₹45,000 EMI it references', () {
+      // The reference lane skips the amount check, which is how one small
+      // payment used to mark a large obligation paid.
+      final items = build(
+        obligations: [
+          obligation(
+            sourceType: ObligationSourceType.gmail,
+            amountPaise: 500000,
+            merchant: 'HDFC',
+            merchantNorm: 'hdfc',
+            dueDate: DateTime(2026, 8, 12),
+            dedupeKey: 'gmail:hdfc-card',
+            sourceId: 'REF900',
+            id: 1,
+          ),
+          obligation(
+            sourceType: ObligationSourceType.manual,
+            amountPaise: 4500000,
+            merchant: 'HDFC',
+            merchantNorm: 'hdfc',
+            dueDate: DateTime(2026, 8, 20),
+            dedupeKey: 'manual:hdfc-emi',
+            sourceId: 'REF900',
+            id: 2,
+          ),
+        ],
+        actuals: [
+          actual(
+            amountPaise: 500000,
+            date: DateTime(2026, 8, 12),
+            merchant: 'HDFC',
+            refNumber: 'REF900',
+            smsId: 'pay-card',
+          ),
+        ],
+      );
+
+      final paid = items.where(
+        (i) => i.paymentStatus == ReconciliationPaymentStatus.paid,
+      );
+      expect(paid, hasLength(1));
+      expect(paid.single.amountPaise, 500000);
+      // Left alone, not held for review: nothing suggests the EMI was paid, so
+      // it must stay in the ledger rather than be excluded into review.
+      expect(
+        items
+            .singleWhere((i) => i.id == 'obl:manual:hdfc-emi')
+            .paymentStatus,
+        ReconciliationPaymentStatus.unpaid,
+      );
+    });
+
+    test('an amountless sibling leaves the key unbanded so both still fold', () {
+      // An unknown amount is not a different amount: banding around it would
+      // split the pair and subtract the same bill twice.
+      final items = build(
+        obligations: [
+          obligation(
+            sourceType: ObligationSourceType.gmail,
+            amountPaise: null,
+            amountStatus: AmountStatus.missing,
+            merchant: 'HDFC',
+            merchantNorm: 'hdfc',
+            dueDate: DateTime(2026, 8, 12),
+            dedupeKey: 'gmail:hdfc-card',
+            id: 1,
+          ),
+        ],
+        commitments: [
+          commitment(
+            amountPaise: 500000,
+            merchantNorm: 'hdfc',
+            nextExpected: DateTime(2026, 8, 12),
+          ),
+        ],
+      );
+      expect(items.map((i) => i.matchKey).toSet(), hasLength(1));
+    });
+
+    test('a losing member of a three-way group is never silently dropped', () {
+      final items = build(
+        obligations: hdfcPair(emiPaise: 500000),
+        commitments: [
+          commitment(
+            amountPaise: 500000,
+            merchantNorm: 'hdfc',
+            nextExpected: DateTime(2026, 8, 12),
+          ),
+        ],
+      );
+      expect(items.map((i) => i.matchKey).toSet(), hasLength(1));
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 2),
+      );
+      expect(result.events, hasLength(1));
+      expect(
+        result.coverageLines
+            .where((l) => l.reason == CoverageReason.duplicateSuppressed)
+            .map((l) => l.ownerKey)
+            .toSet(),
+        hasLength(2),
       );
     });
   });
@@ -541,7 +734,7 @@ void main() {
         expect(payment.cardCycleKey, estimate.cardCycleKey);
         expect(payment.actualDate, DateTime(2026, 8, 20));
 
-        final result = _engine.reconcileMonth(
+        final result = reconcile(
           targetMonth: _target,
           anchor: _anchor,
           items: items,
@@ -708,7 +901,7 @@ void main() {
         ],
       );
 
-      final result = _engine.reconcileMonth(
+      final result = reconcile(
         targetMonth: _target,
         anchor: _anchor,
         items: items,
@@ -737,7 +930,7 @@ void main() {
           dueDate: DateTime(2026, 8, 15),
           userCadenceStatus: UserCadenceStatus.userConfirmed,
         );
-        final result = _engine.reconcileMonth(
+        final result = reconcile(
           targetMonth: _target,
           anchor: _anchor,
           items: [item],
@@ -882,7 +1075,7 @@ void main() {
 
       expect(byOwner(items, ForecastOwner.salary).dueDate, DateTime(2026, 2, 28));
 
-      final result = _engine.reconcileMonth(
+      final result = reconcile(
         targetMonth: target,
         anchor: anchor,
         items: items,
@@ -953,7 +1146,7 @@ void main() {
 
       expect(items.single.dueDate, DateTime(2026, 2, 28));
 
-      final result = _engine.reconcileMonth(
+      final result = reconcile(
         targetMonth: target,
         anchor: anchor,
         items: items,

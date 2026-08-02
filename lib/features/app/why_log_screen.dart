@@ -505,6 +505,7 @@ class WhyLogScreen extends StatelessWidget {
     CoverageReason.overBudgetDiscretionary => 'Over your usual',
     CoverageReason.cardCycleOnly => 'Card cycle only',
     CoverageReason.futureEarmark => 'Coming up later',
+    CoverageReason.duplicateSuppressed => 'Counted once, under another name',
   };
 
   String _actionLabel(CoverageAction a) => switch (a) {
