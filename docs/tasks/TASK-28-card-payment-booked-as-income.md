@@ -1,94 +1,69 @@
-# TASK-28 — Credit-card bill payments are booked as income
+# TASK-28 — A credit-card bill payment is treated as a refund
 
-**Severity:** Critical · **Phase:** 2 · **Depends on:** TASK-15 (the bridge that nets the
-two legs must have a production caller first)
+**Severity:** Important · **Phase:** 2 · **Depends on:** nothing
 
 Violates the spec's **one owner per rupee** rule. Found by running the Phase-1 build
-against the author's live device on 2026-08-02, not by code reading.
+against a real device on 2026-08-02, not by code reading.
+
+> **This file originally claimed the defect was "card payments booked as income".**
+> That was wrong and is corrected below. Income was never affected — both income paths
+> already exclude card credits (`salary_income_detector._isSalaryCandidate` requires
+> `instrument == bank`; `real_insights._isIncomeCredit` returns false for cards). The
+> real defect is in the card-cycle estimator and is documented from here down.
 
 ---
 
 ## The defect
 
-`lib/services/sms_transaction_parser.dart:87` — `_creditVerb` contains `\breceived\b`.
+`lib/services/card_cycle_estimator.dart:31-39`
 
-A credit-card bill payment produces **two** SMS, and the bank writes the card-side one
-from the *card's* point of view:
+```dart
+final cardRefunds = cardTxns
+    .where((t) => t.instrument == PaymentInstrument.card &&
+                  t.direction == TransactionDirection.credit)
+    .fold<int>(0, (sum, t) => sum + t.amountPaise);
 
-```
-DEAR HDFCBANK CARDMEMBER, PAYMENT OF [amount] RECEIVED TOWARDS YOUR CREDIT CARD
-ENDING WITH [number] ON 1-8-[number]. YOUR AVAILABLE LIMIT IS [amount]
-
-Payment of [amount] has been received on your ICICI Bank Credit Card [account]
-through Bharat Bill Payment System on 01-AUG-26.
+final cycleSpendSeen = observedPurchases - cardRefunds;
 ```
 
-`received` is a credit verb, so the row books as **income**. Paying down your own card is
-not income — it is the second leg of a transfer between two accounts the user owns.
+**Every** card credit is summed as a refund. But a card receives credits for two quite
+different reasons, and the bank writes both from the card's point of view:
+
+| body | meaning | effect on spend |
+|---|---|---|
+| `Refund of Rs.1000 processed to your HDFC Bank Card XX12 by AMAZON` | merchant returns money | **cancels** spend |
+| `PAYMENT OF Rs.5000 RECEIVED TOWARDS YOUR CREDIT CARD ENDING WITH 1234` | holder pays the bill | **settles** spend |
+
+A refund cancels spend. A payment settles it. Subtracting the payment makes paying the
+bill look like the holder spent less — so `cycleSpendSeen` collapses, the statement is
+understated, and the bank cash outflow forecast from it is too small.
 
 ### Measured on live data
 
-On 2026-08-01 the device held, on the same day:
-
-| direction | amount | type/instrument |
-|---|---|---|
-| debit | ₹4,990 | upi/bank |
-| **credit** | **₹5,000** | pos/card |
-| debit | ₹2,282 | upi/bank |
-| **credit** | **₹2,307** | pos/card |
-
-Across the table: **26 card-side credit rows totalling roughly ₹1.2 lakh counted as income.**
-
-The bank debit leg is the real outflow. The card credit leg is the same rupee arriving
-where it was owed. Counting the second as income inflates income and, once these feed
-salary/surplus detection, inflates the forecast's confidence in money that does not exist.
+26 card-side credit rows totalling **roughly ₹1.2 lakh** on the author's device, all of which
+were being subtracted from observed card spend. On 2026-08-01 alone the device held a
+₹4,990 bank debit paired with a ₹5,000 card credit — the two legs of one bill payment.
 
 **Why this surfaced now.** The card-side alerts were always parsed. The *bank-side* UPI
-debits were not, until TASK-07 landed — so before Phase 1 the double-count was half
-invisible. Recovering the debit leg made it measurable.
+debits were not, until TASK-07 landed, so before Phase 1 only half the pair was visible.
 
 ---
 
-## Required outcome
+## Fix
 
-A card-payment confirmation must never contribute income. Pick one and do it fully:
-
-**Option A — classify it as a transfer leg.** Detect "payment received … towards/on your
-… card" and type it so `TransferBridgeMatcher` (TASK-15) can pair it with the bank debit
-and let exactly one leg own the rupee. Best outcome, and the reason this task depends on
-TASK-15 — without a production caller for the bridge there is nothing to pair against.
-
-**Option B — suppress the card-side leg from income.** Cheaper. The row stays visible for
-audit (no silent exclusion — it must still produce a coverage line) but contributes no
-inflow.
-
-Do **not** simply drop `received` from `_creditVerb`: genuine inflows ("Rs 5000 credited
-… received from …") depend on it. The signal is *payment received **towards/on** a card*,
-not `received` alone.
-
----
+`isCardBillPayment` identifies the payment wording and excludes those credits from
+`cardRefunds`. Deliberately narrow: only a credit that *positively identifies itself* as
+a payment is excluded, so an unlabelled card credit still counts as a refund exactly as
+before — which is what keeps the existing estimator tests honest.
 
 ## Tests to write first
 
-Add to `test/sms_transaction_parser_test.dart`:
-
-- [ ] `PAYMENT OF Rs.5000 RECEIVED TOWARDS YOUR CREDIT CARD ENDING WITH 1234` does not
-      produce a `credit` that counts as income.
-- [ ] `Payment of Rs.2500 has been received on your ICICI Bank Credit Card XX12 through
-      Bharat Bill Payment System` — same.
-- [ ] Regression guard: `Rs.5000 credited to your account, received from ACME PAYROLL`
-      **is** still income. This is what stops an over-broad fix.
-
-Add to the reconciliation suite:
-
-- [ ] A bank debit of ₹4,990 and a card credit of ₹5,000 on the same day net to **one**
-      owner, not two, and total income does not rise.
-- [ ] Rupee-conservation assertion (see TASK-14) holds across the pair.
-
-Add to `test/golden/`:
-
-- [ ] Both card-payment bodies above, labelled with the direction they must **not** get.
-      Per the corpus conventions, add labels rather than bare rows.
+- [x] A bill payment (HDFC `PAYMENT OF … RECEIVED TOWARDS YOUR CREDIT CARD` wording) does
+      not reduce `cycleSpendSeenPaise`. — **RED** (`cardRefundsPaise` was 100000, want 0)
+- [x] The ICICI/BBPS wording (`Payment of … has been received on your … Credit Card …
+      through Bharat Bill Payment System`) behaves the same. — **RED** (same)
+- [x] A genuine refund still cancels spend. — **green guard**; this is what stops an
+      over-broad fix silently disabling refund handling.
 
 ## Verification
 
@@ -99,9 +74,24 @@ flutter test
 
 ## Definition of done
 
-- [ ] Card-payment confirmations contribute no income
-- [ ] Genuine `received` inflows still book as income (guard test green)
-- [ ] The two legs resolve to one owner per rupee
-- [ ] Golden corpus carries both real bodies with labels
-- [ ] `flutter analyze` clean, `flutter test` green, count up
-- [ ] Suggested commit: `Stop credit-card bill payments counting as income`
+- [x] A card bill payment no longer cancels card spend
+- [x] A genuine refund still does
+- [x] An unlabelled card credit keeps its previous meaning
+- [x] `flutter analyze` clean, `flutter test` green — **679 passing** (was 676)
+- [x] Suggested commit: `Stop a card bill payment cancelling the card spend it settles`
+
+---
+
+## Deliberately left for later — do not re-report as new
+
+1. **The bill payment is not routed into `amountPaidPaise`.** `CardCycleEstimator.estimate`
+   already accepts that parameter, but nothing feeds these rows into it, so a payment
+   still does not mark the statement paid. That is **TASK-13** (card-cycle payments) and
+   **TASK-15** (the transfer bridge that pairs the bank leg with the card leg). This task
+   deliberately stops at "a payment is not a refund".
+2. **The display category is still `income`.** `merchant_display._category`
+   (`lib/services/merchant_display.dart:226`) labels any non-refund credit `income`, so a
+   card payment renders as "Income" in the transaction list. Cosmetic — it feeds no
+   forecast maths — but it is visible and worth a minor item. Not fixed here because the
+   honest category for a bill payment is `transfer`, and introducing that key touches
+   `seed_data.dart`, the category label map and the insights grouping.

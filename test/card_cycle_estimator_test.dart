@@ -10,6 +10,8 @@ ParsedTxn cardTxn({
   TransactionDirection direction = TransactionDirection.debit,
   String cardLast4 = '4321',
   String smsId = 'sms',
+  String rawBodyRedacted = 'redacted',
+  String categoryKey = 'shopping',
 }) => ParsedTxn(
   smsId: smsId,
   sender: 'VM-HDFCBK',
@@ -21,12 +23,12 @@ ParsedTxn cardTxn({
   accountLast4: cardLast4,
   merchant: 'Amazon',
   payeeType: PayeeType.merchant,
-  categoryKey: 'shopping',
+  categoryKey: categoryKey,
   confidence: 0.9,
   reviewStatus: ReviewStatus.confirmed,
   source: TxnSource.sms,
   coverageBucket: CoverageBucket.datedEvent,
-  rawBodyRedacted: 'redacted',
+  rawBodyRedacted: rawBodyRedacted,
   bodyHash: 'h',
   scanBatchId: 'b',
 );
@@ -64,6 +66,78 @@ void main() {
       expect(estimate.cycleSpendSeenPaise, 400000);
       expect(estimate.observedPurchasesPaise, 500000);
       expect(estimate.cardRefundsPaise, 100000);
+    });
+
+    // A bill payment and a merchant refund are both card credits, but only a
+    // refund cancels spend. Treating a payment as a refund makes paying the
+    // bill look like you spent less, understating the next statement.
+    // Bodies are the real device shape (see TASK-28).
+    test('a bill payment is not a refund and does not cancel card spend', () {
+      final estimate = estimator.estimate(
+        [
+          cardTxn(amountPaise: 500000, date: DateTime(2026, 8, 10), smsId: 'p'),
+          cardTxn(
+            amountPaise: 100000,
+            date: DateTime(2026, 8, 15),
+            direction: TransactionDirection.credit,
+            smsId: 'pay',
+            categoryKey: 'income',
+            rawBodyRedacted: 'DEAR HDFCBANK CARDMEMBER, PAYMENT OF [amount] '
+                'RECEIVED TOWARDS YOUR CREDIT CARD ENDING WITH [number] ON '
+                '1-8-[number].YOUR AVAILABLE LIMIT IS [amount]',
+          ),
+        ],
+        cycle: cycle,
+        statementMonth: DateTime(2026, 8),
+      );
+
+      expect(estimate.cardRefundsPaise, 0);
+      expect(estimate.cycleSpendSeenPaise, 500000);
+    });
+
+    test('the ICICI/BBPS bill-payment wording is also not a refund', () {
+      final estimate = estimator.estimate(
+        [
+          cardTxn(amountPaise: 500000, date: DateTime(2026, 8, 10), smsId: 'p'),
+          cardTxn(
+            amountPaise: 100000,
+            date: DateTime(2026, 8, 15),
+            direction: TransactionDirection.credit,
+            smsId: 'pay',
+            categoryKey: 'income',
+            rawBodyRedacted: 'Payment of [amount] has been received on your '
+                'ICICI Bank Credit Card [account] through Bharat Bill Payment '
+                'System on 01-AUG-26.',
+          ),
+        ],
+        cycle: cycle,
+        statementMonth: DateTime(2026, 8),
+      );
+
+      expect(estimate.cardRefundsPaise, 0);
+      expect(estimate.cycleSpendSeenPaise, 500000);
+    });
+
+    test('a genuine refund still cancels spend', () {
+      final estimate = estimator.estimate(
+        [
+          cardTxn(amountPaise: 500000, date: DateTime(2026, 8, 10), smsId: 'p'),
+          cardTxn(
+            amountPaise: 100000,
+            date: DateTime(2026, 8, 15),
+            direction: TransactionDirection.credit,
+            smsId: 'r',
+            categoryKey: 'refund',
+            rawBodyRedacted: 'Refund of [amount] processed to your HDFC Bank '
+                'Card [account] by AMAZON.',
+          ),
+        ],
+        cycle: cycle,
+        statementMonth: DateTime(2026, 8),
+      );
+
+      expect(estimate.cardRefundsPaise, 100000);
+      expect(estimate.cycleSpendSeenPaise, 400000);
     });
   });
 

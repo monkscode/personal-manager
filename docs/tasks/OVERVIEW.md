@@ -78,7 +78,7 @@ earlier fixes exist.
 | [TASK-18](TASK-18-algorithmdetected-and-nextexpected.md) | Algorithm guesses marked user-confirmed; due dates in the past | Important ×2 |
 | [TASK-19](TASK-19-salary-detection.md) | Salary day-drift, payer consistency, cadence truncation | Important ×3 |
 | [TASK-20](TASK-20-reconciliation-minors.md) | Reconciliation minors (10 items) | Minor |
-| [TASK-28](TASK-28-card-payment-booked-as-income.md) | Credit-card bill payments booked as income (₹1.16L measured) | Critical |
+| [TASK-28](TASK-28-card-payment-booked-as-income.md) | Card bill payment treated as a refund, cancelling card spend (₹1.16L measured) | Important |
 
 ### Phase 3 — Forecast and money
 
