@@ -1,5 +1,30 @@
 import '../data/sms_models.dart';
-import 'bank_pattern_library.dart';
+
+/// Normalizes an Indian DLT SMS sender into its bank header segment.
+///
+/// Senders arrive as `<operator>-<header>` or `<operator>-<header>-<category>`,
+/// e.g. `VM-HDFCBK`, `AD-SBIINB-T`. The two-letter operator/access code and any
+/// trailing single-letter category suffix (Transactional/Promotional/Service)
+/// are removed, leaving the uppercased header (`HDFCBK`, `SBIINB`). A bare
+/// header is returned uppercased and trimmed.
+String normalizeSenderHeader(String sender) {
+  final segments = sender
+      .toUpperCase()
+      .trim()
+      .split('-')
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+  if (segments.isEmpty) return '';
+  // Drop a leading two-letter operator/access code (VM, AD, AX, ...).
+  if (segments.length > 1 && segments.first.length <= 2) {
+    segments.removeAt(0);
+  }
+  // Drop a trailing single-letter category suffix (T/P/S).
+  if (segments.length > 1 && segments.last.length == 1) {
+    segments.removeLast();
+  }
+  return segments.join('-');
+}
 
 /// A human-readable payee name plus a spending category for one transaction.
 class TxnDisplay {

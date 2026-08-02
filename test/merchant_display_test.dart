@@ -192,6 +192,29 @@ void main() {
     });
   });
 
+  group('normalizeSenderHeader', () {
+    test('strips the two-letter operator/access code prefix', () {
+      expect(normalizeSenderHeader('VM-HDFCBK'), 'HDFCBK');
+      expect(normalizeSenderHeader('AD-SBIINB'), 'SBIINB');
+      expect(normalizeSenderHeader('AX-ICICIT'), 'ICICIT');
+    });
+
+    test('strips a trailing single-letter category suffix (T/P/S)', () {
+      expect(normalizeSenderHeader('VM-HDFCBK-S'), 'HDFCBK');
+      expect(normalizeSenderHeader('JD-SBIINB-T'), 'SBIINB');
+      expect(normalizeSenderHeader('BZ-ICICIB-P'), 'ICICIB');
+    });
+
+    test('passes a bare header through unchanged (uppercased)', () {
+      expect(normalizeSenderHeader('HDFCBK'), 'HDFCBK');
+      expect(normalizeSenderHeader('hdfcbk'), 'HDFCBK');
+    });
+
+    test('trims surrounding whitespace', () {
+      expect(normalizeSenderHeader('  VK-KOTAKB  '), 'KOTAKB');
+    });
+  });
+
   group('category labels', () {
     test('labelForCategory maps keys to human labels', () {
       expect(MerchantDisplay.labelForCategory('food'), 'Food & Dining');

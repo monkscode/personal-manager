@@ -217,8 +217,13 @@ adding a trigger + `RECEIVE_SMS`, not rewriting the pipeline.
   Only a `success` outcome may contain an empty message list. Unsupported platforms hide the SMS
   entry point, permission failures show actionable UI, and callers must never treat failure as
   "zero bank SMS found."
-- **`BankPatternLibrary`** — immutable list of `BankSmsPattern` (sender IDs + regexes per
-  transaction type) for the major Indian banks. Loaded once; not mutated at runtime.
+- ~~**`BankPatternLibrary`**~~ — **removed.** A per-bank regex registry was built but never
+  consulted by the parser, and all five banks carried identical patterns, so the layer held no
+  information. The bank-specific formats it was meant to disambiguate (Axis `Avl Bal-`, SBI's
+  currency-less `debited by`, HDFC's split `Sent … To`) are handled in `SmsTransactionParser`'s
+  generic path instead, which also covers senders whose DLT header is not on any list — a
+  registry keyed on sender IDs could not. Sender-header normalization survives as
+  `normalizeSenderHeader` in `merchant_display.dart`, its only caller.
 - **`SmsTransactionParser`** — pure Dart, no platform/network deps. Turns a raw SMS into a
   `ParsedTxn?` via the **normalize → tokenize → extract** pipeline adopted from
   `transaction-sms-parser` (§6): normalization, token-adjacency amount/balance extraction, and

@@ -7,6 +7,7 @@ ParsedTxn outflow({
   String? upiVpaNorm,
   PayeeType payeeType = PayeeType.unknown,
   String? accountLast4 = '1111',
+  String body = 'r',
 }) => ParsedTxn(
   smsId: 'sms:${upiVpaNorm ?? payeeType.name}',
   sender: 'VM-HDFCBK',
@@ -23,7 +24,7 @@ ParsedTxn outflow({
   reviewStatus: ReviewStatus.confirmed,
   source: TxnSource.sms,
   coverageBucket: CoverageBucket.datedEvent,
-  rawBodyRedacted: 'r',
+  rawBodyRedacted: body,
   bodyHash: 'h',
   scanBatchId: 'b',
 );
@@ -82,6 +83,66 @@ void main() {
       expect(result.payeeType, PayeeType.merchant);
       expect(result.isSelfTransfer, isFalse);
       expect(result.needsConfirmation, isFalse);
+      expect(result.untrackedCashCaveat, isFalse);
+    });
+  });
+
+  group('Paytm handle disambiguation', () {
+    test('a shop QR VPA is merchant spend, not a wallet top-up', () {
+      final result = classifier.classify(
+        outflow(upiVpaNorm: 'paytmqr2810050501011o5m8fftqhqd@paytm'),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.merchant);
+      expect(result.untrackedCashCaveat, isFalse);
+    });
+
+    test('a merchant-prefixed VPA on the paytm handle is merchant spend', () {
+      final result = classifier.classify(
+        outflow(upiVpaNorm: 'merchant123@paytm'),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.merchant);
+      expect(result.untrackedCashCaveat, isFalse);
+    });
+
+    test('a phone-number VPA on the paytm handle is still a wallet top-up', () {
+      final result = classifier.classify(
+        outflow(upiVpaNorm: '9876543210@paytm'),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.wallet);
+      expect(result.untrackedCashCaveat, isTrue);
+    });
+
+    test('a UPI/P2M tag marks merchant spend whatever the handle', () {
+      final result = classifier.classify(
+        outflow(
+          upiVpaNorm: 'user@paytm',
+          body: 'Rs[amount] debited UPI/P2M/[number]/PAYTM Avl Bal [amount]',
+        ),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.merchant);
+      expect(result.untrackedCashCaveat, isFalse);
+    });
+
+    test('a UPI/P2A tag leaves a personal VPA person-to-person', () {
+      final result = classifier.classify(
+        outflow(
+          upiVpaNorm: 'rahul@oksbi',
+          payeeType: PayeeType.p2pIndividual,
+          body: 'Rs[amount] debited UPI/P2A/[number]/RAHUL Avl Bal [amount]',
+        ),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.p2pIndividual);
+      expect(result.needsConfirmation, isTrue);
       expect(result.untrackedCashCaveat, isFalse);
     });
   });

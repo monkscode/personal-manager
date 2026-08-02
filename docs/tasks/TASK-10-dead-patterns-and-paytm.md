@@ -37,6 +37,30 @@ right shape for that problem. If you choose this:
 **Do not leave it as-is.** A docstring asserting behaviour that does not exist is worse
 than either outcome. If you pick A, note it overlaps TASK-08 Defect 3 — coordinate.
 
+### Chosen: Option B — delete
+
+TASK-07 and TASK-08 had already landed all three formats Option A cites as its
+justification, and landed them in the *generic* path:
+
+| Option A's motivating case | Already handled by | Where |
+|---|---|---|
+| Axis `Avl Bal-` | TASK-08 widened the separator to `(?:is\|[:\-–])?` | `sms_transaction_parser._balancePrefix` |
+| SBI currency-less `debited by` | TASK-07 added `_verbAnchoredAmount` | `sms_transaction_parser._verbAnchoredAmount` |
+| HDFC split `Sent … To` | TASK-06/07 added bare `\bsent\b` + lookahead | `sms_transaction_parser._debitVerb` |
+
+Wiring the registry up would therefore have added no coverage and **removed** some:
+those generic patterns fire for any sender, whereas `bankPatternForSender` fires only
+for the 15 hard-coded DLT headers. Indian DLT headers churn constantly, and the parser
+already keeps a second sender list in `_knownBankFragments` — a third registry that has
+to agree with both is exactly the drift this audit is removing. TASK-29 has since given
+`_merchant` a second extractor (`_merchantTo`), widening the generic path further.
+
+Done: `bank_pattern_library.dart` and `test/bank_pattern_library_test.dart` deleted,
+`normalizeSenderHeader` moved to `merchant_display.dart` (its only caller) with its four
+behaviour tests rehomed to `test/merchant_display_test.dart`, and the `BankPatternLibrary`
+bullet in `docs/2026-07-08-sms-actuals-layer-design/01-product-scope-architecture.md`
+rewritten to say the component was removed and why.
+
 ---
 
 ## Defect 2 — Paytm QR merchants classified as wallet top-ups
@@ -75,12 +99,17 @@ For Defect 1, tests depend on the option chosen:
 
 For Defect 2, add to `test/payee_classifier_test.dart`:
 
-- [ ] `paytmqr2810050501011o5m8fftqhqd@paytm` → merchant, **not** wallet;
-      `untrackedCashCaveat == false`.
-- [ ] `merchant123@paytm` → merchant, not wallet.
-- [ ] `9876543210@paytm` → wallet (genuine top-up still detected).
-- [ ] A body containing `UPI/P2M` → merchant regardless of handle.
-- [ ] A body containing `UPI/P2A` with a personal VPA → person-to-person, unchanged.
+- [x] `paytmqr2810050501011o5m8fftqhqd@paytm` → merchant, **not** wallet;
+      `untrackedCashCaveat == false`. **Genuinely red** — returned `wallet`.
+- [x] `merchant123@paytm` → merchant, not wallet. **Genuinely red** — returned `wallet`.
+- [x] `9876543210@paytm` → wallet (genuine top-up still detected). *Green guard.*
+- [x] A body containing `UPI/P2M` → merchant regardless of handle. **Genuinely red** —
+      returned `wallet`.
+- [x] A body containing `UPI/P2A` with a personal VPA → person-to-person, unchanged.
+      *Green guard.*
+
+Three of the five failed for the stated reason (`Actual: PayeeType.wallet` where
+`merchant` was expected); two were regression guards that passed before the fix.
 
 ## Verification
 
@@ -91,11 +120,17 @@ flutter test
 
 ## Definition of done
 
-- [ ] `bank_pattern_library` is either genuinely wired in or deleted — with its docstring
-      matching reality either way
-- [ ] If deleted, its test file goes too and `normalizeSenderHeader` is rehomed
-- [ ] Paytm QR VPAs classify as merchant spend, not wallet top-ups
-- [ ] `UPI/P2M` respected when present
-- [ ] All five payee tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Classify Paytm QR spend as merchant and resolve the bank-pattern module`
+- [x] `bank_pattern_library` is either genuinely wired in or deleted — with its docstring
+      matching reality either way — **deleted; architecture doc corrected too**
+- [x] If deleted, its test file goes too and `normalizeSenderHeader` is rehomed
+- [x] Paytm QR VPAs classify as merchant spend, not wallet top-ups
+- [x] `UPI/P2M` respected when present
+- [x] All five payee tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green
+- [x] Suggested commit: `Classify Paytm QR spend as merchant and resolve the bank-pattern module`
+
+**Test count moves 664 → 658, and that is the intended effect.** Deleting
+`test/bank_pattern_library_test.dart` removed 15 tests that exercised a module with no
+production caller — the "inflated apparent coverage" Defect 1 names. Added back: 4
+rehomed `normalizeSenderHeader` tests + 5 new payee tests. `664 − 15 + 4 + 5 = 658`,
+0 failing.

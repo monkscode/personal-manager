@@ -7,6 +7,8 @@ const int kP2pOutflowMinOccurrences = 4;
 
 /// UPI handles that denote a wallet top-up (money leaving into a wallet becomes
 /// untracked cash for coverage purposes).
+///
+/// The handle alone is not sufficient evidence — see [kMerchantVpaPrefixes].
 const Set<String> kWalletVpaHandles = {
   'paytm',
   'freecharge',
@@ -14,6 +16,25 @@ const Set<String> kWalletVpaHandles = {
   'amazonpay',
   'olamoney',
 };
+
+/// VPA local-part prefixes that name a merchant collection account rather than
+/// a consumer wallet, even on a wallet handle.
+///
+/// Every shop QR code in India is `paytmqr<digits>@paytm`, so matching on the
+/// handle alone reports a kirana store, a chai stall or a petrol pump as a
+/// wallet top-up. Those rows then carry [PayeeClassification.untrackedCashCaveat]
+/// and drop out of tracked coverage — a user who pays for most things by QR sees
+/// their perfectly trackable spend reported as untracked cash, and the coverage
+/// metrics that drive confidence messaging are wrong.
+final RegExp kMerchantVpaPrefixes = RegExp(r'^(?:paytmqr|merchant)');
+
+/// The person-to-merchant tag banks stamp on a UPI alert (`UPI/P2M/...`).
+///
+/// Unambiguous where the handle is not, and present in many Axis and ICICI
+/// formats. It survives redaction — only the numeric reference beside it is
+/// replaced — so it can be read off the stored redacted body. Its counterpart
+/// `UPI/P2A` (person-to-account) carries no merchant claim and is not consulted.
+final RegExp kP2mTag = RegExp(r'\bupi[/\-]p2m\b', caseSensitive: false);
 
 /// The classification of a transaction's counterparty.
 class PayeeClassification {
@@ -43,13 +64,22 @@ class PayeeClassifier {
   PayeeClassification classify(ParsedTxn txn, {required KnownAccounts known}) {
     final isSelf = known.containsVpa(txn.upiVpaNorm) ||
         txn.payeeType == PayeeType.selfTransfer;
+    // Merchant evidence outranks the wallet handle but never the user's own
+    // account: money moving between the holder's accounts is a self-transfer
+    // whichever VPA it lands on.
+    final isMerchant =
+        !isSelf &&
+        (_isMerchantVpa(txn.upiVpaNorm) || kP2mTag.hasMatch(txn.rawBodyRedacted));
     final isWallet =
         !isSelf &&
+        !isMerchant &&
         (txn.payeeType == PayeeType.wallet || _isWalletVpa(txn.upiVpaNorm));
 
     final PayeeType payeeType;
     if (isSelf) {
       payeeType = PayeeType.selfTransfer;
+    } else if (isMerchant) {
+      payeeType = PayeeType.merchant;
     } else if (isWallet) {
       payeeType = PayeeType.wallet;
     } else {
@@ -82,5 +112,12 @@ class PayeeClassifier {
     final at = vpaNorm.lastIndexOf('@');
     if (at < 0 || at + 1 >= vpaNorm.length) return false;
     return kWalletVpaHandles.contains(vpaNorm.substring(at + 1).toLowerCase());
+  }
+
+  bool _isMerchantVpa(String? vpaNorm) {
+    if (vpaNorm == null) return false;
+    final at = vpaNorm.lastIndexOf('@');
+    if (at <= 0) return false;
+    return kMerchantVpaPrefixes.hasMatch(vpaNorm.substring(0, at).toLowerCase());
   }
 }
