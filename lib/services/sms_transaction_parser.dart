@@ -98,6 +98,9 @@ class SmsTransactionParser {
   static final RegExp _merchantTo = RegExp(
     r'\bto\s+(.{2,40}?)(?:\s+on\s+\d|\s+ref\b|\s+avl\b|\s+available\b|\s+bal\b|\.(?:\s|$)|\n|$)',
   );
+  // A payee is a name. A bare run of digits is a helpline, an account or a
+  // phone number — never a merchant — so it is skipped rather than captured.
+  static final RegExp _bareDigits = RegExp(r'^[\d\s+-]+$');
   // A bank account has no limit, so any available/credit-limit phrasing is by
   // itself card evidence. `bank card` and a bare `card <tail>` cover HDFC's
   // "on HDFC Bank Card XX9012", which never says "credit card" at all.
@@ -505,8 +508,14 @@ class SmsTransactionParser {
     if (upiVpa != null) return upiVpa.split('@').first;
     final at = _merchantAt.firstMatch(lower)?.group(1)?.trim();
     if (at != null && at.length >= 2) return at;
-    final to = _merchantTo.firstMatch(lower)?.group(1)?.trim();
-    if (to != null && to.length >= 2) return to;
+    // Every `to` in the body is a candidate, not just the first: a bank footer
+    // ("Not you? SMS BLOCK 1234 to 919000000000") is a `to` with no payee after
+    // it, and on a body with no real payee line it would otherwise be captured
+    // and, worse, mask the merchant printed elsewhere in the message.
+    for (final match in _merchantTo.allMatches(lower)) {
+      final to = match.group(1)?.trim();
+      if (to != null && to.length >= 2 && !_bareDigits.hasMatch(to)) return to;
+    }
     return instrument == PaymentInstrument.card ? 'card purchase' : null;
   }
 

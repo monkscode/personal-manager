@@ -599,6 +599,30 @@ void main() {
       expect(merchant, isNot(contains('a/c')));
     });
 
+    test('the helpline number in a Not-you tail is never the merchant', () {
+      // Real Axis card body: no `at` and no `To PAYEE` line, but the footer
+      // reads "SMS BLOCK ... to 919000000000". A phone number is not a payee.
+      final merchant = parse(
+        'Spent Rs.245.00\n'
+        'Axis Bank Card no. XX1234\n'
+        '10-05-26 12:08:47 IST\n'
+        'BLINKIT\n'
+        'Avl Limit: Rs.50000\n'
+        'Not you? SMS BLOCK 1234 to 919000000000',
+      ).merchant;
+
+      expect(merchant, isNot('919000000000'));
+    });
+
+    test('a bare digit run is never captured as a payee name', () {
+      expect(
+        parse('Sent Rs.500.00\nFrom HDFC Bank A/C x1234\nTo 919876543210\n'
+                'On 01/08/26\nRef 561234567890')
+            .merchant,
+        isNot('919876543210'),
+      );
+    });
+
     test('an at-introduced merchant still wins over a To elsewhere', () {
       expect(
         parse('Rs.900.00 debited from A/c XX1234 at BOOKSTORE on 26-06-25.').merchant,
