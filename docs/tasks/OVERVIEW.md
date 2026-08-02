@@ -3,6 +3,12 @@
 Findings from a four-reviewer audit run on 2026-07-31 against the synced SMS/forecast
 layer. **27 task files, ~85 findings.** Nothing from the audit was dropped.
 
+**TASK-28 and TASK-29 were added later**, on 2026-08-02, from running the Phase-1 build
+against a real device rather than from the audit. Both were invisible to code review:
+each only became measurable once TASK-07 made HDFC's UPI alerts parse at all. Treat
+"install it on the phone and look" as a required step at the end of each phase — it found
+two Critical defects that four reviewers reading the source did not.
+
 Each task file is self-contained: it states the defect, a concrete failing scenario,
 the required fix, the tests to write, and a definition of done. One agent should be
 able to complete one file inside a single context window.
@@ -57,6 +63,7 @@ earlier fixes exist.
 | [TASK-09](TASK-09-normalizer-and-collisions.md) | Genuine duplicates silently dropped; collision sets fracture | Important ×2 |
 | [TASK-10](TASK-10-dead-patterns-and-paytm.md) | Dead bank-pattern module; Paytm QR misclassified | Important ×2 |
 | [TASK-11](TASK-11-parser-minors.md) | Parser minors (8 items) | Minor |
+| [TASK-29](TASK-29-hdfc-upi-payee-no-merchant.md) | HDFC `Sent … To <PAYEE>` yields no merchant; 171/173 rows ownerless | Critical |
 
 ### Phase 2 — Reconciliation
 
@@ -71,6 +78,7 @@ earlier fixes exist.
 | [TASK-18](TASK-18-algorithmdetected-and-nextexpected.md) | Algorithm guesses marked user-confirmed; due dates in the past | Important ×2 |
 | [TASK-19](TASK-19-salary-detection.md) | Salary day-drift, payer consistency, cadence truncation | Important ×3 |
 | [TASK-20](TASK-20-reconciliation-minors.md) | Reconciliation minors (10 items) | Minor |
+| [TASK-28](TASK-28-card-payment-booked-as-income.md) | Credit-card bill payments booked as income (₹1.16L measured) | Critical |
 
 ### Phase 3 — Forecast and money
 
