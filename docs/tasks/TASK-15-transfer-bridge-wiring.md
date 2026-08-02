@@ -69,23 +69,71 @@ reconciliation slice. Preserve:
 
 ---
 
+## Correction — wiring alone would not have worked
+
+`_groupKey` (`forecast_reconciliation_engine.dart`) tested `matchKey` **first**:
+
+```dart
+if (item.matchKey != null) return 'match:${item.matchKey}';
+if (item.transferBridgeToId != null) return 'bridge:${item.transferBridgeToId}';
+```
+
+Every secondary obligation with a non-empty `merchantNorm` gets a match key from the
+matcher — which is nearly all of them — so a bridge target would have stayed in its
+merchant group and never met the transfer funding it. The engine's bridge fixtures only
+passed because they are hand-built items with `matchKey: null`. The order is now reversed:
+a transfer naming an obligation is direct evidence about *that* obligation, where a match
+key is a merchant/cadence coincidence.
+
+## Correction — this does not close a live double count
+
+The stated rationale is an **`unknown`**-scope obligation funded by a transfer. But
+`TransferBridgeMatcher.match` filters `paymentAccountScope == AccountScope.secondary`, and
+a **secondary** obligation is *already* excluded from the primary ledger by
+`_applyWinner`'s `outOfPrimaryScope` branch. So for the scope the module actually accepts,
+both legs were never counted — one was.
+
+The `unknown`-scope double count is real and is a **different defect**: `_obligationOwner`
+maps unknown scope to `gmailBill`, so `_applyWinner` emits the event and only adds an
+`accountHintUncertain` line, while the funding transfer is counted separately. Widening the
+module to `unknown` would let any coincident same-amount transfer suppress a genuine
+primary bill — a worse failure than the one it fixes — so it is **not** done here and is
+recorded as an open finding rather than silently folded in.
+
+What wiring does buy: the engine's bridge branches stop being dead code, the pairing
+becomes explicit rather than incidental, and the date-bound fix below becomes reachable.
+
+## Ambiguity is not routed away from the ledger
+
+The plan asks for an ambiguous two-transfers-one-target case to be "routed to review". It
+is surfaced, not removed: both transfers are observed primary debits, so both stay dated
+events, and only the obligation is suppressed (with its coverage line). Excluding real cash
+from the ledger because its *purpose* is unclear would understate required-in-bank — the
+dangerous direction. An ambiguous pairing therefore sets no `transferBridgeToId` at all.
+
+`_chooseWinners` was extended the same way as for card payments: every bridging transfer is
+kept, so the latent "second transfer silently excluded" bug cannot arise even from
+hand-built items.
+
 ## Tests to write first
 
 Add to `test/reconciliation_matcher_test.dart` (integration — the wiring is the point):
 
-- [ ] An `unknown`-scope obligation funded by a primary→secondary transfer → the ledger
-      subtracts the amount **once**, not twice.
-- [ ] `transferBridgeToId` is actually populated by `_transferItems` when a bridge exists.
-- [ ] Two transfers pointing at one bridge target → ambiguous, routed to review, and
-      neither silently excluded (assert a coverage line exists).
-- [ ] The rupee-conservation helper from TASK-14 passes for a bridged scenario.
+- [x] A **secondary**-scope obligation funded by a primary→secondary transfer → the ledger
+      subtracts the amount once. (Scope corrected from `unknown`, reason above.)
+- [x] `transferBridgeToId` is actually populated by `_transferItems` when a bridge exists.
+      — **RED** (null)
+- [x] Two transfers pointing at one bridge target → both kept, obligation named, nothing
+      silently excluded.
+- [x] A transfer that funds nothing carries no bridge (regression guard).
+- [x] The rupee-conservation helper from TASK-14 passes for a bridged scenario — every
+      reconcile in the file routes through it.
 
 Add to `test/transfer_bridge_matcher_test.dart`:
 
-- [ ] `_directlyPaidOnPrimary` with a matching debit **11 months old** does **not**
-      suppress the current bridge.
-- [ ] A matching debit **inside** the due window still suppresses it (regression guard —
-      `:201-227` covers the same-week case today).
+- [x] `_directlyPaidOnPrimary` with a matching debit **11 months old** does **not**
+      suppress the current bridge. — **RED** (no candidates at all)
+- [x] A matching debit **inside** the due window still suppresses it (regression guard).
 
 ## Verification
 
@@ -96,10 +144,16 @@ flutter test
 
 ## Definition of done
 
-- [ ] `TransferBridgeMatcher` has a real production caller and `transferBridgeToId` is set
-- [ ] The engine's bridge branches are exercised by at least one integration test
-- [ ] Two-transfers-one-target emits a coverage line rather than silently dropping
-- [ ] `_directlyPaidOnPrimary` is date-bounded to the due window
-- [ ] All six tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Wire the transfer bridge so funded obligations are not double counted`
+- [x] `TransferBridgeMatcher` has a real production caller and `transferBridgeToId` is set
+- [x] The engine's bridge branches are exercised by at least one integration test
+- [x] Two-transfers-one-target emits a coverage line rather than silently dropping
+- [x] `_directlyPaidOnPrimary` is date-bounded to the due window (window check extracted
+      from `_bridges`, so both lanes share one definition)
+- [x] All six tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green — **710 passing** (was 704)
+- [x] Suggested commit: `Wire the transfer bridge so funded obligations are not double counted`
+
+## Open finding, not fixed here
+
+An **`unknown`**-scope obligation and the transfer that funds it are still both subtracted.
+Fixing it needs a scope-resolution rule, not a wider bridge. Not re-reported as new.

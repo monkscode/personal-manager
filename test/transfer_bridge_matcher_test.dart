@@ -255,5 +255,56 @@ void main() {
 
       expect(matcher.match([transfer], [primaryObligation]), isEmpty);
     });
+
+    test('a direct debit from months ago does not suppress this bridge', () {
+      // Unbounded, the lookup let last year's premium veto this year's
+      // transfer forever, and the obligation was then counted separately.
+      final staleDebit = primaryTxn(
+        date: DateTime(2025, 9, 14),
+        amountPaise: 4700000,
+        type: TxnType.upi,
+        merchant: 'LIC Premium',
+        smsId: 'stale',
+      );
+      final transfer = primaryTxn(
+        date: DateTime(2026, 8, 12),
+        amountPaise: 4700000,
+        smsId: 'xfer',
+      );
+      final obligation = secondaryObligation(
+        amountPaise: 4700000,
+        dueDate: DateTime(2026, 8, 14),
+        merchant: 'LIC Premium',
+        merchantNorm: 'lic premium',
+      );
+
+      final candidates = matcher.match([staleDebit, transfer], [obligation]);
+
+      expect(candidates, hasLength(1));
+      expect(candidates.single.resolution, TransferBridgeResolution.funded);
+    });
+
+    test('a direct debit inside the due window still suppresses it', () {
+      final directDebit = primaryTxn(
+        date: DateTime(2026, 8, 16),
+        amountPaise: 4700000,
+        type: TxnType.upi,
+        merchant: 'LIC Premium',
+        smsId: 'direct',
+      );
+      final transfer = primaryTxn(
+        date: DateTime(2026, 8, 12),
+        amountPaise: 4700000,
+        smsId: 'xfer',
+      );
+      final obligation = secondaryObligation(
+        amountPaise: 4700000,
+        dueDate: DateTime(2026, 8, 14),
+        merchant: 'LIC Premium',
+        merchantNorm: 'lic premium',
+      );
+
+      expect(matcher.match([directDebit, transfer], [obligation]), isEmpty);
+    });
   });
 }

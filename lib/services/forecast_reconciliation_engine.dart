@@ -508,11 +508,16 @@ class ForecastReconciliationEngine {
     ReconciliationItem item,
     Set<String> bridgeTargetIds,
   ) {
-    if (item.matchKey != null) return 'match:${item.matchKey}';
+    // The bridge outranks the match key: a transfer that names an obligation is
+    // direct evidence about *that* obligation, whereas a match key is only a
+    // merchant/cadence coincidence. Ordered the other way, any bridge target
+    // carrying a match key — which real matcher output almost always does —
+    // stayed in its merchant group and never met the transfer funding it.
     if (item.transferBridgeToId != null) {
       return 'bridge:${item.transferBridgeToId}';
     }
     if (bridgeTargetIds.contains(item.id)) return 'bridge:${item.id}';
+    if (item.matchKey != null) return 'match:${item.matchKey}';
     if ((item.owner == ForecastOwner.cardStatement ||
             item.owner == ForecastOwner.cardPayment) &&
         item.cardCycleKey != null) {
@@ -537,12 +542,16 @@ class ForecastReconciliationEngine {
   static List<ReconciliationItem> _chooseWinners(
     List<ReconciliationItem> ordered,
   ) {
-    for (final item in ordered) {
-      if (item.transferBridgeToId != null &&
-          item.owner == ForecastOwner.transfer) {
-        return [item];
-      }
-    }
+    final bridging = [
+      for (final item in ordered)
+        if (item.transferBridgeToId != null &&
+            item.owner == ForecastOwner.transfer)
+          item,
+    ];
+    // Same rule as card payments: transfers are observed debits, so two of them
+    // aimed at one obligation are two real cash movements, not two accounts of
+    // one. Only the obligation they fund is suppressed.
+    if (bridging.isNotEmpty) return bridging;
     final payments = [
       for (final item in ordered)
         if (item.owner == ForecastOwner.cardPayment && item.actualDate != null)

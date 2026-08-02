@@ -8,6 +8,7 @@ import '../data/sms_models.dart';
 import 'recurring_debit_detector.dart';
 import 'salary_income_detector.dart';
 import 'seasonal_estimator.dart';
+import 'transfer_bridge_matcher.dart';
 
 /// A known annual heads-up line expires (requires refresh) after this many
 /// months without fresh evidence (D8 spec default).
@@ -95,13 +96,53 @@ class ReconciliationMatcher {
     items.addAll(_seasonalItems(seasonal, targetMonth));
     items.addAll(_refundItems(refunds, actuals));
     items.addAll(_atmItems(atmWithdrawals));
+    final unfoldedTransfers = [
+      for (final txn in transfers)
+        if (!folded.contains(txn.smsId)) txn,
+    ];
     items.addAll(
-      _transferItems([
-        for (final txn in transfers)
-          if (!folded.contains(txn.smsId)) txn,
-      ]),
+      _transferItems(
+        unfoldedTransfers,
+        _bridgeTargets(unfoldedTransfers, actuals, obligations),
+      ),
     );
     return items;
+  }
+
+  /// Maps a transfer's `smsId` to the id of the secondary-account obligation it
+  /// uniquely funds, so the engine counts the transfer and marks the obligation
+  /// funded instead of subtracting both legs of one rupee movement (spec §7).
+  ///
+  /// Only a *unique* pairing is named. An ambiguous one leaves the transfer a
+  /// plain outflow: the cash left the primary account either way, and the
+  /// obligation still carries its own out-of-primary-scope coverage line, so
+  /// nothing is silently excluded by declining to guess.
+  Map<String, String> _bridgeTargets(
+    List<ParsedTxn> transfers,
+    List<ParsedTxn> actuals,
+    List<ObligationRecord> obligations,
+  ) {
+    if (transfers.isEmpty) return const {};
+    final primaryEvents = [
+      ...transfers,
+      // The direct-payment override needs the non-transfer primary debits too:
+      // a bill observed leaving the primary account is resolved there, and a
+      // coincident self-transfer must not bridge it.
+      for (final txn in actuals)
+        if (txn.instrument == PaymentInstrument.bank &&
+            txn.type != TxnType.transfer &&
+            txn.direction == TransactionDirection.debit)
+          txn,
+    ];
+    final candidates = const TransferBridgeMatcher().match(
+      primaryEvents,
+      obligations,
+    );
+    return {
+      for (final candidate in candidates)
+        if (candidate.obligation != null)
+          candidate.transfer.smsId: 'obl:${candidate.obligation!.dedupeKey}',
+    };
   }
 
   // ---- obligations --------------------------------------------------------
@@ -677,7 +718,10 @@ class ReconciliationMatcher {
       ),
   ];
 
-  List<ReconciliationItem> _transferItems(List<ParsedTxn> transfers) => [
+  List<ReconciliationItem> _transferItems(
+    List<ParsedTxn> transfers,
+    Map<String, String> bridgeTargets,
+  ) => [
     for (final txn in transfers)
       ReconciliationItem(
         id: 'transfer:${txn.smsId}',
@@ -687,6 +731,7 @@ class ReconciliationMatcher {
         owner: ForecastOwner.transfer,
         source: ForecastItemSource.sms,
         actualDate: txn.txnDate,
+        transferBridgeToId: bridgeTargets[txn.smsId],
         confidence: txn.confidence,
       ),
   ];

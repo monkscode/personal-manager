@@ -125,8 +125,14 @@ class TransferBridgeMatcher {
     final resolved = <ObligationRecord>{};
     for (final obligation in obligations) {
       final amount = obligation.amountPaise;
-      if (amount == null) continue;
+      final due = obligation.dueDate;
+      if (amount == null || due == null) continue;
       for (final debit in directDebits) {
+        // Bounded to the same due window `_bridges` uses. Unbounded, a matching
+        // debit from eleven months ago vetoed this month's bridge forever, and
+        // the obligation was then counted separately — reintroducing the exact
+        // double count this module exists to stop.
+        if (!_withinDueWindow(debit.txnDate, due)) continue;
         if ((debit.amountPaise - amount).abs() > kTransferBridgeAmountBandPaise) {
           continue;
         }
@@ -144,16 +150,17 @@ class TransferBridgeMatcher {
     if ((transfer.amountPaise - amount).abs() > kTransferBridgeAmountBandPaise) {
       return false;
     }
-    final due = obligation.dueDate!;
+    return _withinDueWindow(transfer.txnDate, obligation.dueDate!);
+  }
+
+  /// Inclusive on both edges, normalised to dates first so a time-of-day
+  /// component cannot push an in-window payment out of it.
+  bool _withinDueWindow(DateTime date, DateTime due) {
     final earliest = due.subtract(
       const Duration(days: kTransferBridgeDaysBeforeDue),
     );
     final latest = due.add(const Duration(days: kTransferBridgeDaysAfterDue));
-    final day = DateTime(
-      transfer.txnDate.year,
-      transfer.txnDate.month,
-      transfer.txnDate.day,
-    );
+    final day = DateTime(date.year, date.month, date.day);
     final lo = DateTime(earliest.year, earliest.month, earliest.day);
     final hi = DateTime(latest.year, latest.month, latest.day);
     return !day.isBefore(lo) && !day.isAfter(hi);

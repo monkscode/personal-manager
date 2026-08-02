@@ -497,6 +497,100 @@ void main() {
     });
   });
 
+  group('the transfer bridge is wired into the matcher', () {
+    ObligationRecord secondaryLic({int amountPaise = 4700000, int? id = 1}) =>
+        obligation(
+          sourceType: ObligationSourceType.gmail,
+          amountPaise: amountPaise,
+          merchant: 'LIC Premium',
+          merchantNorm: 'lic premium',
+          categoryKey: 'insurance',
+          dueDate: DateTime(2026, 8, 14),
+          scope: AccountScope.secondary,
+          dedupeKey: 'gmail:lic-$id',
+          id: id,
+        );
+
+    ParsedTxn selfTransfer({
+      required int amountPaise,
+      required int day,
+      required String smsId,
+    }) => actual(
+      amountPaise: amountPaise,
+      date: DateTime(2026, 8, day),
+      type: TxnType.transfer,
+      merchant: 'Self HDFC 9012',
+      categoryKey: 'transfer',
+      smsId: smsId,
+    );
+
+    test('a funding transfer names the obligation it funds', () {
+      final items = build(
+        obligations: [secondaryLic()],
+        actuals: [
+          selfTransfer(amountPaise: 4700000, day: 12, smsId: 'xfer'),
+        ],
+      );
+
+      final transfer = byOwner(items, ForecastOwner.transfer);
+      expect(transfer.transferBridgeToId, 'obl:gmail:lic-1');
+    });
+
+    test('the funded obligation is not also subtracted', () {
+      final items = build(
+        obligations: [secondaryLic()],
+        actuals: [
+          selfTransfer(amountPaise: 4700000, day: 12, smsId: 'xfer'),
+        ],
+      );
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 20),
+      );
+      expect(result.events, hasLength(1));
+      expect(result.events.single.source, ForecastEventSource.transfer);
+      expect(result.events.single.amountPaise, 4700000);
+    });
+
+    test('two transfers for one obligation are both kept and both named', () {
+      final items = build(
+        obligations: [secondaryLic()],
+        actuals: [
+          selfTransfer(amountPaise: 4700000, day: 11, smsId: 'xfer-a'),
+          selfTransfer(amountPaise: 4700000, day: 13, smsId: 'xfer-b'),
+        ],
+      );
+
+      final result = reconcile(
+        targetMonth: _target,
+        anchor: _anchor,
+        items: items,
+        now: DateTime(2026, 8, 20),
+      );
+      // Two real primary debits stay two real debits; the ambiguity is about
+      // which one funded the bill, not about whether the cash left.
+      expect(
+        result.events
+            .where((e) => e.source == ForecastEventSource.transfer)
+            .fold<int>(0, (sum, e) => sum + e.amountPaise),
+        9400000,
+      );
+    });
+
+    test('a transfer that funds nothing carries no bridge', () {
+      final items = build(
+        obligations: [secondaryLic()],
+        actuals: [
+          selfTransfer(amountPaise: 250000, day: 12, smsId: 'xfer-small'),
+        ],
+      );
+      expect(byOwner(items, ForecastOwner.transfer).transferBridgeToId, isNull);
+    });
+  });
+
   group('every observed card payment reaches the ledger', () {
     CardCycleEstimate card({
       required String last4,
