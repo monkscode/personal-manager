@@ -78,6 +78,33 @@ tracked coverage. So a user who pays for most things by Paytm QR sees their real
 perfectly trackable spending reported as untracked cash, and the coverage metrics that
 drive confidence messaging are wrong.
 
+> **Correction (verified after the fix landed): this stated harm cannot occur today, so
+> the Important severity is overstated.** `PayeeClassifier` has **no production caller** —
+> `grep -rn PayeeClassifier lib test` matches only `payee_classifier.dart` itself and
+> `test/payee_classifier_test.dart`. It is dead code in exactly the way Defect 1's
+> `bank_pattern_library` was, which is the check that should have been run on this file
+> first.
+>
+> Consequences: `payee_classifier.dart`'s `payeeType = PayeeType.wallet` is the only
+> assignment of that value anywhere in `lib/` (the two repositories only *deserialize* the
+> string). The parser's `_payeeType` can return `unknown`, `merchant` or `p2pIndividual`
+> and **never** `wallet`. So no row can be stored as a wallet, `real_insights.dart`'s
+> wallet exclusion never fires, and `untrackedCashCaveat` reaches nothing.
+>
+> Device evidence (383 rows, 2026-08-02): `payee_type` is `unknown` ×358 and
+> `p2p_individual` ×25 — zero `wallet`, zero `merchant`, zero rows on any wallet handle,
+> zero `paytmqr` VPAs. Separately, the parser already maps `paytmqr…@paytm` to `merchant`
+> because its regex matches `paytm` in the local part, so even the stored value was right.
+>
+> The fix is kept: it is correct, tested, and makes the class right for whenever it is
+> wired. But it changed no user-visible behaviour, and the commit message claiming real
+> coverage harm is wrong on that point.
+>
+> **Follow-up needed, not covered by any task:** `PayeeClassifier` must be either wired
+> into the ingest path or deleted, the same Defect-1 decision applied to a second module.
+> Note TASK-11 M8 asks for a `direction` change to this same uncalled class — resolve the
+> wiring question before or alongside it.
+
 ### Fix
 
 - Exclude payee prefixes matching `^paytmqr` and `^merchant` from the wallet
