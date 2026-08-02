@@ -14,8 +14,11 @@ import 'transfer_bridge_matcher.dart';
 /// months without fresh evidence (D8 spec default).
 const int kAnnualHeadsUpExpiryMonths = 15;
 
-/// Day-of-month a monthly discretionary buffer is dated on when no finer
-/// allocation exists (a planning placeholder; refined by the Phase F ledger).
+/// Retired. The discretionary residual used to be dropped on this day, which
+/// fabricated the "you need ₹X by the 28th" headline and made the whole estimate
+/// vanish on the 29th. It is now spread over the days still ahead of the anchor
+/// (see `_remainingDays`). Kept only so the D3 default stays on record.
+@Deprecated('Superseded by _remainingDays; no longer dates anything.')
 const int kSeasonalBufferDayOfMonth = 28;
 
 /// Builds owned [ReconciliationItem]s by joining the Phase D producers
@@ -93,7 +96,11 @@ class ReconciliationMatcher {
     items.addAll(_cardItems(cards, cardPayments));
     final salaryItem = _salaryItem(salary, targetMonth);
     if (salaryItem != null) items.add(salaryItem);
-    items.addAll(_seasonalItems(seasonal, targetMonth));
+    final discretionary = _discretionaryActuals(debits, folded, targetMonth);
+    items.addAll(_discretionaryActualItems(discretionary));
+    items.addAll(
+      _seasonalItems(seasonal, targetMonth, discretionary, anchor),
+    );
     items.addAll(_refundItems(refunds, actuals));
     items.addAll(_atmItems(atmWithdrawals));
     final unfoldedTransfers = [
@@ -590,32 +597,114 @@ class ReconciliationMatcher {
     );
   }
 
+  /// Discretionary debits observed this month that no owner claimed. They are
+  /// the `D_mtd` the seasonal estimate must be netted against: the estimate is
+  /// a *whole-month* magnitude, so subtracting it in full alongside spend
+  /// already observed counts those rupees twice, by a margin that grows every
+  /// day of the month.
+  List<ParsedTxn> _discretionaryActuals(
+    List<ParsedTxn> debits,
+    Set<String> folded,
+    DateTime targetMonth,
+  ) => [
+    for (final txn in debits)
+      if (!folded.contains(txn.smsId) &&
+          txn.type != TxnType.transfer &&
+          txn.type != TxnType.atm &&
+          txn.instrument != PaymentInstrument.card &&
+          _withinWindow(txn.txnDate, targetMonth))
+        txn,
+  ];
+
+  /// Each already-spent discretionary transaction as its own item, so the
+  /// why-log can name it (spec: "shown in the why-log for traceability"). The
+  /// engine decides whether it is inside the anchor — spend before the balance
+  /// reading is `alreadyInAnchor` and is *not* subtracted again, spend after it
+  /// is real cash the ledger still owes.
+  List<ReconciliationItem> _discretionaryActualItems(
+    List<ParsedTxn> discretionary,
+  ) => [
+    for (final txn in discretionary)
+      ReconciliationItem(
+        id: 'spend:${txn.smsId}',
+        label: txn.merchant ?? txn.categoryKey,
+        amountPaise: txn.amountPaise,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.discretionarySpend,
+        source: ForecastItemSource.sms,
+        actualDate: txn.txnDate,
+        confidence: txn.confidence,
+      ),
+  ];
+
   List<ReconciliationItem> _seasonalItems(
     SeasonalEstimate seasonal,
     DateTime targetMonth,
+    List<ParsedTxn> discretionary,
+    BalanceAnchor anchor,
   ) {
+    final spentByCategory = <String, int>{};
+    for (final txn in discretionary) {
+      spentByCategory[txn.categoryKey] =
+          (spentByCategory[txn.categoryKey] ?? 0) + txn.amountPaise;
+    }
+
+    final days = _remainingDays(targetMonth, anchor);
     final items = <ReconciliationItem>[];
     for (final entry in seasonal.byCategory.values) {
       if (entry.amountPaise <= 0) continue;
-      items.add(
-        ReconciliationItem(
-          id: 'seasonal:${entry.categoryKey}',
-          label: entry.categoryKey,
-          amountPaise: entry.amountPaise,
-          direction: LedgerDirection.outflow,
-          owner: ForecastOwner.discretionarySpend,
-          source: ForecastItemSource.estimator,
-          dueDate: DateTime(
-            targetMonth.year,
-            targetMonth.month,
-            kSeasonalBufferDayOfMonth,
+      // max(0, S − D_mtd): an over-run does not become negative spend.
+      final residual =
+          entry.amountPaise - (spentByCategory[entry.categoryKey] ?? 0);
+      if (residual <= 0) continue;
+
+      final shares = _spreadPaise(residual, days.length);
+      for (var i = 0; i < days.length; i++) {
+        if (shares[i] <= 0) continue;
+        items.add(
+          ReconciliationItem(
+            id: 'seasonal:${entry.categoryKey}:${days[i].day}',
+            label: entry.categoryKey,
+            amountPaise: shares[i],
+            direction: LedgerDirection.outflow,
+            owner: ForecastOwner.discretionarySpend,
+            source: ForecastItemSource.estimator,
+            dueDate: days[i],
+            amountStatus: AmountStatus.estimated,
+            confidence: entry.confidence,
           ),
-          amountStatus: AmountStatus.estimated,
-          confidence: entry.confidence,
-        ),
-      );
+        );
+      }
     }
     return items;
+  }
+
+  /// The days of [targetMonth] still ahead of the anchor. Replaces the
+  /// hardcoded [kSeasonalBufferDayOfMonth], which both fabricated the
+  /// "you need ₹X by 28 Jul" headline date and made the whole estimate vanish
+  /// on the 29th, when day 28 stopped being after the anchor.
+  List<DateTime> _remainingDays(DateTime targetMonth, BalanceAnchor anchor) {
+    final lastDay = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+    var first = 1;
+    if (_withinWindow(anchor.asOf, targetMonth)) first = anchor.asOf.day + 1;
+    // At month end there is no window left; keep the last day so a residual is
+    // still stated rather than silently disappearing.
+    if (first > lastDay) first = lastDay;
+    return [
+      for (var day = first; day <= lastDay; day++)
+        DateTime(targetMonth.year, targetMonth.month, day),
+    ];
+  }
+
+  /// Splits [total] into [parts] integer-paise shares that sum back to [total];
+  /// the remainder goes to the earliest days rather than being rounded away.
+  List<int> _spreadPaise(int total, int parts) {
+    if (parts <= 0) return const [];
+    final base = total ~/ parts;
+    final remainder = total % parts;
+    return [
+      for (var i = 0; i < parts; i++) base + (i < remainder ? 1 : 0),
+    ];
   }
 
   // ---- refunds ------------------------------------------------------------

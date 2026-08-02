@@ -95,20 +95,58 @@ helper that TASK-21 can reuse.
 
 ---
 
+## Refinement — `D_mtd` must be split by the anchor, not netted wholesale
+
+Netting *all* month-to-date spend out of the estimate is only half right, and the other
+half would have introduced a fresh error. A discretionary debit is inside the anchor only
+if it happened **before** `anchor.asOf`:
+
+| when it happened | inside the anchor? | must the ledger subtract it? |
+|---|---|---|
+| before `anchor.asOf` | yes | **no** — already in the opening balance |
+| after `anchor.asOf` | no | **yes** — real cash the balance has not seen |
+
+So `D_mtd` is netted out of the estimate in full (it is spend that has already occurred, so
+the whole-month magnitude must shrink by it), **and** each already-spent transaction is
+emitted as its own item. The engine then decides its bucket from its own date: pre-anchor
+becomes `anchorIncluded` and is not subtracted, post-anchor becomes a dated event and is.
+Netting wholesale without emitting the items would have *lost* post-anchor spend entirely.
+
+This also closes a quieter hole: an unmatched discretionary debit previously produced **no
+item at all**, so it was invisible to the completeness assertion and to the why-log.
+
 ## Tests to write first
 
 Add to `test/reconciliation_matcher_test.dart`:
 
-- [ ] The 22-July scenario → the seasonal outflow is **₹3,000** (₹10,000 − ₹7,000), not
-      ₹10,000.
-- [ ] `D_mtd` greater than `S` → the seasonal outflow is **zero**, never negative.
-- [ ] The residual is spread across the remaining days, not dropped on day 28.
-- [ ] On the 29th the estimate does **not** disappear — running the forecast on the 28th
-      and the 29th gives near-identical required-in-bank (no overnight cliff).
-- [ ] Already-spent discretionary transactions appear as why-log lines marked
-      traceability-only and are not included in `committedOutflowPaise`.
-- [ ] Rupee conservation (TASK-14 helper) holds for a month with partial discretionary
-      spend.
+- [x] The 22-July scenario → the seasonal outflow is **₹3,000** (₹10,000 − ₹7,000), not
+      ₹10,000. — **RED** (₹10,000)
+- [x] `D_mtd` greater than `S` → the seasonal outflow is **zero**, never negative. —
+      **RED** (₹10,000)
+- [x] The residual is spread across the remaining days, not dropped on day 28. — **RED**
+      (a single item on the 28th)
+- [x] On the 29th the estimate does **not** disappear — running the forecast on the 28th
+      and the 29th gives near-identical required-in-bank (no overnight cliff). — **RED**,
+      and worse than the plan claimed: the 29th produced **zero** discretionary outflow.
+- [x] Already-spent discretionary transactions appear as why-log lines marked
+      traceability-only and are not included in `committedOutflowPaise`. — asserted as
+      `anchorIncluded` / `alreadyInAnchor`, which the ledger keeps out of `events`, so the
+      adapter's committed total cannot pick them up.
+- [x] Added beyond the plan: discretionary spend **after** the anchor is still subtracted.
+- [x] Rupee conservation (TASK-14 helper) holds for a month with partial discretionary
+      spend — every reconcile in the file routes through it.
+
+## Consequence worth knowing: line volume
+
+The residual is now one item per category **per remaining day**, so a 4-category estimate
+early in the month produces ~120 forecast lines where there were 4. The ledger maths is
+unaffected (the shares are integer paise and sum back exactly), but the why-log renders one
+tile per line and will need grouping. `forecast_adapter._isSeasonalBufferShortfall` also
+gets weaker: it asks whether the minimum-balance day is driven *only* by low-confidence
+seasonal events, and with a spread each day carries a small slice. Both are UI/heuristic
+follow-ups, recorded here rather than avoided by keeping a single lump — a lump gives the
+same minimum-balance answer but misstates the intermediate path, which is what the spec's
+"even spread over the remaining days" exists to fix.
 
 ## Verification
 
@@ -119,12 +157,12 @@ flutter test
 
 ## Definition of done
 
-- [ ] `D_mtd` computed and exposed
-- [ ] Seasonal outflow is `max(0, S − D_mtd)`
-- [ ] Residual spread over remaining days; `kSeasonalBufferDayOfMonth` no longer drives
-      the headline date
-- [ ] No day-29 cliff
-- [ ] Why-log traceability lines emitted
-- [ ] All six tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Net month-to-date spend out of the seasonal estimate`
+- [x] `D_mtd` computed and exposed — `_discretionaryActuals`, split by the anchor
+- [x] Seasonal outflow is `max(0, S − D_mtd)`
+- [x] Residual spread over remaining days; `kSeasonalBufferDayOfMonth` no longer drives
+      the headline date (now `@Deprecated` and referenced by nothing)
+- [x] No day-29 cliff
+- [x] Why-log traceability lines emitted
+- [x] All six tests written failing-first, then passing
+- [x] `flutter analyze` clean, `flutter test` green — **716 passing** (was 710)
+- [x] Suggested commit: `Net month-to-date spend out of the seasonal estimate`

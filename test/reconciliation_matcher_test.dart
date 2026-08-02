@@ -319,9 +319,14 @@ void main() {
           },
         ),
       );
-      final item = byOwner(items, ForecastOwner.discretionarySpend);
-      expect(item.amountPaise, 950000);
-      expect(item.direction, LedgerDirection.outflow);
+      final seasonal = items.where(
+        (i) => i.owner == ForecastOwner.discretionarySpend,
+      );
+      // Spread over the days still ahead of the anchor (1 Aug), summing back to
+      // the estimate exactly — no paise rounded away.
+      expect(seasonal.fold<int>(0, (sum, i) => sum + i.amountPaise!), 950000);
+      expect(seasonal.every((i) => i.direction == LedgerDirection.outflow), isTrue);
+      expect(seasonal.map((i) => i.dueDate).toSet(), hasLength(30));
     });
   });
 
@@ -493,6 +498,166 @@ void main() {
       expect(
         result.events.single.source,
         ForecastEventSource.configuredContribution,
+      );
+    });
+  });
+
+  group('month-to-date spend is netted out of the seasonal estimate', () {
+    // 22 July: anchor read this morning, ₹7,000 of food already spent this
+    // month, seasonal food estimate ₹10,000. Only ₹3,000 is still to come.
+    final july = DateTime(2026, 7);
+    BalanceAnchor anchorOn(int day) => BalanceAnchor(
+      amountPaise: 4000000,
+      asOf: DateTime(2026, 7, day),
+      source: BalanceAnchorSource.smsBankBalance,
+    );
+
+    SeasonalEstimate food(int amountPaise) => SeasonalEstimate(
+      targetMonth: 7,
+      byCategory: {
+        'food': CategorySeasonalEstimate(
+          categoryKey: 'food',
+          amountPaise: amountPaise,
+          confidence: 0.8,
+        ),
+      },
+    );
+
+    List<ParsedTxn> foodSpend(List<(int, int)> dayAndPaise) => [
+      for (final (day, paise) in dayAndPaise)
+        actual(
+          amountPaise: paise,
+          date: DateTime(2026, 7, day),
+          merchant: 'BIGBASKET',
+          categoryKey: 'food',
+          smsId: 'food-$day',
+        ),
+    ];
+
+    int seasonalTotal(List<ReconciliationItem> items) => items
+        .where((i) => i.source == ForecastItemSource.estimator)
+        .fold<int>(0, (sum, i) => sum + i.amountPaise!);
+
+    test('the estimate is reduced by what is already spent', () {
+      final items = build(
+        seasonal: food(1000000),
+        actuals: foodSpend([(5, 400000), (12, 300000)]),
+        targetMonth: july,
+        anchor: anchorOn(22),
+      );
+      expect(seasonalTotal(items), 300000);
+    });
+
+    test('spending past the estimate never goes negative', () {
+      final items = build(
+        seasonal: food(1000000),
+        actuals: foodSpend([(5, 900000), (12, 600000)]),
+        targetMonth: july,
+        anchor: anchorOn(22),
+      );
+      expect(seasonalTotal(items), 0);
+    });
+
+    test('the residual is spread over the remaining days, not dropped on the 28th', () {
+      final items = build(
+        seasonal: food(1000000),
+        actuals: foodSpend([(5, 400000), (12, 300000)]),
+        targetMonth: july,
+        anchor: anchorOn(22),
+      );
+      final dates = items
+          .where((i) => i.source == ForecastItemSource.estimator)
+          .map((i) => i.dueDate!.day)
+          .toList();
+      // 23..31 inclusive.
+      expect(dates, [23, 24, 25, 26, 27, 28, 29, 30, 31]);
+    });
+
+    test('there is no overnight cliff between the 28th and the 29th', () {
+      int requiredOn(int day) {
+        final anchor = anchorOn(day);
+        final items = build(
+          seasonal: food(1000000),
+          actuals: foodSpend([(5, 400000)]),
+          targetMonth: july,
+          anchor: anchor,
+        );
+        final result = reconcile(
+          targetMonth: july,
+          anchor: anchor,
+          items: items,
+          now: DateTime(2026, 7, day),
+        );
+        return result.events
+            .where((e) => e.direction == LedgerDirection.outflow)
+            .fold<int>(0, (sum, e) => sum + e.amountPaise);
+      }
+
+      // Before: day 28 stopped being after the anchor on the 29th and the whole
+      // estimate was reclassified away overnight.
+      final onThe28th = requiredOn(28);
+      final onThe29th = requiredOn(29);
+      expect(onThe28th, greaterThan(0));
+      expect(onThe29th, greaterThan(0));
+      expect((onThe28th - onThe29th).abs(), lessThan(onThe28th ~/ 2));
+    });
+
+    test('already-spent transactions are traceable but not subtracted', () {
+      final anchor = anchorOn(22);
+      final items = build(
+        seasonal: food(1000000),
+        actuals: foodSpend([(5, 400000)]),
+        targetMonth: july,
+        anchor: anchor,
+      );
+      final result = reconcile(
+        targetMonth: july,
+        anchor: anchor,
+        items: items,
+        now: DateTime(2026, 7, 22),
+      );
+
+      final spent = result.assignments.singleWhere(
+        (a) => a.itemId == 'spend:food-5',
+      );
+      expect(spent.coverageBucket, CoverageBucket.anchorIncluded);
+      expect(spent.status, ForecastLineStatus.alreadyInAnchor);
+      expect(
+        result.lines.any(
+          (l) =>
+              l.ownerKey == 'discretionarySpend:spend:food-5' &&
+              l.status == ForecastLineStatus.alreadyInAnchor,
+        ),
+        isTrue,
+      );
+      expect(
+        result.events.any((e) => e.ownerKey.contains('spend:food-5')),
+        isFalse,
+        reason: 'rupees inside the anchor must not be subtracted again',
+      );
+    });
+
+    test('discretionary spend after the anchor is still real cash out', () {
+      final anchor = anchorOn(10);
+      final items = build(
+        seasonal: food(1000000),
+        actuals: foodSpend([(5, 200000), (18, 300000)]),
+        targetMonth: july,
+        anchor: anchor,
+      );
+      final result = reconcile(
+        targetMonth: july,
+        anchor: anchor,
+        items: items,
+        now: DateTime(2026, 7, 22),
+      );
+      expect(
+        result.events.any(
+          (e) =>
+              e.ownerKey == 'discretionarySpend:spend:food-18' &&
+              e.amountPaise == 300000,
+        ),
+        isTrue,
       );
     });
   });
