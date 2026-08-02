@@ -65,6 +65,24 @@ class SmsTransactionParser {
   static final RegExp _merchantAt = RegExp(
     r'\bat\s+(.{2,40}?)(?:\s+on\s+\d|\s+at\s|\s+to\s|\s+from\s|\s+ref\b|\s+avl\b|\s+available\b|\s+bal\b|\.(?:\s|$)|\n|$)',
   );
+  // HDFC's UPI debit names the payee with `To`, not `at`, and carries no VPA:
+  //
+  //     Sent Rs.245.00
+  //     From HDFC Bank A/C x1234
+  //     To ACME DIGITAL PRIVATE LIMI
+  //     On 01/08/26
+  //
+  // Without this the row has no merchant and therefore no owner key, so
+  // recurring detection cannot group it and no obligation ever forms. Only
+  // consulted when `_merchantAt` finds nothing, so an `at` payee still wins.
+  //
+  // `.` does not match a newline here, which is what stops the capture running
+  // past the payee line. The `from` leg is the user's own account and is never
+  // captured, because the pattern requires `to`. `\bto\b` does not fire inside
+  // `towards`, keeping it off card-payment confirmations.
+  static final RegExp _merchantTo = RegExp(
+    r'\bto\s+(.{2,40}?)(?:\s+on\s+\d|\s+ref\b|\s+avl\b|\s+available\b|\s+bal\b|\.(?:\s|$)|\n|$)',
+  );
   // A bank account has no limit, so any available/credit-limit phrasing is by
   // itself card evidence. `bank card` and a bare `card <tail>` cover HDFC's
   // "on HDFC Bank Card XX9012", which never says "credit card" at all.
@@ -458,8 +476,10 @@ class SmsTransactionParser {
     PaymentInstrument instrument,
   ) {
     if (upiVpa != null) return upiVpa.split('@').first;
-    final merchant = _merchantAt.firstMatch(lower)?.group(1)?.trim();
-    if (merchant != null && merchant.length >= 2) return merchant;
+    final at = _merchantAt.firstMatch(lower)?.group(1)?.trim();
+    if (at != null && at.length >= 2) return at;
+    final to = _merchantTo.firstMatch(lower)?.group(1)?.trim();
+    if (to != null && to.length >= 2) return to;
     return instrument == PaymentInstrument.card ? 'card purchase' : null;
   }
 

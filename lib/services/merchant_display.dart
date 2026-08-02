@@ -105,6 +105,16 @@ class MerchantDisplay {
     ).firstMatch(body);
     if (at != null) return at.group(1);
 
+    // "Sent <amt> From <own a/c> To PAYEE On <date>" — HDFC's UPI debit, which
+    // names the payee with `To` and carries no VPA. Mirrors
+    // `sms_transaction_parser._merchantTo`; the two must not drift. Only
+    // reached when no `at` payee was found, so an `at` merchant still wins.
+    final to = RegExp(
+      r'\bto\s+(.+?)(?:\s+on\s+\d|\.|\s+avl\b|\s+bal\b|\n|$)',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (to != null) return to.group(1);
+
     return null;
   }
 

@@ -570,6 +570,42 @@ void main() {
       );
     });
 
+    // HDFC's UPI debit — the highest-volume alert format in the corpus —
+    // introduces the payee with `To` on its own line and carries no VPA at all.
+    // Bodies are the real device shape (see TASK-29).
+    const hdfcUpi = 'Sent Rs.245.00\n'
+        'From HDFC Bank A/C x1234\n'
+        'To ACME DIGITAL PRIVATE LIMI\n'
+        'On 01/08/26\n'
+        'Ref 561234567890\n'
+        'Not You? Call 18002586161/SMS BLOCK UPI to 7000000000';
+
+    test('the UPI payee on the To line becomes the merchant', () {
+      expect(parse(hdfcUpi).merchant, 'acme digital private limi');
+    });
+
+    test('a short To payee is captured whole', () {
+      expect(
+        parse(hdfcUpi.replaceAll('ACME DIGITAL PRIVATE LIMI', 'CRED Club')).merchant,
+        'cred club',
+      );
+    });
+
+    test('the From account never becomes the merchant', () {
+      // The guard that stops a careless `to|from` alternation capturing the
+      // user's own account as the payee.
+      final merchant = parse(hdfcUpi).merchant;
+      expect(merchant, isNot(contains('hdfc')));
+      expect(merchant, isNot(contains('a/c')));
+    });
+
+    test('an at-introduced merchant still wins over a To elsewhere', () {
+      expect(
+        parse('Rs.900.00 debited from A/c XX1234 at BOOKSTORE on 26-06-25.').merchant,
+        'bookstore',
+      );
+    });
+
     test('a bank-card purchase is a card, not a bank debit', () {
       final txn = parse(
         'Spent Rs.3,200.00 on HDFC Bank Card XX9012 at AMAZON on 26-06-25. '

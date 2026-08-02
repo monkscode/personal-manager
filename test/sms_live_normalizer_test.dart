@@ -265,6 +265,41 @@ void main() {
       expect(out.categoryKey, 'food');
     });
 
+    test('resolves the HDFC To-line payee, not the bank name', () {
+      final out = normalizer.enrich(
+        txn(
+          smsId: 'a',
+          body: 'Sent [amount]\nFrom HDFC Bank A/C [account]\n'
+              'To CRED Club\nOn 01/08/26\n[ref]',
+        ),
+      );
+      expect(out.merchant, 'cred club');
+    });
+
+    test('gives the same owner key to the same To payee across months', () {
+      // The assertion that matters for recurring detection: two months of the
+      // same payee must collapse to one owner key, or no obligation forms.
+      final july = normalizer.enrich(
+        txn(
+          smsId: 'jul',
+          date: DateTime(2026, 7, 1),
+          body: 'Sent [amount]\nFrom HDFC Bank A/C [account]\n'
+              'To ACME DIGITAL PRIVATE LIMI\nOn 01/07/26\n[ref]',
+        ),
+      );
+      final august = normalizer.enrich(
+        txn(
+          smsId: 'aug',
+          date: DateTime(2026, 8, 1),
+          body: 'Sent [amount]\nFrom HDFC Bank A/C [account]\n'
+              'To ACME DIGITAL PRIVATE LIMI\nOn 01/08/26\n[ref]',
+        ),
+      );
+      expect(july.merchant, august.merchant);
+      expect(july.merchant, isNotNull);
+      expect(july.merchant, isNot(contains('hdfc')));
+    });
+
     test('gives the same owner key to the same payee across months', () {
       final july = normalizer.enrich(
         txn(

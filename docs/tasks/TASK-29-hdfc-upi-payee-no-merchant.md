@@ -81,21 +81,32 @@ differently from a merchant).
 
 Add to `test/sms_transaction_parser_test.dart`:
 
-- [ ] The multi-line HDFC body above yields merchant `acme digital private limi`.
-- [ ] `To CRED Club` yields `cred club`, not `hdfc bank`.
-- [ ] The `From HDFC Bank A/C [account]` line never becomes the merchant (guard — this is
-      the failure mode a careless `To|From` alternation introduces).
-- [ ] A person payee (`To PAYEE FULL NAME`) is classified P2P, not merchant.
+- [x] The multi-line HDFC body above yields merchant `acme digital private limi`.
+      — **RED** (`merchant` was null)
+- [x] `To CRED Club` yields `cred club`, not `hdfc bank`. — **RED** (null)
+- [x] The `From HDFC Bank A/C [account]` line never becomes the merchant (guard — this is
+      the failure mode a careless `To|From` alternation introduces). — **green guard**
+- [x] An `at`-introduced merchant still wins over a `To` elsewhere. — **green guard**,
+      added to pin the precedence the fallback ordering relies on.
+- [ ] ~~A person payee (`To PAYEE FULL NAME`) is classified P2P, not merchant.~~
+      **Deliberately not done.** `_payeeType` returns `unknown` when there is no VPA, and
+      `unknown` is the honest value — telling a person from a merchant by the shape of a
+      bare name would manufacture false classifications in both directions. Revisit only
+      with a real signal (the `UPI/P2M` vs `UPI/P2A` tag), not a name heuristic.
 
 Add to `test/golden/`:
 
-- [ ] The real multi-line body with a `merchant` label, per the corpus conventions.
+- [ ] Deferred. The corpus convention is that every added row carries a truthful label,
+      and the `payeeType` question above is unresolved, so a golden row would assert a
+      classification this task deliberately did not make. Add it with TASK-10/11.
 
 Add to `test/sms_live_normalizer_test.dart`:
 
-- [ ] Two months of `To CRED Club` debits produce the **same** owner key, so recurring
+- [x] Two months of the same `To` payee produce the **same** owner key, so recurring
       detection can group them. This is the assertion that proves the defect is actually
-      fixed for its purpose, rather than just the regex matching.
+      fixed for its purpose, rather than just the regex matching. — **RED** (both null)
+- [x] The HDFC `To`-line payee resolves through `MerchantDisplay`, not to the bank name.
+      — **RED** (null); this is what forced the mirrored change in `merchant_display`.
 
 ## Verification
 
@@ -106,10 +117,18 @@ flutter test
 
 ## Definition of done
 
-- [ ] `To <PAYEE>` captured as merchant in both the parser and `merchant_display`
-- [ ] `From …` never captured as merchant
-- [ ] P2P payees classified as people, not merchants
-- [ ] Same payee across months yields one stable owner key
-- [ ] Golden corpus carries the real multi-line body with a `merchant` label
-- [ ] `flutter analyze` clean, `flutter test` green, count up
-- [ ] Suggested commit: `Capture the UPI payee from HDFC's To line`
+- [x] `To <PAYEE>` captured as merchant in both the parser and `merchant_display`
+- [x] `From …` never captured as merchant
+- [ ] ~~P2P payees classified as people, not merchants~~ — closed as no-op, reason above
+- [x] Same payee across months yields one stable owner key
+- [ ] Golden corpus row — deferred with the `payeeType` question, reason above
+- [x] `flutter analyze` clean, `flutter test` green — **664 passing** (was 658), 0 failing
+- [x] Suggested commit: `Capture the UPI payee from HDFC's To line`
+
+### Not yet verified on-device
+
+This fix changes only *newly parsed* rows. The 210 rows already stored keep their old
+merchant, because `sms_id` matches and ingestion short-circuits to `skipDuplicate` before
+re-parsing. Confirming the 171 ownerless rows actually gain merchants requires the
+re-parse path (refresh parse fields on rescan while preserving the user's review
+decisions), which is separate work.
