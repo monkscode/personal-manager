@@ -48,10 +48,14 @@ class PayeeClassification {
   final PayeeType payeeType;
   final bool isSelfTransfer;
 
-  /// Ambiguous P2P outflow that must be user-confirmed before it counts.
+  /// Ambiguous P2P **outflow** that must be user-confirmed before it counts.
+  /// Always false for an inflow — money arriving from an individual is income
+  /// to classify, not a commitment to gate.
   final bool needsConfirmation;
 
-  /// Wallet top-up whose spend is untracked and should carry a cash caveat.
+  /// Wallet **top-up** whose spend is untracked and should carry a cash caveat.
+  /// Always false for an inflow — money coming back out of a wallet is landing
+  /// in a tracked account, so it is the opposite of untracked cash.
   final bool untrackedCashCaveat;
 }
 
@@ -86,11 +90,17 @@ class PayeeClassifier {
       payeeType = txn.payeeType;
     }
 
+    // Both flags describe money *leaving*, so they are gated on direction here
+    // rather than left for each caller to remember — the counterparty is
+    // classified the same way either way, but an inflow neither needs P2P
+    // confirmation nor becomes untracked cash.
+    final isOutflow = txn.direction == TransactionDirection.debit;
+
     return PayeeClassification(
       payeeType: payeeType,
       isSelfTransfer: isSelf,
-      needsConfirmation: payeeType == PayeeType.p2pIndividual,
-      untrackedCashCaveat: payeeType == PayeeType.wallet,
+      needsConfirmation: isOutflow && payeeType == PayeeType.p2pIndividual,
+      untrackedCashCaveat: isOutflow && payeeType == PayeeType.wallet,
     );
   }
 

@@ -663,4 +663,82 @@ void main() {
       }
     });
   });
+
+  group('patterns match tokens, not stray substrings', () {
+    ParsedTxn parse(String body, {String sender = 'VM-HDFCBK'}) =>
+        parser.parseOne(
+          sms(sender: sender, body: body),
+          scanBatchId: 'scan-11',
+          bodyHashSalt: 'test-salt',
+        )!;
+
+    // M1 — a handle missing from _upiHandles costs the row its VPA, and with it
+    // the merchant name, the payee type and the UPI classification.
+    for (final vpa in const [
+      'samplepayee@okaxis',
+      'amazonpayin@apl',
+      'someone@yapl',
+      'someone@axisbank',
+      'someone@icici',
+      'someone@hdfcbank',
+      'someone@sbi',
+    ]) {
+      test('the $vpa handle is recognised as a UPI payee', () {
+        final txn = parse('Rs.450.00 debited from A/c XX1234 to $vpa. Ref 123456789012.');
+
+        expect(txn.upiVpaNorm, vpa, reason: vpa);
+        expect(txn.type, TxnType.upi, reason: vpa);
+      });
+    }
+
+    // M2 — regression guard. Already handled; `no` must not be swallowed into
+    // the captured reference.
+    test('a spaced or joined reference keyword yields digits only', () {
+      expect(
+        parse('Rs.450.00 debited from A/c XX1234. UPI Ref no 123456789012.').refNumber,
+        '123456789012',
+      );
+      expect(
+        parse('Rs.450.00 debited from A/c XX1234. Refno 123456789012.').refNumber,
+        '123456789012',
+      );
+    });
+
+    // M3 — without a word boundary, the `hrs.` in "within 24 hrs." supplies the
+    // `rs.` of a currency token and the following number is read as money.
+    test('the "rs" inside "hrs." is not a currency token', () {
+      final txn = parse(
+        'Valid for 24 hrs. 5000 bonus points await. '
+        'Rs.450.00 debited from A/c XX1234 on 05-07-26.',
+      );
+
+      expect(txn.amountPaise, 45000);
+    });
+
+    // M5 — `contains` against the whole body lets a merchant name decide the
+    // transaction type.
+    test('a merchant containing "atm" is not an ATM withdrawal', () {
+      final txn = parse(
+        'Rs.450.00 debited from A/c XX1234 at ATMOSPHERE CAFE on 05-07-26.',
+      );
+
+      expect(txn.type, isNot(TxnType.atm));
+    });
+
+    test('a merchant containing "upi" is not a UPI transfer', () {
+      final txn = parse(
+        'Spent Rs.499.00 on HDFC Bank Card XX9012 at UPIWALA STORE on 05-07-26.',
+      );
+
+      expect(txn.type, isNot(TxnType.upi));
+      expect(txn.instrument, PaymentInstrument.card);
+    });
+
+    test('a real VPA still classifies as UPI', () {
+      expect(
+        parse('Rs.450.00 debited from A/c XX1234 to swiggy@okhdfcbank. Ref 123456789012.').type,
+        TxnType.upi,
+      );
+    });
+  });
 }

@@ -8,10 +8,11 @@ ParsedTxn outflow({
   PayeeType payeeType = PayeeType.unknown,
   String? accountLast4 = '1111',
   String body = 'r',
+  TransactionDirection direction = TransactionDirection.debit,
 }) => ParsedTxn(
   smsId: 'sms:${upiVpaNorm ?? payeeType.name}',
   sender: 'VM-HDFCBK',
-  direction: TransactionDirection.debit,
+  direction: direction,
   instrument: PaymentInstrument.bank,
   type: TxnType.upi,
   amountPaise: 50000,
@@ -182,6 +183,53 @@ void main() {
       expect(
         classifier.shouldPromoteP2pOutflow(self, occurrences: 10, userConfirmed: true),
         isFalse,
+      );
+    });
+  });
+
+  group('the outflow flags are outflow-only', () {
+    test('an inflow from an unknown person needs no P2P confirmation', () {
+      final result = classifier.classify(
+        outflow(
+          upiVpaNorm: 'rahul@oksbi',
+          payeeType: PayeeType.p2pIndividual,
+          direction: TransactionDirection.credit,
+        ),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.p2pIndividual);
+      expect(result.needsConfirmation, isFalse);
+    });
+
+    test('money coming back out of a wallet is not untracked cash', () {
+      final result = classifier.classify(
+        outflow(
+          upiVpaNorm: 'user@paytm',
+          direction: TransactionDirection.credit,
+        ),
+        known: knownWith(),
+      );
+
+      expect(result.payeeType, PayeeType.wallet);
+      expect(result.untrackedCashCaveat, isFalse);
+    });
+
+    test('the debit cases are unchanged', () {
+      expect(
+        classifier
+            .classify(
+              outflow(upiVpaNorm: 'rahul@oksbi', payeeType: PayeeType.p2pIndividual),
+              known: knownWith(),
+            )
+            .needsConfirmation,
+        isTrue,
+      );
+      expect(
+        classifier
+            .classify(outflow(upiVpaNorm: 'user@paytm'), known: knownWith())
+            .untrackedCashCaveat,
+        isTrue,
       );
     });
   });

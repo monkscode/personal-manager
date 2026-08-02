@@ -7,8 +7,13 @@ import '../data/sms_models.dart';
 class SmsPrivacy {
   const SmsPrivacy._();
 
+  /// Currency-tagged money. `rs` and `inr` carry a leading word boundary: the
+  /// `hrs.` in "valid for 24 hrs. 5000 points" would otherwise supply the
+  /// currency token, and the redactor would eat the tail of the word and leave
+  /// `24 h[amount]` in the body a human reviews. `₹` is punctuation and needs
+  /// no boundary. Kept in step with `SmsTransactionParser._amount`.
   static final RegExp _amount = RegExp(
-    r'(?:₹|rs\.?|inr)\s*[0-9][0-9,]*(?:\.[0-9]+)?',
+    r'(?:₹|\b(?:rs\.?|inr))\s*[0-9][0-9,]*(?:\.[0-9]+)?',
     caseSensitive: false,
   );
 

@@ -161,6 +161,40 @@ void main() {
     });
   });
 
+  group('redaction matches currency tokens, not stray substrings', () {
+    // M3 — without a word boundary the `hrs.` in "within 24 hrs." supplies the
+    // `rs.` of a currency token, so the redactor eats the tail of the word and
+    // leaves `24 h[amount]` in the body the reviewer reads.
+    test('the "rs" inside "hrs." is not a currency token', () {
+      final redacted = SmsPrivacy.redactBody(
+        'Valid for 24 hrs. 5000 bonus points await.',
+      );
+
+      expect(redacted, contains('hrs.'));
+      expect(redacted, isNot(contains('h[amount]')));
+    });
+
+    test('a real currency token is still redacted', () {
+      expect(
+        SmsPrivacy.redactBody('Rs.450.00 debited'),
+        '[amount] debited',
+      );
+      expect(
+        SmsPrivacy.redactBody('INR 1,299.00 spent'),
+        '[amount] spent',
+      );
+    });
+
+    // M6 — regression guard. The account pattern must consume only the
+    // identifying digits, leaving the noun for the human reviewing the row.
+    test('the card noun survives redaction of its tail', () {
+      expect(
+        SmsPrivacy.redactBody('HDFC Credit Card ending 4321'),
+        'HDFC Credit Card ending [account]',
+      );
+    });
+  });
+
   group('SmsPrivacy.stableSmsId is salted', () {
     RawSms sms() => RawSms(
       sender: 'VM-HDFCBK',

@@ -21,22 +21,37 @@ class SmsTransactionParser {
     'pnb',
   ];
 
+  // A handle missing from this list costs the row its `upiVpaNorm`, and with it
+  // the merchant name, the payee type and the UPI classification — the VPA is
+  // the only payee signal a UPI alert carries. Axis (`okaxis`) and the Amazon
+  // Pay/Yes Bank handles (`apl`, `yapl`) were absent while the corpus and
+  // `merchant_display`'s tests already used them.
   static const _upiHandles = [
     'okhdfcbank',
     'oksbi',
     'okicici',
+    'okaxis',
     'ybl',
     'paytm',
+    'apl',
+    'yapl',
     'axl',
+    'axisbank',
     'ibl',
+    'icici',
+    'hdfcbank',
+    'sbi',
     'upi',
   ];
 
   static final RegExp _knownBankBody = RegExp(
     r'\b(?:hdfc|icici|sbi|axis|kotak|yesbank|idfc|indusind|federal|canara|pnb)\b',
   );
+  // `rs` and `inr` need a leading word boundary: without it the `hrs.` in
+  // "valid for 24 hrs. 5000 points" supplies the currency token and the number
+  // after it enters the amount pool. `₹` is punctuation and needs none.
   static final RegExp _amount = RegExp(
-    r'(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]+)?)',
+    r'(?:₹|\b(?:rs\.?|inr))\s*([0-9][0-9,]*(?:\.[0-9]+)?)',
     caseSensitive: false,
   );
   static final RegExp _account = RegExp(
@@ -118,6 +133,13 @@ class SmsTransactionParser {
     r'(?:avl\.?\s*bal|available\s+balance|a/c\s+bal|ac\s+bal|updated\s+balance|available\s+credit(?:\s+limit)?|available\s+limit|credit\s+limit|card\s+limit)\s*(?:is|[:\-–])?\s*$',
     caseSensitive: false,
   );
+  // Rail vocabulary for `_type`, anchored so a merchant name cannot claim a
+  // rail it never touched.
+  static final RegExp _upiWord = RegExp(r'\bupi\b');
+  static final RegExp _atmWord = RegExp(r'\batm\b');
+  static final RegExp _transferWord = RegExp(r'\bneft\b|\bimps\b|\btransfer\b');
+  static final RegExp _posWord = RegExp(r'\bpos\b|\bcard\b');
+
   // Verbs used to pick which of several amounts is the transaction amount.
   static final RegExp _txnVerb = RegExp(
     r'debited|credited|spent|paid|deducted|charged|purchased|deposited|received|withdrawn|sent',
@@ -215,7 +237,7 @@ class SmsTransactionParser {
     if (direction == null) return null;
 
     final instrument = _instrument(lower);
-    final type = _type(lower, upiVpa);
+    final type = _type(lower, upiVpa, instrument);
     final merchant = _merchant(lower, upiVpa, instrument);
     final categoryKey = _category(lower, merchant);
     final confidence = _confidence(
@@ -458,15 +480,20 @@ class SmsTransactionParser {
       ? PaymentInstrument.card
       : PaymentInstrument.bank;
 
-  TxnType _type(String lower, String? upiVpa) {
-    if (upiVpa != null || lower.contains('upi')) return TxnType.upi;
-    if (lower.contains('atm')) return TxnType.atm;
-    if (lower.contains('neft') ||
-        lower.contains('imps') ||
-        lower.contains('transfer')) {
-      return TxnType.transfer;
+  /// The rail the money moved on.
+  ///
+  /// Structured signals are preferred over body text: a resolved VPA proves UPI
+  /// and a detected card instrument proves a card rail, neither of which can be
+  /// faked by a merchant name. The body is consulted only afterwards and only on
+  /// word boundaries — unanchored `contains` made `ATMOSPHERE CAFE` an ATM
+  /// withdrawal and `UPIWALA STORE` a UPI transfer.
+  TxnType _type(String lower, String? upiVpa, PaymentInstrument instrument) {
+    if (upiVpa != null || _upiWord.hasMatch(lower)) return TxnType.upi;
+    if (_atmWord.hasMatch(lower)) return TxnType.atm;
+    if (_transferWord.hasMatch(lower)) return TxnType.transfer;
+    if (instrument == PaymentInstrument.card || _posWord.hasMatch(lower)) {
+      return TxnType.pos;
     }
-    if (lower.contains('pos') || lower.contains('card')) return TxnType.pos;
     return TxnType.other;
   }
 
@@ -526,6 +553,11 @@ class SmsTransactionParser {
   }) {
     var confidence = 0.5;
     if (hasKnownBankSender) confidence += 0.3;
+    // The spec's "+0.1 for a debit/credit keyword". It is unconditional only
+    // because `parseOne` has already returned null when `_direction` found no
+    // verb, so every row reaching here has one. Keep the two together: making
+    // direction optional without restoring the condition silently inflates the
+    // confidence of every verb-less row straight past the auto-add threshold.
     confidence += 0.1;
     if (hasUpi) confidence += 0.05;
     if (hasMerchant) confidence += 0.1;
