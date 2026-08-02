@@ -11,7 +11,17 @@ import '../data/sms_models.dart';
 /// `needsReview` gate and the ingestion policy both read it.
 const double kAutoAddConfidenceThreshold = 0.8;
 
-enum IngestionAction { upsert, queueReview, skipDuplicate }
+enum IngestionAction {
+  upsert,
+  queueReview,
+  skipDuplicate,
+
+  /// The message is already stored, but the parser now reads it differently —
+  /// rewrite the stored row's derived fields while keeping the user's review
+  /// decision. Without this a parser fix only ever improves *future* messages
+  /// and the stored history stays permanently wrong.
+  refreshParse,
+}
 
 class IngestionDecision {
   const IngestionDecision({
@@ -78,10 +88,24 @@ class SmsIngestionPolicy {
     required bool isFirstScan,
     DateTime? now,
   }) {
-    if (smsIdMatches.any((txn) => txn.smsId == incoming.smsId)) {
+    // The same message, already stored. Not two transactions — one message seen
+    // twice — so it is never a collision. But the parser may have been fixed
+    // since the row was written, so re-derive its fields and keep the user's
+    // decision. Without this a parser fix only improves future messages and the
+    // stored history stays wrong for good.
+    final storedSame = smsIdMatches
+        .where((txn) => txn.smsId == incoming.smsId)
+        .firstOrNull;
+    if (storedSame != null) {
+      if (incoming.hasSameParseAs(storedSame)) {
+        return IngestionDecision(
+          action: IngestionAction.skipDuplicate,
+          transaction: storedSame,
+        );
+      }
       return IngestionDecision(
-        action: IngestionAction.skipDuplicate,
-        transaction: incoming,
+        action: IngestionAction.refreshParse,
+        transaction: incoming.withDecisionsFrom(storedSame),
       );
     }
 

@@ -225,6 +225,62 @@ void main() {
       expect(decision.action, IngestionAction.skipDuplicate);
       expect(await repository.queryByMonth('2026-07'), hasLength(500));
     });
+
+    group('re-parse of an already-stored message', () {
+      test('rewrites the stored row without duplicating it', () async {
+        final repository = await openRepository();
+        await repository.upsertParsedTxn(
+          txn(merchant: null, reviewStatus: ReviewStatus.confirmed),
+        );
+
+        final decision = await repository.ingestParsedTxn(
+          txn(merchant: 'cred club'),
+          isFirstScan: false,
+          now: DateTime(2026, 7, 20),
+        );
+
+        expect(decision.action, IngestionAction.refreshParse);
+        final rows = await repository.queryByMonth('2026-07');
+        expect(rows, hasLength(1), reason: 'a refresh must not add a row');
+        expect(rows.single.merchant, 'cred club');
+        expect(
+          rows.single.reviewStatus,
+          ReviewStatus.confirmed,
+          reason: "the user's decision must survive a re-parse",
+        );
+      });
+
+      test('keeps the date the message was first seen', () async {
+        final repository = await openRepository();
+        await repository.upsertParsedTxn(
+          txn(merchant: null),
+          createdAt: DateTime(2026, 1, 1),
+        );
+
+        await repository.ingestParsedTxn(
+          txn(merchant: 'cred club'),
+          isFirstScan: false,
+          now: DateTime(2026, 7, 20),
+        );
+
+        // REPLACE would otherwise stamp the rescan's clock over created_at.
+        final stored = await repository.rawCreatedAt('provider:1');
+        expect(stored, DateTime(2026, 1, 1));
+      });
+
+      test('a rescan that corrects nothing writes nothing', () async {
+        final repository = await openRepository();
+        await repository.upsertParsedTxn(txn(merchant: 'cred club'));
+
+        final decision = await repository.ingestParsedTxn(
+          txn(merchant: 'cred club'),
+          isFirstScan: false,
+          now: DateTime(2026, 7, 20),
+        );
+
+        expect(decision.action, IngestionAction.skipDuplicate);
+      });
+    });
   });
 }
 

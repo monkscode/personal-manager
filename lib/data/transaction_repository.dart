@@ -65,7 +65,14 @@ class TransactionRepository {
         await _insertRow(txn, flagged, DateTime.now());
       }
       if (decision.action != IngestionAction.skipDuplicate) {
-        await _insertRow(txn, decision.transaction, now ?? DateTime.now());
+        // A refresh rewrites a row that already exists, so it must keep the
+        // original `created_at` rather than stamping the rescan's clock over
+        // the date the message was first seen.
+        final createdAt = decision.action == IngestionAction.refreshParse
+            ? await _createdAt(txn, decision.transaction.smsId) ??
+                (now ?? DateTime.now())
+            : now ?? DateTime.now();
+        await _insertRow(txn, decision.transaction, createdAt);
       }
       return decision;
     });
@@ -73,6 +80,25 @@ class TransactionRepository {
 
   Future<void> upsertParsedTxn(ParsedTxn txn, {DateTime? createdAt}) async {
     await _insertRow(_db, txn, createdAt ?? DateTime.now());
+  }
+
+  /// The `created_at` stored for [smsId]. Exposed for tests asserting that a
+  /// re-parse preserves the date a message was first seen.
+  Future<DateTime?> rawCreatedAt(String smsId) => _createdAt(_db, smsId);
+
+  /// The `created_at` already recorded for [smsId], or null when the row is new.
+  /// A re-parse must preserve it: REPLACE would otherwise stamp the rescan's
+  /// clock over the date the message was first seen.
+  Future<DateTime?> _createdAt(DatabaseExecutor executor, String smsId) async {
+    final rows = await executor.query(
+      'transactions',
+      columns: ['created_at'],
+      where: 'sms_id = ?',
+      whereArgs: [smsId],
+      limit: 1,
+    );
+    final value = rows.isEmpty ? null : rows.first['created_at'] as int?;
+    return value == null ? null : DateTime.fromMillisecondsSinceEpoch(value);
   }
 
   Future<void> _insertRow(

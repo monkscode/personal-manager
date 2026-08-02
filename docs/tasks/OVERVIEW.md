@@ -64,6 +64,7 @@ earlier fixes exist.
 | [TASK-10](TASK-10-dead-patterns-and-paytm.md) | Dead bank-pattern module; Paytm QR misclassified | Important ×2 |
 | [TASK-11](TASK-11-parser-minors.md) | Parser minors (8 items) | Minor |
 | [TASK-29](TASK-29-hdfc-upi-payee-no-merchant.md) | HDFC `Sent … To <PAYEE>` yields no merchant; 171/173 rows ownerless | Critical |
+| [TASK-30](TASK-30-reparse-stored-rows.md) | A parser fix never reaches already-stored rows (210 of 383 stale) | Critical |
 
 ### Phase 2 — Reconciliation
 

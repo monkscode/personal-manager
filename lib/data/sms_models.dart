@@ -224,6 +224,69 @@ class ParsedTxn {
 
   bool get needsReview => reviewStatus == ReviewStatus.needsReview;
 
+  /// This freshly-parsed row, carrying [stored]'s review decision.
+  ///
+  /// Used when a message that is already in the table is parsed again: the
+  /// derived fields (direction, amount, merchant, instrument, category …) come
+  /// from *this* parse, because the parser has since been corrected, while
+  /// everything the user decided comes from the stored row.
+  ///
+  /// Deliberately not [copyWith]: that resolves every argument with `?? this.x`
+  /// and so cannot copy a **null** across. A row the user confirmed has a null
+  /// `reviewReason`, and a `copyWith`-based merge would leave the fresh parse's
+  /// `parserUncertain` in place and drag a resolved row back into the review
+  /// queue. Every decision field here is assigned unconditionally.
+  ///
+  /// `scanBatchId` is [stored]'s: it records when the message was first seen,
+  /// which a re-parse does not change.
+  ParsedTxn withDecisionsFrom(ParsedTxn stored) => ParsedTxn(
+    smsId: smsId,
+    sender: sender,
+    direction: direction,
+    instrument: instrument,
+    type: type,
+    amountPaise: amountPaise,
+    txnDate: txnDate,
+    payeeType: payeeType,
+    categoryKey: categoryKey,
+    confidence: confidence,
+    source: source,
+    rawBodyRedacted: rawBodyRedacted,
+    bodyHash: bodyHash,
+    effectiveMonth: effectiveMonth,
+    accountLast4: accountLast4,
+    merchant: merchant,
+    upiVpaNorm: upiVpaNorm,
+    refNumber: refNumber,
+    balancePaise: balancePaise,
+    ownerKey: ownerKey,
+    // --- the user's, not the parser's ---
+    reviewStatus: stored.reviewStatus,
+    reviewReason: stored.reviewReason,
+    autoAddedAt: stored.autoAddedAt,
+    collisionSetId: stored.collisionSetId,
+    coverageBucket: stored.coverageBucket,
+    scanBatchId: stored.scanBatchId,
+  );
+
+  /// Whether a re-parse of the same message actually changed anything the
+  /// parser derives. Keeps a rescan that found no corrections from rewriting
+  /// every row it touches.
+  bool hasSameParseAs(ParsedTxn other) =>
+      direction == other.direction &&
+      instrument == other.instrument &&
+      type == other.type &&
+      amountPaise == other.amountPaise &&
+      txnLocalDate == other.txnLocalDate &&
+      accountLast4 == other.accountLast4 &&
+      merchant == other.merchant &&
+      upiVpaNorm == other.upiVpaNorm &&
+      payeeType == other.payeeType &&
+      categoryKey == other.categoryKey &&
+      confidence == other.confidence &&
+      refNumber == other.refNumber &&
+      balancePaise == other.balancePaise;
+
   ParsedTxn copyWith({
     ReviewStatus? reviewStatus,
     ReviewReason? reviewReason,

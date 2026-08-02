@@ -22,6 +22,7 @@ class ScanRunResult {
     required this.skippedDuplicate,
     required this.collisionSets,
     required this.obligationCandidates,
+    this.refreshedParse = 0,
   });
 
   factory ScanRunResult.noOp(SmsScanStatus status) => ScanRunResult(
@@ -33,6 +34,7 @@ class ScanRunResult {
     skippedDuplicate: 0,
     collisionSets: 0,
     obligationCandidates: 0,
+    refreshedParse: 0,
   );
 
   final SmsScanStatus status;
@@ -43,6 +45,11 @@ class ScanRunResult {
   final int skippedDuplicate;
   final int collisionSets;
   final int obligationCandidates;
+
+  /// Already-stored rows whose derived fields were rewritten because the parser
+  /// now reads their message differently. Distinct from [skippedDuplicate],
+  /// which is the same message re-seen with nothing to correct.
+  final int refreshedParse;
 
   bool get isSuccess => status == SmsScanStatus.success;
 }
@@ -112,6 +119,7 @@ class SmsScanOrchestrator {
     var autoAdded = 0;
     var queuedReview = 0;
     var skippedDuplicate = 0;
+    var refreshedParse = 0;
     final collisionSetIds = <String>{};
     final persisted = <ParsedTxn>[];
 
@@ -142,6 +150,14 @@ class SmsScanOrchestrator {
               decision.transaction.reviewReason == ReviewReason.dedupCollision) {
             collisionSetIds.add(collisionSetId);
           }
+        case IngestionAction.refreshParse:
+          // The message was already stored but the parser now reads it
+          // differently. The row is rewritten with the corrected fields and
+          // the user's review decision intact, and it joins `persisted` so the
+          // corrected merchant reaches recurring detection — which is the whole
+          // point of re-parsing.
+          refreshedParse++;
+          persisted.add(decision.transaction);
         case IngestionAction.skipDuplicate:
           skippedDuplicate++;
       }
@@ -172,6 +188,7 @@ class SmsScanOrchestrator {
       skippedDuplicate: skippedDuplicate,
       collisionSets: collisionSetIds.length,
       obligationCandidates: candidates.length,
+      refreshedParse: refreshedParse,
     );
   }
 }

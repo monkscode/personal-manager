@@ -11,11 +11,16 @@ ParsedTxn txn({
   String? refNumber,
   String? merchant,
   double confidence = 0.95,
+  TransactionDirection direction = TransactionDirection.debit,
+  ReviewStatus reviewStatus = ReviewStatus.autoAdded,
+  ReviewReason? reviewReason,
+  String? collisionSetId,
+  String categoryKey = 'other',
 }) {
   return ParsedTxn(
     smsId: smsId,
     sender: 'VM-HDFCBK',
-    direction: TransactionDirection.debit,
+    direction: direction,
     instrument: PaymentInstrument.bank,
     type: TxnType.upi,
     amountPaise: amountPaise,
@@ -23,9 +28,11 @@ ParsedTxn txn({
     accountLast4: accountLast4,
     merchant: merchant,
     payeeType: PayeeType.merchant,
-    categoryKey: 'other',
+    categoryKey: categoryKey,
     confidence: confidence,
-    reviewStatus: ReviewStatus.autoAdded,
+    reviewStatus: reviewStatus,
+    reviewReason: reviewReason,
+    collisionSetId: collisionSetId,
     source: TxnSource.sms,
     refNumber: refNumber,
     coverageBucket: CoverageBucket.datedEvent,
@@ -302,6 +309,105 @@ void main() {
         stored.map((t) => t.reviewStatus),
         everyElement(ReviewStatus.needsReview),
       );
+    });
+
+    // A stored row is never re-parsed today: sms_id matches, ingestion short
+    // -circuits to skipDuplicate, and the row keeps whatever the parser of the
+    // day produced. After a parser fix the stored history stays wrong forever.
+    group('re-parse of an already-stored message', () {
+      ParsedTxn stored({
+        String? merchant,
+        TransactionDirection direction = TransactionDirection.debit,
+        ReviewStatus reviewStatus = ReviewStatus.confirmed,
+        ReviewReason? reviewReason,
+        String? collisionSetId,
+      }) => txn(
+        smsId: 'provider:1',
+        amountPaise: 50000,
+        date: DateTime(2026, 7, 9),
+        scanBatchId: 'old-scan',
+        merchant: merchant,
+        direction: direction,
+        reviewStatus: reviewStatus,
+        reviewReason: reviewReason,
+        collisionSetId: collisionSetId,
+      );
+
+      test('a changed parse refreshes the row instead of being skipped', () {
+        final decision = SmsIngestionPolicy.classify(
+          incoming: stored(merchant: 'cred club', reviewStatus: ReviewStatus.autoAdded),
+          existing: [stored()], // stored has no merchant
+          isFirstScan: false,
+        );
+
+        expect(decision.action, IngestionAction.refreshParse);
+        expect(decision.transaction.merchant, 'cred club');
+      });
+
+      test('the user decision survives the refresh', () {
+        final decision = SmsIngestionPolicy.classify(
+          // The fresh parse of an unreviewed message would say autoAdded.
+          incoming: stored(merchant: 'cred club', reviewStatus: ReviewStatus.autoAdded),
+          existing: [stored(reviewStatus: ReviewStatus.dismissed)],
+          isFirstScan: false,
+        );
+
+        expect(decision.action, IngestionAction.refreshParse);
+        expect(decision.transaction.reviewStatus, ReviewStatus.dismissed);
+        expect(decision.transaction.merchant, 'cred club');
+      });
+
+      test('a resolved row does not inherit the fresh parse uncertainty', () {
+        // copyWith cannot clear a field, so a naive merge would leave the
+        // confirmed row carrying parserUncertain and drag it back into review.
+        final decision = SmsIngestionPolicy.classify(
+          incoming: txn(
+            smsId: 'provider:1',
+            amountPaise: 50000,
+            date: DateTime(2026, 7, 9),
+            scanBatchId: 'new-scan',
+            merchant: 'cred club',
+            reviewStatus: ReviewStatus.needsReview,
+            reviewReason: ReviewReason.parserUncertain,
+          ),
+          existing: [stored()], // confirmed, reviewReason null
+          isFirstScan: false,
+        );
+
+        expect(decision.transaction.reviewStatus, ReviewStatus.confirmed);
+        expect(decision.transaction.reviewReason, isNull);
+      });
+
+      test('the collision set the user resolved is preserved', () {
+        final decision = SmsIngestionPolicy.classify(
+          incoming: stored(merchant: 'cred club', reviewStatus: ReviewStatus.autoAdded),
+          existing: [stored(collisionSetId: 'collision:abc')],
+          isFirstScan: false,
+        );
+
+        expect(decision.transaction.collisionSetId, 'collision:abc');
+      });
+
+      test('an unchanged parse is still skipped, so a rescan writes nothing', () {
+        final decision = SmsIngestionPolicy.classify(
+          incoming: stored(),
+          existing: [stored()],
+          isFirstScan: false,
+        );
+
+        expect(decision.action, IngestionAction.skipDuplicate);
+      });
+
+      test('a corrected direction reaches the stored row', () {
+        final decision = SmsIngestionPolicy.classify(
+          incoming: stored(direction: TransactionDirection.debit),
+          existing: [stored(direction: TransactionDirection.credit)],
+          isFirstScan: false,
+        );
+
+        expect(decision.action, IngestionAction.refreshParse);
+        expect(decision.transaction.direction, TransactionDirection.debit);
+      });
     });
 
     test(
