@@ -9,6 +9,12 @@ each only became measurable once TASK-07 made HDFC's UPI alerts parse at all. Tr
 "install it on the phone and look" as a required step at the end of each phase — it found
 two Critical defects that four reviewers reading the source did not.
 
+**TASK-31 and TASK-32 were added the same way**, at the end of Phase 2, by installing the
+build and measuring the real database. The device keeps earning its place: 34% of all
+transaction value is stored with no merchant (TASK-31), and mandate pre-notifications are
+booked as completed debits alongside the real debit (TASK-32) — a straight breach of "one
+owner per rupee" that nobody reading the source had caught.
+
 Each task file is self-contained: it states the defect, a concrete failing scenario,
 the required fix, the tests to write, and a definition of done. One agent should be
 able to complete one file inside a single context window.
@@ -65,6 +71,8 @@ earlier fixes exist.
 | [TASK-11](TASK-11-parser-minors.md) | Parser minors (8 items) | Minor |
 | [TASK-29](TASK-29-hdfc-upi-payee-no-merchant.md) | HDFC `Sent … To <PAYEE>` yields no merchant; 171/173 rows ownerless | Critical |
 | [TASK-30](TASK-30-reparse-stored-rows.md) | A parser fix never reaches already-stored rows (210 of 383 stale) | Critical |
+| [TASK-31](TASK-31-ownerless-merchant-formats.md) | ACH/NACH/Axis/ATM payees unread — 79 rows, 34% of value, ownerless | Important |
+| [TASK-32](TASK-32-mandate-prenotification-double-count.md) | Upcoming-mandate notices stored as completed debits (17 rows) | Critical |
 
 ### Phase 2 — Reconciliation
 

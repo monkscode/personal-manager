@@ -102,5 +102,52 @@ flutter test
 - [x] Unchanged parses still skip, so rescans stay idempotent
 - [x] Refreshed rows feed recurring detection
 - [x] `flutter analyze` clean, `flutter test` green — **688 passing** (was 679)
-- [ ] Verified on-device: the 171 ownerless rows gain merchants after a rescan
+- [~] Verified on-device: **outcome confirmed, mechanism not exercisable — see below**
 - [x] Suggested commit: `Re-parse stored rows when the parser has since been corrected`
+
+---
+
+## On-device verification, 2026-08-02
+
+Phase-2 build installed on the SM-G781B over the existing data (`adb install -r`, which
+preserves the database) and refreshed from Home. Measured before and after.
+
+**What is confirmed:**
+
+- The **171** HDFC UPI rows this task was written about all carry merchants — `0`
+  ownerless in that cohort. The outcome TASK-29 + TASK-30 were aiming at is present in the
+  live data.
+- **The rescan is idempotent, which is the guard that matters most here.** 384 rows before,
+  386 after — the 2 additions are genuinely new messages. Nothing else was rewritten, and
+  the user's decisions were untouched: **187 confirmed / 6 dismissed, identical before and
+  after.** A rescan correcting nothing writes nothing, exactly as designed.
+
+**What could not be exercised, and why:**
+
+The `refreshParse` path never fired, because **no stored row's parse differs under this
+build**. That was verified rather than assumed:
+
+- The 174 rows created 2026-08-02 are *inserts*, not refreshes — messages the pre-TASK-07
+  parser stored nothing for at all. Their `created_at` is new; a refresh preserves
+  `created_at`, so these cannot be refreshes.
+- The 210 older rows still hold 79 merchant-less rows, 45 `card purchase` merchants and
+  20 reference-numbers-as-merchants. Those *look* like stale-parser artifacts and were
+  initially read as such — wrongly. Feeding their real bodies to the **current**
+  `parseOne` returns `merchant=null type=other dir=debit payee=unknown`, byte-identical to
+  what is stored. `hasSameParseAs` is therefore right to return true and the refresh is
+  right not to fire. These are **current parser gaps**, now recorded as
+  [TASK-31](TASK-31-ownerless-merchant-formats.md) and
+  [TASK-32](TASK-32-mandate-prenotification-double-count.md).
+- Phase 2 changed the reconciliation layer, not `ParsedTxn`, so nothing in Phase 2 could
+  have triggered a refresh either.
+
+There is also no way to detect a *past* refresh after the fact: `transactions` has no
+`updated_at`, and `created_at` is deliberately preserved. So whether the path ran during
+the 2026-08-02 07:11 scan is unknowable from the stored data.
+
+**How to close this box properly.** TASK-31 changes the parse of 79 rows that are already
+stored. `refreshParse` is the only route by which those rows can gain merchants, so
+verifying TASK-31 on the device verifies this task at the same time — including that the
+refreshed rows keep their `review_status` and `created_at`. That check is written into
+TASK-31's definition of done. Leaving this box open until then rather than ticking it on
+an outcome the insert path also explains.
