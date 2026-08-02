@@ -69,4 +69,51 @@ void main() {
       expect(selected!.source, BalanceAnchorSource.smsBankBalance);
     });
   });
+
+  group('AnchorSelector.select — future-dated anchors (M1)', () {
+    test('a future-dated SMS anchor loses to a real manual entry', () {
+      // One bad SMS timestamp. `freshnessAsOf` reads a negative age as
+      // `current`, so without a `now` check this anchor is permanently fresh
+      // and permanently newest — it would pin the opening balance to a reading
+      // that never happened.
+      final s = smsAnchor(asOf: DateTime(2026, 7, 24), amountPaise: 999900);
+      final m = manualAnchor(asOf: DateTime(2026, 7, 8));
+
+      final selected = AnchorSelector.select(
+        smsAnchor: s,
+        manualAnchor: m,
+        now: now,
+      );
+
+      expect(selected, same(m));
+      expect(selected!.amountPaise, 200000);
+    });
+
+    test('a future-dated manual entry loses to an older SMS balance', () {
+      final s = smsAnchor(asOf: DateTime(2026, 7, 2));
+      final m = manualAnchor(asOf: DateTime(2026, 7, 11));
+
+      expect(
+        AnchorSelector.select(smsAnchor: s, manualAnchor: m, now: now),
+        same(s),
+      );
+    });
+
+    test('when both anchors are future-dated there is no anchor at all', () {
+      expect(
+        AnchorSelector.select(
+          smsAnchor: smsAnchor(asOf: DateTime(2026, 7, 11)),
+          manualAnchor: manualAnchor(asOf: DateTime(2026, 8, 1)),
+          now: now,
+        ),
+        isNull,
+      );
+    });
+
+    test('an anchor stamped exactly at now is kept', () {
+      final s = smsAnchor(asOf: now);
+
+      expect(AnchorSelector.select(smsAnchor: s, now: now), same(s));
+    });
+  });
 }

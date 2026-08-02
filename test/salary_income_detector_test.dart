@@ -286,6 +286,86 @@ void main() {
     });
   });
 
+  group('detectOtherIncome excludes own-money movements (M5)', () {
+    test('a self-transfer and a wallet top-up are not income candidates', () {
+      // All three non-salary credits would otherwise be surfaced for the user
+      // to confirm. Moving your own money between your own accounts is not
+      // income; the spec excludes it before any recurring-income promotion.
+      final candidates = _detector.detectOtherIncome([
+        credit(
+          yyyymm: '2026-06',
+          amountPaise: 5000000,
+          merchant: 'Globex Payroll',
+        ),
+        credit(
+          yyyymm: '2026-06',
+          amountPaise: 500000,
+          merchant: 'Acme Consulting',
+        ),
+        credit(
+          yyyymm: '2026-06',
+          amountPaise: 900000,
+          merchant: 'Self HDFC 9012',
+          payeeType: PayeeType.selfTransfer,
+        ),
+        credit(
+          yyyymm: '2026-06',
+          amountPaise: 300000,
+          merchant: 'Paytm Wallet',
+          payeeType: PayeeType.wallet,
+        ),
+      ], now: _now);
+
+      // Globex is the month's salary pick; Acme is the only real other income.
+      expect(candidates.map((c) => c.label), ['Acme Consulting']);
+    });
+  });
+
+  group('kSalaryMinMonthlyPaise boundary', () {
+    SalaryProfile profileAt(int amountPaise) => _detector.detectSalary([
+      credit(yyyymm: '2026-04', amountPaise: amountPaise),
+      credit(yyyymm: '2026-05', amountPaise: amountPaise),
+      credit(yyyymm: '2026-06', amountPaise: amountPaise),
+    ], now: _now);
+
+    test('a credit exactly at the floor is still salary', () {
+      final profile = profileAt(kSalaryMinMonthlyPaise);
+
+      expect(profile.confidence, SalaryConfidence.detectedStable);
+      expect(profile.basePaise, kSalaryMinMonthlyPaise);
+    });
+
+    test('one paise under the floor is never salary', () {
+      expect(
+        profileAt(kSalaryMinMonthlyPaise - 1).confidence,
+        SalaryConfidence.insufficientData,
+      );
+    });
+  });
+
+  group('kVariableSalaryUpperPercentile boundary', () {
+    test('rangeHighPaise is the p80, not the p75 and not the maximum', () {
+      // Five clean monthly credits, evenly spaced ₹1,000 apart and spread far
+      // enough to be variable rather than stable. p80 falls between the 4th and
+      // 5th sample, so this distinguishes it from both neighbours.
+      final profile = _detector.detectSalary([
+        credit(yyyymm: '2026-01', amountPaise: 1000000),
+        credit(yyyymm: '2026-02', amountPaise: 1100000),
+        credit(yyyymm: '2026-03', amountPaise: 1200000),
+        credit(yyyymm: '2026-04', amountPaise: 1300000),
+        credit(yyyymm: '2026-05', amountPaise: 1400000),
+      ], now: _now);
+
+      expect(profile.confidence, SalaryConfidence.detectedVariable);
+      // rank = 0.80 × 4 = 3.2 → 13,00,000 + 0.2 × 1,00,000.
+      expect(profile.rangeHighPaise, 1320000);
+      // Just inside and just outside: strictly above the 4th sample (p75) and
+      // strictly below the maximum (p100).
+      expect(profile.rangeHighPaise, greaterThan(1300000));
+      expect(profile.rangeHighPaise, lessThan(1400000));
+    });
+  });
+
   group('named constants', () {
     test('encode the D1/D4 spec defaults', () {
       expect(kVariableSalaryFloorPercentile, 0.20);

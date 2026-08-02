@@ -17,7 +17,13 @@ class ForecastReconciliationEngine {
     // candidates` deliberately reuses `configuredPlanKey` as the dedupe key,
     // and item ids are `obl:<dedupeKey>`, so an SMS-recurring record and a
     // configured-plan record sharing that key collide. Degrade to review.
-    final (resolved, collidedIds) = _dedupeIds(items);
+    //
+    // *Every* colliding item goes to review, not just the survivor. Keeping the
+    // first and discarding the rest made the discarded amounts vanish with no
+    // assignment and no coverage line, which is the one thing this layer
+    // promises never to do — and the two records need not even agree on the
+    // amount, so there is no "same rupee" to fall back on.
+    final (resolved, collided) = _partitionIdCollisions(items);
     final referenceNow = now ?? DateTime.now();
     final bridgeTargetIds = {
       for (final item in resolved)
@@ -45,6 +51,19 @@ class ForecastReconciliationEngine {
     final lines = <ForecastLine>[];
     final assignments = <OwnedForecastItem>[];
 
+    for (final item in collided) {
+      _assignCoverage(
+        item,
+        CoverageReason.reviewNeeded,
+        CoverageAction.review,
+        ForecastLineStatus.review,
+        CoverageBucket.reviewPending,
+        coverageLines,
+        lines,
+        assignments,
+      );
+    }
+
     for (final group in groups.values) {
       final ordered = [...group]..sort(_compareOwnerPrecedence);
       if (_hasUnresolvableTie(ordered)) {
@@ -66,19 +85,6 @@ class ForecastReconciliationEngine {
       final winners = _chooseWinners(ordered);
       final winnerIds = {for (final winner in winners) winner.id};
       for (final winner in winners) {
-        if (collidedIds.contains(winner.id)) {
-          _assignCoverage(
-            winner,
-            CoverageReason.reviewNeeded,
-            CoverageAction.review,
-            ForecastLineStatus.review,
-            CoverageBucket.reviewPending,
-            coverageLines,
-            lines,
-            assignments,
-          );
-          continue;
-        }
         _applyWinner(
           winner,
           targetMonth,
@@ -118,7 +124,7 @@ class ForecastReconciliationEngine {
       );
     }
 
-    _assertCompleteAssignments(resolved, assignments);
+    _assertCompleteAssignments(items, assignments);
 
     events.sort((a, b) => a.date.compareTo(b.date));
     return ForecastReconciliationResult(
@@ -505,21 +511,24 @@ class ForecastReconciliationEngine {
     );
   }
 
-  /// Keeps the first item per id and reports which ids collided, so the
-  /// collision becomes a review line instead of an exception.
-  static (List<ReconciliationItem>, Set<String>) _dedupeIds(
-    List<ReconciliationItem> items,
-  ) {
-    final kept = <String, ReconciliationItem>{};
-    final collided = <String>{};
+  /// Splits [items] into the ones whose id is unique — which reconcile
+  /// normally — and every member of an id collision, which goes to review.
+  ///
+  /// Both sides are returned in full so the caller can assign each input item
+  /// exactly once; a colliding item must not be dropped, or its amount leaves
+  /// the forecast with nothing naming it.
+  static (List<ReconciliationItem>, List<ReconciliationItem>)
+  _partitionIdCollisions(List<ReconciliationItem> items) {
+    final counts = <String, int>{};
     for (final item in items) {
-      if (kept.containsKey(item.id)) {
-        collided.add(item.id);
-        continue;
-      }
-      kept[item.id] = item;
+      counts[item.id] = (counts[item.id] ?? 0) + 1;
     }
-    return (kept.values.toList(growable: false), collided);
+    final unique = <ReconciliationItem>[];
+    final collided = <ReconciliationItem>[];
+    for (final item in items) {
+      (counts[item.id]! > 1 ? collided : unique).add(item);
+    }
+    return (unique, collided);
   }
 
   static void _assertCompleteAssignments(
@@ -563,6 +572,12 @@ class ForecastReconciliationEngine {
     return 'item:${item.id}';
   }
 
+  /// Whether the top of the group is a precedence tie nothing can break.
+  ///
+  /// Deliberately limited to `ordered[0..1]`. A tie *below* the winner has no
+  /// outcome to change — [_chooseWinners] never picks between tied non-winners,
+  /// and every non-winner takes the same suppression path — so widening this
+  /// would only send resolvable groups to review. See TASK-20 M7.
   static bool _hasUnresolvableTie(List<ReconciliationItem> ordered) {
     if (ordered.length < 2) return false;
     final first = _ownerPrecedence(ordered[0].owner);

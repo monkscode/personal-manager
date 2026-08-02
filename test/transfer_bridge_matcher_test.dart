@@ -38,10 +38,11 @@ ObligationRecord secondaryObligation({
   String merchant = 'LIC Premium',
   String merchantNorm = 'lic premium',
   int? id = 1,
+  String? dedupeKey,
 }) => ObligationRecord(
   id: id,
   sourceType: ObligationSourceType.gmail,
-  dedupeKey: 'lic:$amountPaise',
+  dedupeKey: dedupeKey ?? 'lic:$amountPaise',
   merchant: merchant,
   merchantNorm: merchantNorm,
   categoryKey: 'insurance',
@@ -305,6 +306,88 @@ void main() {
       );
 
       expect(matcher.match([directDebit, transfer], [obligation]), isEmpty);
+    });
+
+    test(
+      'two rows sharing a dedupe key are one obligation, so two transfers '
+      'aiming at it are ambiguous (M9)',
+      () {
+        // `dedupeKey` is the obligation's identity — it is what the repository
+        // upserts on. Keyed by *instance* the matcher saw two obligations here
+        // and auto-linked both transfers, which funds one bill twice. Two
+        // distinct records that carry no value equality must not read as two
+        // distinct obligations.
+        final rowA = secondaryObligation(
+          id: 1,
+          amountPaise: 500000,
+          dueDate: DateTime(2026, 8, 14),
+          dedupeKey: 'sip:hdfc',
+        );
+        final rowB = secondaryObligation(
+          id: 2,
+          amountPaise: 900000,
+          dueDate: DateTime(2026, 8, 14),
+          dedupeKey: 'sip:hdfc',
+        );
+        final t1 = primaryTxn(
+          date: DateTime(2026, 8, 12),
+          amountPaise: 500000,
+          smsId: 'xfer-1',
+        );
+        final t2 = primaryTxn(
+          date: DateTime(2026, 8, 12),
+          amountPaise: 900000,
+          smsId: 'xfer-2',
+        );
+
+        final candidates = matcher.match([t1, t2], [rowA, rowB]);
+
+        expect(candidates, hasLength(2));
+        expect(
+          candidates.map((c) => c.resolution).toSet(),
+          {TransferBridgeResolution.ambiguous},
+        );
+        expect(candidates.every((c) => c.obligation == null), isTrue);
+      },
+    );
+
+    test('distinct obligations each still fund uniquely (M9 guard)', () {
+      // The same fixture with honest, distinct dedupe keys must stay funded —
+      // the collapse above must key on identity, not merely on count.
+      final rowA = secondaryObligation(
+        id: 1,
+        amountPaise: 500000,
+        dueDate: DateTime(2026, 8, 14),
+        dedupeKey: 'sip:hdfc',
+      );
+      final rowB = secondaryObligation(
+        id: 2,
+        amountPaise: 900000,
+        dueDate: DateTime(2026, 8, 14),
+        dedupeKey: 'sip:icici',
+      );
+      final t1 = primaryTxn(
+        date: DateTime(2026, 8, 12),
+        amountPaise: 500000,
+        smsId: 'xfer-1',
+      );
+      final t2 = primaryTxn(
+        date: DateTime(2026, 8, 12),
+        amountPaise: 900000,
+        smsId: 'xfer-2',
+      );
+
+      final candidates = matcher.match([t1, t2], [rowA, rowB]);
+
+      expect(candidates, hasLength(2));
+      expect(
+        candidates.map((c) => c.resolution).toSet(),
+        {TransferBridgeResolution.funded},
+      );
+      expect(
+        candidates.map((c) => c.obligation!.dedupeKey).toSet(),
+        {'sip:hdfc', 'sip:icici'},
+      );
     });
   });
 }

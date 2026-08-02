@@ -747,4 +747,284 @@ void main() {
       },
     );
   });
+
+  group('untracked-cash aggregation threshold (M2)', () {
+    ReconciliationItem atm(String id, int amountPaise, int day) =>
+        ReconciliationItem(
+          id: id,
+          label: 'ATM $id',
+          amountPaise: amountPaise,
+          direction: LedgerDirection.outflow,
+          owner: ForecastOwner.atmCash,
+          source: ForecastItemSource.sms,
+          actualDate: DateTime(2026, 8, day),
+        );
+
+    test('a monthly total exactly at the threshold states the caveat once', () {
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: [atm('a', 200000, 4), atm('b', 200000, 9), atm('c', 100000, 20)],
+      );
+
+      expect(result.coverageLines, hasLength(1));
+      expect(
+        result.coverageLines.single.amountPaise,
+        ForecastReconciliationEngine.materialCashThresholdPaise,
+      );
+      expect(result.coverageLines.single.label, 'Cash withdrawn this month');
+    });
+
+    test('one paise under the threshold states no caveat at all', () {
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: [atm('a', 200000, 4), atm('b', 299999, 9)],
+      );
+
+      expect(result.events, hasLength(2));
+      expect(result.coverageLines, isEmpty);
+    });
+  });
+
+  group('why-log obligation origin labels (M3)', () {
+    ReconciliationItem obligation(ForecastItemSource source) =>
+        ReconciliationItem(
+          id: 'annual:$source',
+          label: 'LIC premium',
+          amountPaise: 4700000,
+          direction: LedgerDirection.outflow,
+          owner: ForecastOwner.annualUnscheduled,
+          source: source,
+          dueDate: DateTime(2026, 8, 14),
+        );
+
+    ForecastEventSource sourceFor(ForecastItemSource source) {
+      final item = obligation(source);
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: [item],
+      );
+      return result.events.single.source;
+    }
+
+    test('an SMS-detected annual obligation does not read "Gmail bill"', () {
+      expect(sourceFor(ForecastItemSource.sms), ForecastEventSource.recurring);
+    });
+
+    test('a manual obligation is traceable to manual entry', () {
+      // `ForecastEventSource.manual` was unreachable from every path before
+      // this, despite `ObligationSourceType.manual` existing.
+      expect(sourceFor(ForecastItemSource.manual), ForecastEventSource.manual);
+    });
+
+    test('a Gmail-sourced obligation still reads as a Gmail bill', () {
+      expect(
+        sourceFor(ForecastItemSource.gmail),
+        ForecastEventSource.gmailBill,
+      );
+    });
+  });
+
+  group('duplicate item ids degrade to review (M4)', () {
+    // Reachable in production: obligation item ids are `obl:<dedupeKey>` and
+    // `recurring_obligation_candidates` deliberately reuses `configuredPlanKey`
+    // as that dedupe key, so an SMS-recurring record and a configured-plan
+    // record collide on the id.
+    final colliding = [
+      ReconciliationItem(
+        id: 'obl:sip-hdfc',
+        label: 'HDFC SIP (SMS recurring)',
+        amountPaise: 500000,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.recurringCommitment,
+        source: ForecastItemSource.sms,
+        dueDate: DateTime(2026, 8, 12),
+      ),
+      ReconciliationItem(
+        id: 'obl:sip-hdfc',
+        label: 'HDFC SIP (configured plan)',
+        amountPaise: 700000,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.configuredContribution,
+        source: ForecastItemSource.configuredPlan,
+        dueDate: DateTime(2026, 8, 12),
+      ),
+    ];
+
+    test('the forecast survives the collision instead of blanking', () {
+      expect(
+        () => const ForecastReconciliationEngine().reconcileMonth(
+          targetMonth: DateTime(2026, 8),
+          anchor: anchorAt(DateTime(2026, 8)),
+          now: DateTime(2026, 8),
+          items: colliding,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('neither colliding item is guessed onto the ledger', () {
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: colliding,
+      );
+
+      expect(result.events, isEmpty);
+      expect(result.assignments, hasLength(2));
+      expect(
+        result.assignments.map((a) => a.coverageBucket).toSet(),
+        {CoverageBucket.reviewPending},
+      );
+    });
+
+    test('an unrelated item in the same batch still reaches the ledger', () {
+      final rent = ReconciliationItem(
+        id: 'obl:rent',
+        label: 'Rent',
+        amountPaise: 1800000,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.recurringCommitment,
+        source: ForecastItemSource.sms,
+        dueDate: DateTime(2026, 8, 5),
+      );
+
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: [...colliding, rent],
+      );
+
+      expect(result.events.single.label, 'Rent');
+    });
+  });
+
+  group('unconfirmed other income is gated (M6)', () {
+    ReconciliationItem residual(UserCadenceStatus status) =>
+        ReconciliationItem(
+          id: 'refund-excess',
+          label: 'Refund exceeding the original debit',
+          amountPaise: 250000,
+          direction: LedgerDirection.inflow,
+          owner: ForecastOwner.otherIncome,
+          source: ForecastItemSource.sms,
+          actualDate: DateTime(2026, 8, 11),
+          userCadenceStatus: status,
+        );
+
+    test('an algorithm-detected residual cannot raise the balance', () {
+      final item = residual(UserCadenceStatus.algorithmDetected);
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: [item],
+      );
+
+      expect(result.events, isEmpty);
+      expect(result.coverageLines.single.reason, CoverageReason.reviewNeeded);
+      expect(result.coverageLines.single.action, CoverageAction.confirmIncome);
+      expect(
+        result.assignments.single.coverageBucket,
+        CoverageBucket.reviewPending,
+      );
+    });
+
+    test('a user-confirmed other income is credited normally', () {
+      final result = reconcile(
+        targetMonth: DateTime(2026, 8),
+        anchor: anchorAt(DateTime(2026, 8)),
+        now: DateTime(2026, 8),
+        items: [residual(UserCadenceStatus.userConfirmed)],
+      );
+
+      expect(result.events.single.direction, LedgerDirection.inflow);
+      expect(result.events.single.source, ForecastEventSource.otherIncome);
+    });
+  });
+
+  group('a tie below the winner is not resolved at all (M7)', () {
+    // M7 asked whether `_hasUnresolvableTie` should look past `ordered[0..1]`.
+    // It should not. A tie among *non-winners* has no outcome to change:
+    // `_chooseWinners` returns either every bridging transfer, every dated card
+    // payment, or `[ordered.first]` — never a pick between tied losers — and
+    // every loser then takes the same suppression path. Widening the check
+    // would only send groups like this one to review instead of booking them.
+    List<ReconciliationItem> group(String firstTiedId, String secondTiedId) => [
+      ReconciliationItem(
+        id: 'gmail-lic',
+        label: 'LIC premium',
+        amountPaise: 4700000,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.gmailBill,
+        source: ForecastItemSource.gmail,
+        dueDate: DateTime(2026, 8, 14),
+        matchKey: 'lic:47000:annual',
+      ),
+      ReconciliationItem(
+        id: firstTiedId,
+        label: 'LIC auto-debit candidate',
+        amountPaise: 4700000,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.recurringCommitment,
+        source: ForecastItemSource.sms,
+        dueDate: DateTime(2026, 8, 14),
+        matchKey: 'lic:47000:annual',
+      ),
+      ReconciliationItem(
+        id: secondTiedId,
+        label: 'LIC standing instruction',
+        amountPaise: 4700000,
+        direction: LedgerDirection.outflow,
+        owner: ForecastOwner.recurringCommitment,
+        source: ForecastItemSource.sms,
+        dueDate: DateTime(2026, 8, 14),
+        matchKey: 'lic:47000:annual',
+      ),
+    ];
+
+    ForecastReconciliationResult run(List<ReconciliationItem> items) =>
+        reconcile(
+          targetMonth: DateTime(2026, 8),
+          anchor: anchorAt(DateTime(2026, 8)),
+          now: DateTime(2026, 8),
+          items: items,
+        );
+
+    test('the strict precedence winner is still booked', () {
+      final result = run(group('sms-a', 'sms-b'));
+
+      expect(result.events.single.label, 'LIC premium');
+      expect(
+        result.assignments
+            .where((a) => a.itemId != 'gmail-lic')
+            .map((a) => a.status)
+            .toSet(),
+        {ForecastLineStatus.reconciled},
+      );
+    });
+
+    test('swapping the tied members changes nothing about the outcome', () {
+      // The tie is broken deterministically by id, but nothing downstream reads
+      // that order — so "resolved arbitrarily" has no observable meaning here.
+      final forward = run(group('sms-a', 'sms-b'));
+      final reversed = run(group('sms-b', 'sms-a'));
+
+      expect(
+        reversed.events.map((e) => e.ownerKey),
+        forward.events.map((e) => e.ownerKey),
+      );
+      expect(
+        {for (final a in reversed.assignments) a.itemId: a.status},
+        {for (final a in forward.assignments) a.itemId: a.status},
+      );
+    });
+  });
 }

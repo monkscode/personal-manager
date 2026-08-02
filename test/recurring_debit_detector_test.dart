@@ -342,6 +342,32 @@ void main() {
     });
   });
 
+  group('kRecurringDayOfMonthVarianceDays boundary', () {
+    // Same amount, same merchant, monthly gaps all inside (28, 33) — the only
+    // variable is how far the day of month drifts across the three debits.
+    List<RecurringCommitment> detectOnDays(List<int> days) => detect([
+      for (var i = 0; i < days.length; i++)
+        debit(
+          date: DateTime(2026, 1 + i, days[i]),
+          amountPaise: 500000,
+          smsId: 'sms:$i',
+        ),
+    ]);
+
+    test('a drift of exactly the variance window still locks', () {
+      // circularDaySpread([10, 12, 14]) == 4.
+      final result = detectOnDays([10, 12, 14]);
+
+      expect(result, hasLength(1));
+      expect(result.single.cadence, RecurringCadence.monthly);
+    });
+
+    test('one day wider than the window does not lock', () {
+      // circularDaySpread([10, 12, 15]) == 5.
+      expect(detectOnDays([10, 12, 15]), isEmpty);
+    });
+  });
+
   group('named constants', () {
     test('encode the spec §3 thresholds', () {
       expect(kRecurringMinOccurrences, 3);

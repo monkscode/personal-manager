@@ -377,6 +377,126 @@ void main() {
       expect(saved.dueDay, 12);
     });
 
+    group('a rescan that drops a derived field clears it (M8)', () {
+      // `copyWith` resolves every argument with `?? this.x`, so it cannot carry
+      // a null across. An obligation that *loses* its due date — the Gmail bill
+      // is reissued without one, or a re-parse no longer finds it — kept the
+      // stale date forever and the forecast went on dating an event that had no
+      // date any more.
+      test('a due date that disappears is not resurrected', () async {
+        final repository = await openRepository();
+
+        await repository.upsert(
+          obligation(dueDate: DateTime(2026, 8, 15)),
+          now: DateTime(2026, 7, 22),
+        );
+        await repository.upsert(
+          obligation(dueDate: null),
+          now: DateTime(2026, 7, 23),
+        );
+
+        final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+        expect(saved!.dueDate, isNull);
+        expect(saved.dueDay, isNull);
+      });
+
+      test('an amount that disappears is not resurrected', () async {
+        final repository = await openRepository();
+
+        await repository.upsert(obligation(), now: DateTime(2026, 7, 22));
+        await repository.upsert(
+          obligation(amountPaise: null, amountStatus: AmountStatus.missing),
+          now: DateTime(2026, 7, 23),
+        );
+
+        final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+        expect(saved!.amountPaise, isNull);
+        expect(saved.amountStatus, AmountStatus.missing);
+      });
+
+      test('user intent is still preserved across the same rescan', () async {
+        // TASK-02's guarantee must survive the change: the preserved set is now
+        // written out explicitly rather than expressed by omission.
+        final repository = await openRepository();
+
+        await repository.upsert(
+          obligation(
+            dueDate: DateTime(2026, 8, 15),
+            reviewStatus: ObligationReviewStatus.dismissed,
+            userCadenceStatus: UserCadenceStatus.userDismissed,
+            paymentStatus: ReconciliationPaymentStatus.partial,
+            amountPaidPaise: 2000000,
+            outstandingPaise: 2700000,
+          ),
+          now: DateTime(2026, 7, 22),
+        );
+        await repository.upsert(
+          obligation(
+            dueDate: null,
+            reviewStatus: ObligationReviewStatus.confirmed,
+            userCadenceStatus: UserCadenceStatus.algorithmDetected,
+            paymentStatus: ReconciliationPaymentStatus.unpaid,
+          ),
+          now: DateTime(2026, 7, 23),
+        );
+
+        final saved = await repository.byDedupeKey('gmail:lic:2026-08');
+        expect(saved!.dueDate, isNull);
+        expect(saved.reviewStatus, ObligationReviewStatus.dismissed);
+        expect(saved.userCadenceStatus, UserCadenceStatus.userDismissed);
+        expect(saved.paymentStatus, ReconciliationPaymentStatus.partial);
+        expect(saved.amountPaidPaise, 2000000);
+        expect(saved.outstandingPaise, 2700000);
+      });
+    });
+
+    group('ObligationRecord invariants are development-only (M10)', () {
+      // Recorded decision, not a guarantee. `amountPaise >= 0`, `confidence in
+      // [0, 1]` and `reserveFundedPaise >= 0` are `assert`s, so they hold in
+      // debug and profile builds and are stripped from release. The obligations
+      // table carries no CHECK constraint behind them either, and `_fromRow`
+      // passes column values straight into the constructor — so in release a
+      // corrupt row is hydrated as-is.
+      //
+      // Not promoted to real throws: `_fromRow` is on the read path, and one
+      // bad row raising would blank the whole obligation list — the exact
+      // failure mode M4 removed from the forecast. If a production guarantee is
+      // ever wanted it must degrade the row to review, never throw.
+      //
+      // These pin that the checks exist *as asserts*. Converting one to a real
+      // check must fail here and force the decision to be revisited.
+      test('a negative amount trips an assert rather than a check', () {
+        expect(
+          () => obligation(amountPaise: -1),
+          throwsA(isA<AssertionError>()),
+        );
+      });
+
+      test('an out-of-range confidence trips an assert', () {
+        expect(
+          () => ObligationRecord(
+            sourceType: ObligationSourceType.gmail,
+            dedupeKey: 'k',
+            merchant: 'LIC',
+            merchantNorm: 'lic',
+            categoryKey: 'insurance',
+            amountStatus: AmountStatus.missing,
+            recurrence: ReconciliationRecurrence.annual,
+            paymentAccountScope: AccountScope.unknown,
+            paymentStatus: ReconciliationPaymentStatus.unpaid,
+            nextExpectedSource: NextExpectedSource.unknown,
+            payeeType: PayeeType.merchant,
+            userCadenceStatus: UserCadenceStatus.algorithmDetected,
+            confidence: 1.7,
+            reviewStatus: ObligationReviewStatus.needsReview,
+            createdAt: DateTime(2026, 7, 9),
+            updatedAt: DateTime(2026, 7, 9),
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+      });
+    });
+
     test('a failure part-way through a legacy import commits nothing', () async {
       final repository = await openRepository();
       const good = ExpenseEntry(
