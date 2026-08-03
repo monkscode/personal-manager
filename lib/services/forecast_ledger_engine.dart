@@ -11,6 +11,11 @@ class ForecastLedgerEngine {
   static const _carryForwardDecayPerMonth = 0.1;
   static const _carryForwardMinConfidence = 0.2;
 
+  /// Opening confidence for a month that opens on a fabricated anchor. There is
+  /// no evidence to decay from, so it does not decay — it is zero at every
+  /// offset (TASK-22).
+  static const _noEvidenceConfidence = 0.0;
+
   List<ForecastMonthResult> buildRollingMonths({
     required DateTime firstMonth,
     required int monthCount,
@@ -54,6 +59,9 @@ class ForecastLedgerEngine {
         asOf: nextMonth.subtract(const Duration(microseconds: 1)),
         accountLast4: anchor.accountLast4,
         source: BalanceAnchorSource.projectedCarryForward,
+        // A close projected from an evidence-free opening is no more evidenced
+        // than the opening was.
+        hasEvidence: anchor.hasEvidence,
       );
     }
     return List.unmodifiable(results);
@@ -78,7 +86,11 @@ class ForecastLedgerEngine {
     // coverage line (a projection is not a stale balance to reconfirm).
     final isProjection =
         anchor.source == BalanceAnchorSource.projectedCarryForward;
-    final openingConfidence = isProjection
+    // A fabricated anchor is not a carry-forward from anything: it must not
+    // borrow the carry-forward's 0.9 (TASK-22).
+    final openingConfidence = !anchor.hasEvidence
+        ? _noEvidenceConfidence
+        : isProjection
         ? _carryForwardConfidence(offset)
         : switch (anchorFreshness) {
             AnchorFreshness.current => 1.0,
@@ -149,7 +161,15 @@ class ForecastLedgerEngine {
     }
 
     final resolvedCoverageLines = [
-      if (!isProjection && anchorFreshness == AnchorFreshness.stale)
+      if (!anchor.hasEvidence)
+        ForecastCoverageLine(
+          label: 'No balance reading yet',
+          reason: CoverageReason.noBalanceEvidence,
+          action: CoverageAction.confirmBalance,
+          confidence: 1,
+          ownerKey: 'anchor:${anchor.accountLast4 ?? 'primary'}',
+        )
+      else if (!isProjection && anchorFreshness == AnchorFreshness.stale)
         ForecastCoverageLine(
           label: 'Balance anchor is stale',
           reason: CoverageReason.staleAnchor,
@@ -180,6 +200,12 @@ class ForecastLedgerEngine {
     BalanceAnchor anchor,
   ) {
     if (!_sameMonth(event.date, targetMonth)) return false;
+    // A balance that was never read reflects nothing, so every event in the
+    // month is still ahead of it. Without this, the fabricated anchor — dated
+    // at the start of the target month — swallows every first-of-month rent,
+    // EMI and salary into "already in the anchor" and they never move the
+    // ledger at all (TASK-22).
+    if (!anchor.hasEvidence) return true;
     return event.date.isAfter(anchor.asOf);
   }
 
@@ -189,6 +215,7 @@ class ForecastLedgerEngine {
     BalanceAnchor anchor,
   ) {
     if (!_sameMonth(event.date, targetMonth)) return false;
+    if (!anchor.hasEvidence) return false;
     return !event.date.isAfter(anchor.asOf);
   }
 

@@ -1473,6 +1473,8 @@ void main() {
       },
     );
   });
+
+  _task22();
 }
 
 // ---------------------------------------------------------------------------
@@ -1600,6 +1602,113 @@ void _task21() {
         (l) => l.reason == CoverageReason.discretionaryNotModelled,
       );
       expect(line.amountPaise, discretionaryPaise);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TASK-22 — the manual balance is parsed as integer paise, and an anchor the
+// app has never observed is never presented as evidence.
+// ---------------------------------------------------------------------------
+
+void _task22() {
+  ForecastOutlook buildWithBalance(String balance) => _build(
+    _snap(items: const []),
+    state: _state.copyWith(currentBalance: balance),
+  );
+
+  group('TASK-22 — the manual balance anchor is parsed as integer paise', () {
+    test('accepts Indian digit grouping instead of dropping the anchor', () {
+      final outlook = buildWithBalance('1,20,000');
+
+      expect(outlook.anchor.source, BalanceAnchorSource.manualUserEntry);
+      expect(outlook.openingBalancePaise, 12000000);
+    });
+
+    test('rounds the third decimal up rather than down through a double', () {
+      // ₹40,000.005: `40000.005 * 100` is 4000000.4999999995 as a double and
+      // rounds *down*, losing a paise. (The task file's original example,
+      // 47000.005, happens to land exactly on 4700000.5 and rounds the same
+      // way both ways — it does not demonstrate the defect.)
+      final outlook = buildWithBalance('40000.005');
+
+      expect(outlook.anchor.source, BalanceAnchorSource.manualUserEntry);
+      expect(outlook.openingBalancePaise, 4000001);
+    });
+
+    test('rejects scientific notation instead of reading it as a billion '
+        'rupees', () {
+      final outlook = buildWithBalance('1e9');
+
+      expect(outlook.anchor.source, isNot(BalanceAnchorSource.manualUserEntry));
+      expect(outlook.openingBalancePaise, 0);
+    });
+
+    test('still tolerates surrounding whitespace (guard)', () {
+      final outlook = buildWithBalance('  50000  ');
+
+      expect(outlook.anchor.source, BalanceAnchorSource.manualUserEntry);
+      expect(outlook.openingBalancePaise, 5000000);
+    });
+  });
+
+  group('TASK-22 — an anchor with no evidence behind it', () {
+    test('is provisional, is not 0.9-confident, and says so', () {
+      // No SMS balance and no manual balance: the adapter fabricates a ₹0
+      // anchor dated at the start of the target month, which on 1 Aug is one
+      // day old and therefore reads as `current`.
+      final outlook = _build(_snap(items: const []));
+
+      expect(outlook.anchor.hasEvidence, isFalse);
+      expect(outlook.isProvisional, isTrue);
+      expect(outlook.anchorConfirmLabel, isNotEmpty);
+
+      final opening = outlook.months.first.lines.singleWhere(
+        (line) => line.status == ForecastLineStatus.opening,
+      );
+      expect(opening.confidence, isNot(0.9));
+
+      expect(
+        outlook.months.first.coverageLines.where(
+          (line) => line.action == CoverageAction.confirmBalance,
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('a real fresh SMS anchor stays non-provisional (guard)', () {
+      final outlook = _build(
+        _snap(anchor: _anchor(500000, DateTime(2026, 8, 1)), items: const []),
+      );
+
+      expect(outlook.anchor.hasEvidence, isTrue);
+      expect(outlook.isProvisional, isFalse);
+      expect(
+        outlook.months.first.coverageLines.where(
+          (line) => line.action == CoverageAction.confirmBalance,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('cannot swallow a first-of-month obligation as already paid', () {
+      // Rent due on the 1st, unpaid, no matching debit. The fabricated anchor
+      // is dated 1 Aug 00:00, so `!dueDate.isAfter(anchor.asOf)` holds and the
+      // item is classified `possiblyAlreadyPaid` against a balance that was
+      // never observed — the forecast then omits money the user still owes.
+      final outlook = _build(
+        _snap(
+          items: [_outflow('rent', 'Rent', 1800000, DateTime(2026, 8, 1))],
+        ),
+      );
+
+      expect(
+        outlook.coverageLines.where(
+          (line) => line.reason == CoverageReason.possiblyAlreadyPaid,
+        ),
+        isEmpty,
+      );
+      expect(outlook.closingBalancePaise, lessThanOrEqualTo(-1800000));
     });
   });
 }

@@ -493,6 +493,7 @@ class WhyLogScreen extends StatelessWidget {
   String _reasonLabel(CoverageReason r) => switch (r) {
     CoverageReason.untrackedCash => "Cash spending we can't see",
     CoverageReason.staleAnchor => 'Your balance may be out of date',
+    CoverageReason.noBalanceEvidence => "We haven't seen your balance yet",
     CoverageReason.outOfPrimaryScope => 'On another account',
     CoverageReason.unscheduledObligation => 'No due date yet',
     CoverageReason.reviewNeeded => 'Needs review',

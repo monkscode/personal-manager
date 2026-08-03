@@ -314,7 +314,15 @@ class ForecastReconciliationEngine {
       return;
     }
 
-    if (item.actualDate == null &&
+    // Spec §7: do not presume a past-due obligation was paid unless there is a
+    // *safe* balance anchor after the due date. The fabricated ₹0 anchor is
+    // dated but carries no evidence, so measuring against it swallows
+    // everything the user still owes into "possibly already paid" and drops it
+    // from the forecast entirely (TASK-22).
+    final anchorIsSafe = anchor.hasEvidence;
+
+    if (anchorIsSafe &&
+        item.actualDate == null &&
         item.dueDate != null &&
         !item.dueDate!.isAfter(anchor.asOf) &&
         item.paymentStatus == ReconciliationPaymentStatus.unpaid) {
@@ -331,7 +339,9 @@ class ForecastReconciliationEngine {
       return;
     }
 
-    if (!eventDate.isAfter(anchor.asOf)) {
+    // Same root cause: nothing can already be reflected in a balance the app
+    // has never read, so an evidence-free anchor absorbs nothing either.
+    if (anchorIsSafe && !eventDate.isAfter(anchor.asOf)) {
       assignments.add(
         OwnedForecastItem(
           itemId: item.id,

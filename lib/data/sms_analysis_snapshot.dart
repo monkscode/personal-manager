@@ -218,6 +218,7 @@ class SmsAnalysisSnapshot {
           amountPaise: 0,
           asOf: now,
           source: BalanceAnchorSource.projectedCarryForward,
+          hasEvidence: false,
         );
     final reconciliationItems = const ReconciliationMatcher().buildItems(
       actuals: currentMonthTxns,

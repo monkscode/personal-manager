@@ -288,4 +288,119 @@ void main() {
       expect(deepest, 0.2);
     });
   });
+
+  _task22();
+}
+
+// ---------------------------------------------------------------------------
+// TASK-22 — an anchor with no evidence behind it covers nothing and is never
+// presented as confident.
+// ---------------------------------------------------------------------------
+
+void _task22() {
+  BalanceAnchor fabricated({DateTime? asOf}) => BalanceAnchor(
+    amountPaise: 0,
+    asOf: asOf ?? DateTime(2026, 8),
+    source: BalanceAnchorSource.projectedCarryForward,
+    hasEvidence: false,
+  );
+
+  double openingConfidence(ForecastMonthResult r) => r.lines
+      .firstWhere((line) => line.status == ForecastLineStatus.opening)
+      .confidence;
+
+  group('TASK-22 — ForecastLedgerEngine and evidence-free anchors', () {
+    test('does not stamp a fabricated opening with carry-forward confidence',
+        () {
+      final result = const ForecastLedgerEngine().buildMonth(
+        targetMonth: DateTime(2026, 8),
+        anchor: fabricated(),
+        now: DateTime(2026, 8),
+        events: const [],
+      );
+
+      expect(openingConfidence(result), isNot(0.9));
+      expect(
+        result.coverageLines.where(
+          (line) => line.action == CoverageAction.confirmBalance,
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('cannot treat an event as already inside a balance it never read', () {
+      // The fabricated anchor is dated at the start of the month, so a rent
+      // debit dated the 1st is `!isAfter(anchor.asOf)` and is bucketed as
+      // "already reflected in the balance anchor" — against ₹0 that was never
+      // observed. The rupee leaves the ledger without ever being subtracted.
+      final result = const ForecastLedgerEngine().buildMonth(
+        targetMonth: DateTime(2026, 8),
+        anchor: fabricated(),
+        now: DateTime(2026, 8),
+        events: [
+          ForecastEvent(
+            date: DateTime(2026, 8),
+            amountPaise: 1800000,
+            direction: LedgerDirection.outflow,
+            source: ForecastEventSource.gmailBill,
+            ownerKey: 'gmail:rent-aug',
+            label: 'Rent',
+            confidence: 1,
+          ),
+        ],
+      );
+
+      expect(
+        result.lines.where(
+          (line) => line.status == ForecastLineStatus.alreadyInAnchor,
+        ),
+        isEmpty,
+      );
+      expect(result.closingBalancePaise, -1800000);
+    });
+
+    test('carries the absence of evidence into every projected month', () {
+      final results = const ForecastLedgerEngine().buildRollingMonths(
+        firstMonth: DateTime(2026, 8),
+        monthCount: 4,
+        anchor: fabricated(),
+        now: DateTime(2026, 8),
+        events: const [],
+      );
+
+      for (final result in results) {
+        expect(result.anchor.hasEvidence, isFalse);
+        expect(openingConfidence(result), isNot(0.9));
+        expect(
+          result.coverageLines.where(
+            (line) => line.action == CoverageAction.confirmBalance,
+          ),
+          isNotEmpty,
+          reason: 'every evidence-free month must name what it is missing',
+        );
+      }
+    });
+
+    test('a real carried-forward anchor still opens at 0.9 (guard)', () {
+      final result = const ForecastLedgerEngine().buildMonth(
+        targetMonth: DateTime(2026, 8),
+        anchor: BalanceAnchor(
+          amountPaise: 1000000,
+          asOf: DateTime(2026, 7, 31, 23, 59),
+          accountLast4: '1234',
+          source: BalanceAnchorSource.projectedCarryForward,
+        ),
+        now: DateTime(2026, 8),
+        events: const [],
+      );
+
+      expect(openingConfidence(result), 0.9);
+      expect(
+        result.coverageLines.where(
+          (line) => line.action == CoverageAction.confirmBalance,
+        ),
+        isEmpty,
+      );
+    });
+  });
 }

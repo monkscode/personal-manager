@@ -56,6 +56,12 @@ enum CoverageReason {
   /// or a dropped duplicate is indistinguishable from money that vanished.
   duplicateSuppressed,
 
+  /// The forecast is opening on a fabricated ₹0 anchor because no bank SMS and
+  /// no manual entry have ever supplied a balance. Distinct from
+  /// [staleAnchor], which reports a real reading that has gone out of date
+  /// (TASK-22).
+  noBalanceEvidence,
+
   /// This month's everyday spending is not in the ledger — either there is no
   /// seasonal estimate for it, or the estimate was too weak to be treated as a
   /// hard event. Without this line a horizon month models rent and EMIs against
@@ -95,12 +101,23 @@ class BalanceAnchor {
     required this.asOf,
     required this.source,
     this.accountLast4,
+    this.hasEvidence = true,
   });
 
   final int amountPaise;
   final DateTime asOf;
   final String? accountLast4;
   final BalanceAnchorSource source;
+
+  /// Whether this anchor traces back to an observed balance — an SMS reading or
+  /// a number the user typed. `false` marks the fabricated ₹0 fallback the
+  /// forecast synthesises when there is no balance evidence at all, and it must
+  /// propagate to every month carried forward from it.
+  ///
+  /// An evidence-free anchor covers nothing: no amount may be treated as
+  /// already reflected in it, and no month opening on it may read as confident
+  /// (TASK-22).
+  final bool hasEvidence;
 
   AnchorFreshness freshnessAsOf(DateTime now) {
     final anchorDay = DateTime(asOf.year, asOf.month, asOf.day);

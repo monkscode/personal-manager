@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../core/format.dart';
+import '../core/money.dart';
 import '../data/app_state.dart';
 import '../data/forecast_models.dart';
 import '../data/forecast_risk_models.dart';
@@ -210,7 +211,11 @@ class ForecastAdapter {
 
     // 4. Derive the headline drivers.
     final salaryMissing = _isSalaryMissing(state, snapshot, month0);
-    final isProvisional = month0.anchorFreshness == AnchorFreshness.stale;
+    // An anchor the app has never observed is provisional whatever its date:
+    // the fabricated fallback is stamped with the start of the target month,
+    // which reads as `current` for the first six days of every month (TASK-22).
+    final isProvisional =
+        !anchor.hasEvidence || month0.anchorFreshness == AnchorFreshness.stale;
     final seasonalBuffer = _isSeasonalBufferShortfall(month0);
     final salaryStrip = _salaryStrip(month0);
     final forwardEarmarks = _forwardEarmarks(reconciliation);
@@ -265,6 +270,7 @@ class ForecastAdapter {
           amountPaise: 0,
           asOf: targetMonth,
           source: BalanceAnchorSource.projectedCarryForward,
+          hasEvidence: false,
         );
   }
 
@@ -273,10 +279,14 @@ class ForecastAdapter {
   /// but on the same calendar day the SMS bank balance wins (AnchorSelector's
   /// tie rule / spec "positive bank evidence").
   BalanceAnchor? _manualAnchor(AppState state, DateTime now) {
-    final rupees = double.tryParse(state.currentBalance.trim());
-    if (rupees == null || rupees <= 0) return null;
+    // MoneyParser, not `double.tryParse`: Indian digit grouping ("1,20,000") is
+    // how a user actually types a balance and a double drops the anchor
+    // entirely, while a double multiply loses a paise on inputs like
+    // "40000.005" and accepts "1e9" as a billion rupees (TASK-22).
+    final paise = MoneyParser.tryParseRupeesToPaise(state.currentBalance);
+    if (paise == null || paise <= 0) return null;
     return BalanceAnchor(
-      amountPaise: (rupees * 100).round(),
+      amountPaise: paise,
       asOf: DateTime(now.year, now.month, now.day),
       source: BalanceAnchorSource.manualUserEntry,
     );

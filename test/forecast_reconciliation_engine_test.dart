@@ -1027,4 +1027,95 @@ void main() {
       );
     });
   });
+
+  _task22();
+}
+
+// ---------------------------------------------------------------------------
+// TASK-22 — "possibly already paid" needs a *safe* anchor, not merely a dated
+// one. The forecast fabricates a ₹0 anchor when there is no balance evidence
+// at all; measuring an obligation against it silently drops what the user owes.
+// ---------------------------------------------------------------------------
+
+void _task22() {
+  ReconciliationItem unpaidRent(DateTime dueDate) => ReconciliationItem(
+    id: 'rent',
+    label: 'Rent',
+    amountPaise: 1800000,
+    direction: LedgerDirection.outflow,
+    owner: ForecastOwner.recurringCommitment,
+    source: ForecastItemSource.sms,
+    dueDate: dueDate,
+    paymentStatus: ReconciliationPaymentStatus.unpaid,
+    confidence: 0.9,
+    matchKey: 'match:rent',
+  );
+
+  ForecastReconciliationResult run(BalanceAnchor anchor, DateTime now) {
+    final items = [unpaidRent(DateTime(2026, 8, 3))];
+    final result = const ForecastReconciliationEngine().reconcileMonth(
+      targetMonth: DateTime(2026, 8),
+      anchor: anchor,
+      items: items,
+      now: now,
+    );
+    expectRupeeConservation(result, items);
+    return result;
+  }
+
+  bool isPossiblyPaid(ForecastReconciliationResult r) => r.coverageLines.any(
+    (line) => line.reason == CoverageReason.possiblyAlreadyPaid,
+  );
+
+  group('TASK-22 — possiblyAlreadyPaid requires a safe anchor', () {
+    test('an evidence-free anchor keeps an overdue obligation dated', () {
+      final result = run(
+        BalanceAnchor(
+          amountPaise: 0,
+          asOf: DateTime(2026, 8, 20),
+          source: BalanceAnchorSource.projectedCarryForward,
+          hasEvidence: false,
+        ),
+        DateTime(2026, 8, 20),
+      );
+
+      expect(isPossiblyPaid(result), isFalse);
+      expect(
+        result.assignments.single.coverageBucket,
+        CoverageBucket.datedEvent,
+      );
+      expect(result.events.single.amountPaise, 1800000);
+    });
+
+    test('a real anchor dated after the due date still absorbs it (guard)', () {
+      final result = run(
+        BalanceAnchor(
+          amountPaise: 10000000,
+          asOf: DateTime(2026, 8, 20),
+          source: BalanceAnchorSource.smsBankBalance,
+        ),
+        DateTime(2026, 8, 20),
+      );
+
+      expect(isPossiblyPaid(result), isTrue);
+    });
+
+    test('a stale real anchor still absorbs it — recorded decision', () {
+      // Decision: only *absent* evidence disqualifies an anchor here. A stale
+      // SMS balance is still a balance the bank reported after the due date,
+      // so re-subtracting the obligation would risk double-counting something
+      // the user has already paid. Staleness is reported by the ledger's own
+      // `staleAnchor` coverage line instead.
+      final result = run(
+        BalanceAnchor(
+          amountPaise: 10000000,
+          asOf: DateTime(2026, 8, 5),
+          source: BalanceAnchorSource.smsBankBalance,
+        ),
+        DateTime(2026, 8, 25), // 20 days old => stale
+      );
+
+      expect(isPossiblyPaid(result), isTrue);
+    });
+  });
 }
