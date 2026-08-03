@@ -24,6 +24,7 @@ class ScanRunResult {
     required this.collisionSets,
     required this.obligationCandidates,
     this.refreshedParse = 0,
+    this.skippedMessages = 0,
   });
 
   factory ScanRunResult.noOp(SmsScanStatus status) => ScanRunResult(
@@ -52,7 +53,17 @@ class ScanRunResult {
   /// which is the same message re-seen with nothing to correct.
   final int refreshedParse;
 
+  /// Inbox messages the reader counted but never read, carried through from
+  /// [SmsScanOutcome.skippedCount]. Non-zero means this run saw less than the
+  /// user's history contains, and the UI must say so rather than present the
+  /// result as a full picture (TASK-33).
+  final int skippedMessages;
+
   bool get isSuccess => status == SmsScanStatus.success;
+
+  /// Whether this run actually covered the whole inbox. A scan that could not
+  /// read at all is not complete either, so a no-op never claims coverage.
+  bool get isComplete => isSuccess && skippedMessages == 0;
 }
 
 /// Seam for deriving recurring obligation candidates from a scan's persisted
@@ -215,6 +226,7 @@ class SmsScanOrchestrator {
       collisionSets: collisionSetIds.length,
       obligationCandidates: candidates.length,
       refreshedParse: refreshedParse,
+      skippedMessages: outcome.skippedCount,
     );
   }
 }

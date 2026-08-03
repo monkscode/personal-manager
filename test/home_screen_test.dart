@@ -5,6 +5,8 @@ import 'package:expense_insight/data/forecast_models.dart';
 import 'package:expense_insight/data/insights.dart';
 import 'package:expense_insight/data/models.dart';
 import 'package:expense_insight/data/sms_analysis_snapshot.dart';
+import 'package:expense_insight/data/sms_models.dart';
+import 'package:expense_insight/services/sms_scan_orchestrator.dart';
 import 'package:expense_insight/features/app/home_forecast_explorer.dart';
 import 'package:expense_insight/features/app/home_screen.dart';
 import 'package:expense_insight/services/cash_coverage_metrics.dart';
@@ -153,7 +155,44 @@ Future<void> _pumpHome(WidgetTester tester, Insights i) async {
   await tester.pump();
 }
 
+ScanRunResult _scanResult({
+  int skippedMessages = 0,
+  SmsScanStatus status = SmsScanStatus.success,
+}) => ScanRunResult(
+  status: status,
+  scanBatchId: 'scan:test',
+  parsed: 3,
+  autoAdded: 3,
+  queuedReview: 0,
+  skippedDuplicate: 0,
+  collisionSets: 0,
+  obligationCandidates: 0,
+  skippedMessages: skippedMessages,
+);
+
 void main() {
+  group('a partial scan is named to the user (TASK-33)', () {
+    test('a complete scan says nothing about coverage', () {
+      expect(scanShortfallMessage(_scanResult()), isNull);
+    });
+
+    test('a truncated scan names how many messages went unread', () {
+      final message = scanShortfallMessage(_scanResult(skippedMessages: 1500));
+
+      expect(message, isNotNull);
+      expect(message, contains('1,500'));
+    });
+
+    test('a scan that could not read at all makes no coverage claim', () {
+      expect(
+        scanShortfallMessage(
+          _scanResult(status: SmsScanStatus.permissionDenied),
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('HomeScreen (live)', () {
     testWidgets('renders the spend summary and no forecast explorer', (
       tester,

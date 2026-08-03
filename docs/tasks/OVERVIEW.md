@@ -19,7 +19,16 @@ owner per rupee" that nobody reading the source had caught.
 keeping: the fix was correct and the on-device numbers still did not add up, and chasing
 that 11-row gap surfaced a Critical silent exclusion in the reader. Do not stop at "the
 tests pass and the number improved" — reconcile the device numbers exactly, and treat a
-remainder you cannot explain as a finding rather than as noise.
+remainder you cannot explain as a finding rather than as noise. Fixing it took the stored
+history from 387 rows starting in Nov 2025 to 2,058 rows starting in Oct 2018, so **every
+measurement taken before 2026-08-03 was taken against half the analysis window**. Re-measure
+rather than trusting a number quoted in an earlier task file.
+
+**A task file's own premises are evidence, not fact.** TASK-31, TASK-32 and TASK-33 each
+turned out to contain a premise that did not survive being checked against the source or
+the device — including, in TASK-33, all three of the mechanism, the trigger and the measured
+severity, while its headline defect was entirely real. Each file records the corrections
+inline. Check the quoted code before building on it.
 
 Each task file is self-contained: it states the defect, a concrete failing scenario,
 the required fix, the tests to write, and a definition of done. One agent should be
@@ -79,7 +88,7 @@ earlier fixes exist.
 | [TASK-30](TASK-30-reparse-stored-rows.md) | A parser fix never reaches already-stored rows (210 of 383 stale) | Critical |
 | [TASK-31](TASK-31-ownerless-merchant-formats.md) | ACH/NACH/Axis/ATM payees unread — 79 rows, 34% of value, ownerless | Important |
 | [TASK-32](TASK-32-mandate-prenotification-double-count.md) | Future-tense notices stored as completed debits (30 rows, ₹86,304) | Critical |
-| [TASK-33](TASK-33-scan-reads-only-newest-1000-sms.md) | A scan reads only the newest ~1,000 SMS and reports success | Critical |
+| [TASK-33](TASK-33-scan-reads-only-newest-1000-sms.md) | A scan reads only the newest 1,000 SMS and reports success | Critical |
 
 ### Phase 2 — Reconciliation
 

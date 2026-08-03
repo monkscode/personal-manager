@@ -6,6 +6,10 @@ final NumberFormat _inrGrouping = NumberFormat.decimalPattern('en_IN');
 /// Mirrors the design's `INR = n => '₹' + Math.round(n).toLocaleString('en-IN')`.
 String inr(num n) => '₹${_inrGrouping.format(n.round())}';
 
+/// Formats a plain count with the same lakh-style grouping, without a currency
+/// mark — e.g. `1,500`. For things that are counted rather than owed.
+String grouped(int n) => _inrGrouping.format(n);
+
 /// Up to two-letter avatar initials from a display name, e.g. "Dhruvil Vyas" → "DV".
 String initials(String name) {
   final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();

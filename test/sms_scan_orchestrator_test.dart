@@ -171,6 +171,42 @@ void main() {
     });
   });
 
+  group('a partial read is carried through, never flattened (TASK-33)', () {
+    test('the run reports how many messages the reader never saw', () async {
+      final result = await orchestrator().run(
+        outcome: SmsScanOutcome.success(const [], skippedCount: 1500),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: true,
+        bodyHashSalt: 'salt',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.skippedMessages, 1500);
+      expect(result.isComplete, isFalse);
+    });
+
+    test('a complete read reports nothing skipped', () async {
+      final result = await orchestrator().run(
+        outcome: SmsScanOutcome.success(const []),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: true,
+        bodyHashSalt: 'salt',
+      );
+
+      expect(result.skippedMessages, 0);
+      expect(result.isComplete, isTrue);
+    });
+
+    test('a no-op claims no coverage it does not have', () async {
+      final result = ScanRunResult.noOp(SmsScanStatus.permissionDenied);
+
+      expect(result.skippedMessages, 0);
+      expect(result.isComplete, isFalse);
+    });
+  });
+
   group('non-success outcomes', () {
     test('return a typed no-op and never touch the database', () async {
       final result = await orchestrator().run(

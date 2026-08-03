@@ -20,13 +20,33 @@ class SmsScanOutcome {
   const SmsScanOutcome._({
     required this.status,
     required this.messages,
+    this.skippedCount = 0,
     this.message,
   });
 
-  factory SmsScanOutcome.success(List<RawSms> messages) {
+  /// A scan that read every message the inbox offered.
+  ///
+  /// [skippedCount] is how many messages the scan knew about but never read —
+  /// normally zero. It exists because a truncated read may **not** be reported
+  /// as a plain success: the spec's "no silent exclusion" invariant requires
+  /// anything dropped to be nameable in a coverage line. TASK-33 is the case
+  /// that forced it — the reader was silently returning the newest 1,000
+  /// messages of an 11,596-message inbox and calling it a success.
+  factory SmsScanOutcome.success(
+    List<RawSms> messages, {
+    int skippedCount = 0,
+  }) {
+    if (skippedCount < 0) {
+      throw ArgumentError.value(
+        skippedCount,
+        'skippedCount',
+        'must not be negative',
+      );
+    }
     return SmsScanOutcome._(
       status: SmsScanStatus.success,
       messages: List.unmodifiable(messages),
+      skippedCount: skippedCount,
     );
   }
 
@@ -47,9 +67,17 @@ class SmsScanOutcome {
 
   final SmsScanStatus status;
   final List<RawSms> messages;
+
+  /// Messages counted in the inbox but never read. Non-zero means the result
+  /// is partial and must say so downstream.
+  final int skippedCount;
   final String? message;
 
   bool get isSuccess => status == SmsScanStatus.success;
+
+  /// Whether the scan read everything it counted. A successful scan can still
+  /// be incomplete; only both together mean "the whole inbox is in here".
+  bool get isComplete => skippedCount == 0;
 }
 
 class RawSms {

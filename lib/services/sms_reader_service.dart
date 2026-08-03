@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -118,7 +119,14 @@ class SmsReaderService {
         onProgress?.call(collected.length, total);
       }
 
-      return SmsScanOutcome.success(collected);
+      // Whatever the loop stopped on — a cancellation, or a page that came back
+      // empty before [total] was reached — the messages it never read are named
+      // rather than absorbed into a plain success (TASK-33).
+      final skipped = total - collected.length;
+      return SmsScanOutcome.success(
+        collected,
+        skippedCount: skipped > 0 ? skipped : 0,
+      );
     } catch (error) {
       return SmsScanOutcome.failure(
         SmsScanStatus.failed,
@@ -128,33 +136,73 @@ class SmsReaderService {
   }
 }
 
-/// Production [SmsInboxPort] backed by `flutter_sms_inbox`.
+/// Largest page the `flutter_sms_inbox` native handler will return from one
+/// call: `SmsQueryHandler.MAX_FALLBACK_QUERY_COUNT`, which clamps `count` to
+/// 1,000 rows. Asking for more silently yields 1,000, so the adapter pages at
+/// this size and never above it.
+const int kSmsNativePageLimit = 1000;
+
+/// Production [SmsInboxPort] backed by the `flutter_sms_inbox` **platform
+/// channel**, deliberately bypassing that package's `SmsQuery` Dart wrapper.
 ///
-/// `flutter_sms_inbox` exposes neither a cheap count nor a native date filter,
-/// so [count] pages through inbox metadata and [read] pages via `start`/`count`
-/// and filters by [since] in Dart. Because the inbox is ordered newest-first,
-/// a [since] lower bound selects a contiguous newest prefix, keeping batch
-/// offsets aligned with [count].
+/// The wrapper cannot page. It never forwards `start` to the platform at all —
+/// it asks the native side for `(start + count)` messages from the newest end
+/// and slices the first `start` off in Dart, having first clamped that request
+/// to its own `_maxQueryWindow = 1000`. Every call therefore addresses only the
+/// newest 1,000 messages, and any `start >= 1000` comes back empty no matter
+/// how large the inbox is. That is TASK-33: an 11,596-message inbox read as
+/// 1,000 messages, reported as a complete success.
+///
+/// The native handler behind the channel *does* implement `start` — it skips
+/// that many rows of the provider's newest-first cursor — so talking to it
+/// directly restores real paging. The channel name and argument shape are
+/// `flutter_sms_inbox` internals; the package is pinned in `pubspec.lock`, and
+/// a rename would surface as a `MissingPluginException` and a failed scan
+/// rather than as another silent truncation.
+///
+/// The plugin exposes neither a cheap count nor a native date filter, so
+/// [count] pages the whole inbox and [read] filters by [since] in Dart. Because
+/// the inbox is ordered newest-first, a [since] lower bound selects a
+/// contiguous newest prefix, keeping batch offsets aligned with [count].
 class FlutterSmsInboxAdapter implements SmsInboxPort {
-  FlutterSmsInboxAdapter({SmsQuery? query, this.pageSize = 1000})
-    : _query = query ?? SmsQuery();
+  FlutterSmsInboxAdapter({int pageSize = kSmsNativePageLimit})
+    : pageSize = pageSize <= 0 || pageSize > kSmsNativePageLimit
+          ? kSmsNativePageLimit
+          : pageSize;
 
-  static const List<SmsQueryKind> _inboxKind = [SmsQueryKind.inbox];
+  /// The `flutter_sms_inbox` query channel. Its codec must match the plugin's
+  /// (`JSONMethodCodec`) or the platform side cannot decode the arguments.
+  static const MethodChannel _channel = MethodChannel(
+    'plugins.juliusgithaiga.com/querySMS',
+    JSONMethodCodec(),
+  );
 
-  final SmsQuery _query;
   final int pageSize;
 
   @override
   Future<int> count({DateTime? since}) async {
     var total = 0;
     var start = 0;
+    int? previousFirstId;
     while (true) {
-      final page = await _query.querySms(
-        start: start,
-        count: pageSize,
-        kinds: _inboxKind,
-      );
+      final page = await _queryInbox(start: start, count: pageSize);
       if (page.isEmpty) break;
+
+      // A page that opens on the same message as the last one means `start` was
+      // not applied and this loop would never end. That is precisely the
+      // regression this adapter exists to undo, so it fails the scan rather
+      // than hanging or quietly counting the same window forever.
+      final firstId = page.first.id;
+      if (firstId != null && firstId == previousFirstId) {
+        throw PlatformException(
+          code: 'paging_unsupported',
+          message:
+              'getInbox ignored start=$start and returned the same page again; '
+              'the inbox cannot be paged and a scan would be silently partial.',
+        );
+      }
+      previousFirstId = firstId;
+
       total += since == null
           ? page.length
           : page.where((m) => _afterSince(m, since)).length;
@@ -170,15 +218,43 @@ class FlutterSmsInboxAdapter implements SmsInboxPort {
     required int offset,
     required int limit,
   }) async {
-    final page = await _query.querySms(
+    final page = await _queryInbox(
       start: offset,
-      count: limit,
-      kinds: _inboxKind,
+      count: limit > kSmsNativePageLimit ? kSmsNativePageLimit : limit,
     );
     final selected = since == null
         ? page
         : page.where((m) => _afterSince(m, since));
     return selected.map(_map).toList();
+  }
+
+  /// One `getInbox` call: rows `[start, start + count)` of the inbox, newest
+  /// first. Both arguments reach the platform, which is the whole point.
+  Future<List<SmsMessage>> _queryInbox({
+    required int start,
+    required int count,
+  }) async {
+    if (count <= 0) return const [];
+    final response = await _channel.invokeMethod<dynamic>('getInbox', {
+      'start': start < 0 ? 0 : start,
+      'count': count,
+    });
+    if (response is! List) {
+      throw PlatformException(
+        code: 'invalid_response',
+        message: 'Expected a list of SMS rows from getInbox, got $response',
+      );
+    }
+    return [
+      for (final row in response)
+        if (row is Map)
+          SmsMessage.fromJson(row)
+        else
+          throw PlatformException(
+            code: 'invalid_response',
+            message: 'Expected each SMS row to be a map, got $row',
+          ),
+    ];
   }
 
   static bool _afterSince(SmsMessage message, DateTime since) {

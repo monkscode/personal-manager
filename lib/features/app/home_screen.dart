@@ -8,6 +8,7 @@ import '../../data/insights.dart';
 import '../../data/scan_controller.dart';
 import '../../data/sms_models.dart';
 import '../../data/transactions_notifier.dart';
+import '../../services/sms_scan_orchestrator.dart';
 import '../../widgets/ui.dart';
 import 'about_sheet.dart';
 import 'scan_review_page.dart';
@@ -998,19 +999,41 @@ Future<void> _refreshFromSms(BuildContext context, WidgetRef ref) async {
     );
     return;
   }
+  // A scan that could not reach part of the inbox says so before it says
+  // anything else. Reporting "up to date" over a truncated read is exactly the
+  // silent exclusion the spec forbids (TASK-33).
+  final shortfall = scanShortfallMessage(result);
+  if (shortfall != null) {
+    messenger?.showSnackBar(SnackBar(content: Text(shortfall)));
+  }
   // Nothing new to confirm; the snapshot already refreshed inside scan().
   if (result.autoAdded == 0 && result.queuedReview == 0) {
-    messenger?.showSnackBar(
-      const SnackBar(
-        content: Text('You are up to date \u2014 no new messages.'),
-      ),
-    );
+    if (shortfall == null) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('You are up to date \u2014 no new messages.'),
+        ),
+      );
+    }
     return;
   }
   if (!context.mounted) return;
   await navigator.push(
     MaterialPageRoute(builder: (_) => const ScanReviewPage()),
   );
+}
+
+/// The sentence naming what a scan could not read, or null when it read
+/// everything it counted.
+///
+/// The spec's "no silent exclusion" invariant means a partial read may never be
+/// presented as a full one. A failed scan returns null because it makes no
+/// coverage claim at all — its own status message already says what happened.
+String? scanShortfallMessage(ScanRunResult result) {
+  if (!result.isSuccess || result.skippedMessages <= 0) return null;
+  final n = grouped(result.skippedMessages);
+  return "Couldn't read $n older messages — this scan doesn't cover your "
+      'full history.';
 }
 
 String _scanStatusMessage(SmsScanStatus status) => switch (status) {

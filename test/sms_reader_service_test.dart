@@ -43,6 +43,31 @@ class _FakeInbox implements SmsInboxPort {
   }
 }
 
+/// A port whose [count] sees the whole inbox but whose [read] goes empty after
+/// [servable] messages — the shape of any platform-side window the reader
+/// cannot page past. Stands in for a truncation the reader must *name* rather
+/// than absorb into a plain success (TASK-33).
+class _TruncatingInbox implements SmsInboxPort {
+  _TruncatingInbox({required this.total, required this.servable});
+
+  final int total;
+  final int servable;
+
+  @override
+  Future<int> count({DateTime? since}) async => total;
+
+  @override
+  Future<List<RawSms>> read({
+    DateTime? since,
+    required int offset,
+    required int limit,
+  }) async {
+    if (offset >= servable) return const [];
+    final end = (offset + limit) > servable ? servable : offset + limit;
+    return [for (var i = offset; i < end; i++) _sms('m$i')];
+  }
+}
+
 class _FakePermission implements SmsPermissionPort {
   _FakePermission(this.state);
 
@@ -179,6 +204,48 @@ void main() {
     });
   });
 
+  group('truncated reads are named, never absorbed (TASK-33)', () {
+    test('a page that goes empty before total reports the shortfall', () async {
+      final inbox = _TruncatingInbox(total: 2500, servable: 1000);
+      final permission = _FakePermission(SmsPermissionState.granted);
+      final service = SmsReaderService(
+        inbox: inbox,
+        permission: permission,
+        isAndroid: true,
+        batchSize: 250,
+      );
+
+      final outcome = await service.scan();
+
+      expect(outcome.messages, hasLength(1000));
+      expect(outcome.skippedCount, 1500);
+      expect(outcome.isComplete, isFalse);
+    });
+
+    test('a complete read reports no shortfall', () async {
+      final inbox = _FakeInbox([_sms('a'), _sms('b'), _sms('c')]);
+      final permission = _FakePermission(SmsPermissionState.granted);
+      final service = _service(inbox: inbox, permission: permission);
+
+      final outcome = await service.scan();
+
+      expect(outcome.messages, hasLength(3));
+      expect(outcome.skippedCount, 0);
+      expect(outcome.isComplete, isTrue);
+    });
+
+    test('a failure carries no shortfall to mistake for a partial read', () async {
+      final inbox = _FakeInbox([_sms('a')])..throwOnRead = StateError('boom');
+      final permission = _FakePermission(SmsPermissionState.granted);
+      final service = _service(inbox: inbox, permission: permission);
+
+      final outcome = await service.scan();
+
+      expect(outcome.status, SmsScanStatus.failed);
+      expect(outcome.skippedCount, 0);
+    });
+  });
+
   group('cancellation', () {
     test('stops early and reports partial progress', () async {
       final inbox = _FakeInbox([
@@ -203,6 +270,26 @@ void main() {
       expect(outcome.messages.map((m) => m.body).toList(), ['a', 'b']);
       expect(inbox.readOffsets, [0]);
       expect(progress.last, [2, 6]);
+    });
+
+    test('a cancelled scan names the messages it never read', () async {
+      final inbox = _FakeInbox([
+        _sms('a'),
+        _sms('b'),
+        _sms('c'),
+        _sms('d'),
+        _sms('e'),
+        _sms('f'),
+      ]);
+      final permission = _FakePermission(SmsPermissionState.granted);
+      final service = _service(inbox: inbox, permission: permission, batchSize: 2);
+      var checks = 0;
+
+      final outcome = await service.scan(isCancelled: () async => checks++ >= 1);
+
+      expect(outcome.messages, hasLength(2));
+      expect(outcome.skippedCount, 4);
+      expect(outcome.isComplete, isFalse);
     });
   });
 
