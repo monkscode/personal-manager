@@ -4,6 +4,10 @@ import '../data/sms_models.dart';
 import 'sms_ingestion_policy.dart';
 import 'sms_privacy.dart';
 
+/// Placeholder merchant for a card purchase whose body names no payee. It is a
+/// rail label, not a name, so it never counts as an identified payee.
+const String _kCardPurchaseFallback = 'card purchase';
+
 class SmsTransactionParser {
   const SmsTransactionParser();
 
@@ -101,6 +105,32 @@ class SmsTransactionParser {
   // A payee is a name. A bare run of digits is a helpline, an account or a
   // phone number — never a merchant — so it is skipped rather than captured.
   static final RegExp _bareDigits = RegExp(r'^[\d\s+-]+$');
+  // TASK-31 formats. Together these carried 56 of the 79 rows the device stored
+  // with no merchant at all — ₹12.2L, most of it NACH mandate debits that the
+  // recurring detector could never group. Each anchor is unambiguous and each
+  // capture is bounded, per TASK-08: none may run to the end of the body.
+  //
+  // HDFC ACH: `Info: ACH D- GROWW INVEST TECH PR-HK7R5VFDNFHO.` The originator
+  // sits between `ACH D- ` and the final `-<ref>.`, so the capture is lazy and
+  // the reference is what terminates it.
+  static final RegExp _merchantAchDebit = RegExp(
+    r'\bach\s+d-\s*(.+?)-[a-z0-9]+\.',
+  );
+  // Axis multiline UPI: `UPI/P2M/568843434007/CHEQ DIGITAL PRIVAT`. Terminated
+  // by the next `/` as well as the line end — a P2A credit continues
+  // `/DHRUVIL U/HDFC/For`, where only the first segment is the payee.
+  static final RegExp _merchantUpiRail = RegExp(
+    r'\bupi/p2[am]/\d+/([^/\n]{2,})',
+  );
+  // Axis card: the merchant is its own line, after the card line and the
+  // timestamp line. Anchored on both so it cannot fire on any other layout.
+  static final RegExp _merchantAxisCardLine = RegExp(
+    r'\bcard no\.[^\n]*\n[^\n]*\d{1,2}:\d{2}:\d{2}[^\n]*\n\s*([^\n]{2,40})',
+  );
+  // Kotak biller confirmation: `... from Kotak - Adani Total Gas`.
+  static final RegExp _merchantFromKotak = RegExp(
+    r'\bfrom\s+kotak\s*-\s*([^\n]{2,40})',
+  );
   // A bank account has no limit, so any available/credit-limit phrasing is by
   // itself card evidence. `bank card` and a bare `card <tail>` cover HDFC's
   // "on HDFC Bank Card XX9012", which never says "credit card" at all.
@@ -387,7 +417,7 @@ class SmsTransactionParser {
       accountLast4: accountLast4,
       merchant: merchant,
       upiVpaNorm: upiVpa,
-      payeeType: _payeeType(upiVpa),
+      payeeType: _payeeType(upiVpa, merchant),
       categoryKey: categoryKey,
       confidence: confidence,
       reviewStatus: needsReview
@@ -611,6 +641,12 @@ class SmsTransactionParser {
     String? upiVpa,
     PaymentInstrument instrument,
   ) {
+    // An explicitly named payee outranks the VPA. A UPI handle's local part is
+    // frequently an opaque token — the device stored a ₹1,999 monthly Google
+    // mandate under `xfkxfma537eoyvuzwkvss3vbvbr1oxoo` — while the same body
+    // says "towards Google" in plain words.
+    final named = _namedPayee(lower);
+    if (named != null) return named;
     if (upiVpa != null) return upiVpa.split('@').first;
     final at = _merchantAt.firstMatch(lower)?.group(1)?.trim();
     if (at != null && at.length >= 2) return at;
@@ -622,17 +658,59 @@ class SmsTransactionParser {
       final to = match.group(1)?.trim();
       if (to != null && to.length >= 2 && !_bareDigits.hasMatch(to)) return to;
     }
-    return instrument == PaymentInstrument.card ? 'card purchase' : null;
+    return instrument == PaymentInstrument.card
+        ? _kCardPurchaseFallback
+        : null;
   }
 
-  PayeeType _payeeType(String? upiVpa) {
-    if (upiVpa == null) return PayeeType.unknown;
-    final payee = upiVpa.split('@').first;
-    return RegExp(
-          r'swiggy|zomato|amazon|uber|paytm|merchant|store',
-        ).hasMatch(payee)
-        ? PayeeType.merchant
-        : PayeeType.p2pIndividual;
+  /// The payee named by one of the bank-specific formats, in the order that
+  /// resolves their overlaps: the UPI rail line is tried before the
+  /// after-timestamp line, because in the Axis UPI layout the line following
+  /// the timestamp *is* the `UPI/...` line.
+  String? _namedPayee(String lower) {
+    for (final pattern in [
+      _payeeTowards,
+      _merchantAchDebit,
+      _merchantUpiRail,
+      _merchantAxisCardLine,
+      _merchantFromKotak,
+    ]) {
+      final payee = _tidyPayee(pattern.firstMatch(lower)?.group(1));
+      if (payee != null) return payee;
+    }
+    return null;
+  }
+
+  /// Names that are a bank or a clearing house standing in as the mandate
+  /// payee. `HDFC BANK LTD` and `Indian Clearing Corporation Lt` originate 46
+  /// of the device's ACH/NACH debits between them. Deliberately narrow: `HDFC
+  /// LTD` is the housing-finance lender, a genuine EMI payee, and must not
+  /// match.
+  static final RegExp _bankMandatePayee = RegExp(
+    r'\bbank\s+(?:ltd|limited)\b|\bclearing\s+corp|\biccl\b'
+    r'|\bnse\s+clearing\b|\bbse\s+star\b',
+  );
+
+  PayeeType _payeeType(String? upiVpa, String? merchant) {
+    // Checked before the VPA: a mandate debit can carry a UMN that parses as a
+    // handle, and the named originator is the better answer either way.
+    if (merchant != null && _bankMandatePayee.hasMatch(merchant)) {
+      return PayeeType.bankMandate;
+    }
+    if (upiVpa != null) {
+      final payee = upiVpa.split('@').first;
+      return RegExp(
+            r'swiggy|zomato|amazon|uber|paytm|merchant|store',
+          ).hasMatch(payee)
+          ? PayeeType.merchant
+          : PayeeType.p2pIndividual;
+    }
+    // A body that names its payee outright has identified a merchant. The card
+    // fallback is a placeholder, not a name, so it stays unknown.
+    if (merchant != null && merchant != _kCardPurchaseFallback) {
+      return PayeeType.merchant;
+    }
+    return PayeeType.unknown;
   }
 
   String _category(String lower, String? merchant) {

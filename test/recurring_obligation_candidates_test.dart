@@ -39,6 +39,52 @@ void main() {
         scanBatchId: 'batch',
       );
 
+  ParsedTxn clearingHouseMandate(int month) => ParsedTxn(
+        smsId: 'ach-$month',
+        sender: 'VM-HDFCBK',
+        direction: TransactionDirection.debit,
+        instrument: PaymentInstrument.bank,
+        type: TxnType.other,
+        amountPaise: 450000,
+        txnDate: DateTime(2026, month, 5),
+        merchant: 'indian clearing corporation lt',
+        payeeType: PayeeType.bankMandate,
+        categoryKey: 'other',
+        confidence: 0.9,
+        reviewStatus: ReviewStatus.confirmed,
+        source: TxnSource.sms,
+        coverageBucket: CoverageBucket.datedEvent,
+        rawBodyRedacted: 'redacted',
+        bodyHash: 'ach$month',
+        scanBatchId: 'batch',
+      );
+
+  // TASK-31's bank-as-payee decision: extract, then classify. The owner key is
+  // kept so ₹10.6L of mandate debits are finally attributed, but the forecast
+  // must not show a commitment that reads like a shop called
+  // "Indian Clearing Corporation Lt".
+  test('a bank-mandate commitment is labelled as a mandate', () async {
+    final repo = await openRepository();
+    for (final month in [4, 5, 6, 7]) {
+      await repo.upsertParsedTxn(clearingHouseMandate(month));
+    }
+
+    final candidates = await RecurringObligationCandidates(
+      transactions: repo,
+    ).derive(
+      persisted: const [],
+      scanBatchId: 'batch',
+      now: DateTime(2026, 7, 20),
+    );
+
+    final mandate = candidates.single;
+    // The grouping key is untouched — this is what attributes the rupee.
+    expect(mandate.merchantNorm, 'indian clearing corporation lt');
+    expect(mandate.payeeType, PayeeType.bankMandate);
+    // The label the forecast shows says what it actually is.
+    expect(mandate.merchant, 'Indian Clearing Corporation Lt mandate');
+  });
+
   test('derives a locked recurring commitment as an smsRecurring obligation', () async {
     final repo = await openRepository();
     for (final month in [4, 5, 6, 7]) {

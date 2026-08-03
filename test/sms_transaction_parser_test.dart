@@ -446,6 +446,177 @@ void main() {
     });
   });
 
+  // TASK-31. Every body here is the real shape measured on the author's device
+  // on 2026-08-03, un-redacted. Together these six formats carried 56 of the 79
+  // rows stored with no merchant at all.
+  group('payees the parser used to leave on the floor', () {
+    String? merchantOf(String body, {String sender = 'VM-HDFCBK-S'}) => parser
+        .parseOne(
+          sms(sender: sender, body: body),
+          scanBatchId: 'scan-31',
+          bodyHashSalt: 'test-salt',
+        )
+        ?.merchant;
+
+    test('format 1: HDFC ACH D- names the originator', () {
+      expect(
+        merchantOf(
+          'UPDATE: Rs.5000.00 debited from HDFC Bank A/c XX1234 on 05-JUL-26. '
+          'Info: ACH D- GROWW INVEST TECH PR-HK7R5VFDNFHO. Avl bal:Rs.20000.00',
+        ),
+        'groww invest tech pr',
+      );
+    });
+
+    test('format 2: HDFC PAYMENT ALERT names the payee before UMRN', () {
+      expect(
+        merchantOf(
+          'PAYMENT ALERT!\nRs.4500.00 deducted from HDFC Bank A/c XX1234 '
+          'towards HDFC LTD UMRN: HDFC7020208251013841',
+        ),
+        'hdfc ltd',
+      );
+    });
+
+    test('format 3: the Axis UPI line names the payee after the ref', () {
+      expect(
+        merchantOf(
+          sender: 'JD-AXISBK-S',
+          'Rs.500.00 debited\nA/c no. XX7111\n01-12-25, 10:58:24\n'
+          'UPI/P2M/568843434007/CHEQ DIGITAL PRIVAT\n'
+          'Not you? SMS BLOCKUPI Cust ID to 919951860002\nAxis Bank',
+        ),
+        'cheq digital privat',
+      );
+    });
+
+    test('format 3: a P2A payee stops at the next slash, not the line end', () {
+      expect(
+        merchantOf(
+          sender: 'CP-AXISBK-S',
+          'Rs.2500.00 credited\nA/c no. XX7111\n13-01-26, 14:49:18 IST\n'
+          'UPI/P2A/154680721130/DHRUVIL U/HDFC/For - Axis Bank',
+        ),
+        'dhruvil u',
+      );
+    });
+
+    test('format 4: the Axis card line names the merchant after the time', () {
+      expect(
+        merchantOf(
+          sender: 'AX-AXISBK-S',
+          'Spent Rs.5191.00\nAxis Bank Card no. XX7111\n07-12-25 19:31:06 IST\n'
+          'Google\nAvl Limit: Rs.44809.00\n'
+          'Not you? SMS BLOCK 7111 to 919951860002',
+        ),
+        'google',
+      );
+    });
+
+    test('format 5: the HDFC ATM withdrawal names the location', () {
+      expect(
+        merchantOf(
+          sender: 'AD-HDFCBK-S',
+          'Withdrawn Rs.20000.00 From HDFC Bank Card x7102 At SCIENCE CITY-II '
+          'On 2025-12-07:14:18:33 Bal Rs.15000.00 Not You? Call 18002586161',
+        ),
+        'science city-ii',
+      );
+    });
+
+    test('format 6: the Kotak biller confirmation names the biller', () {
+      expect(
+        merchantOf(
+          sender: 'CP-ATGLTD-S',
+          'Dear Customer,Payment of Rs.1020.50 with Ref 123456 is received for '
+          'Customer ID 1000023412 by K from Kotak - Adani Total Gas',
+        ),
+        'adani total gas',
+      );
+    });
+
+    // The bank-as-payee decision this task called for. A clearing house or the
+    // bank itself is a real originator and must keep its owner key, but it is
+    // not a merchant and must not be shown as one.
+    test('a clearing-house originator is typed as a bank mandate', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'JX-HDFCBK-S',
+          body:
+              'PAYMENT ALERT!\nRs.4500.00 deducted from HDFC Bank A/c XX1234 '
+              'towards Indian Clearing Corporation Lt UMRN: HDFC70203082510',
+        ),
+        scanBatchId: 'scan-31b',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.merchant, 'indian clearing corporation lt');
+      expect(txn.payeeType, PayeeType.bankMandate);
+    });
+
+    test('the bank itself as ACH originator is a bank mandate too', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK-S',
+          body:
+              'UPDATE: Rs.5000.00 debited from HDFC Bank A/c XX1234 on '
+              '05-JUL-26. Info: ACH D- HDFC BANK LTD-468262824. '
+              'Avl bal:Rs.20000.00',
+        ),
+        scanBatchId: 'scan-31c',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.merchant, 'hdfc bank ltd');
+      expect(txn.payeeType, PayeeType.bankMandate);
+    });
+
+    test('a named commercial originator stays a merchant', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'VM-HDFCBK-S',
+          body:
+              'UPDATE: Rs.5000.00 debited from HDFC Bank A/c XX1234 on '
+              '05-JUL-26. Info: ACH D- GROWW INVEST TECH PR-HK7R5VFDNFHO. '
+              'Avl bal:Rs.20000.00',
+        ),
+        scanBatchId: 'scan-31d',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.payeeType, PayeeType.merchant);
+    });
+
+    // HDFC Ltd is the housing-finance lender, not HDFC Bank. It is a genuine
+    // EMI payee and must not be swept up with the clearing houses.
+    test('a lender whose name ends in Ltd is not a bank mandate', () {
+      final txn = parser.parseOne(
+        sms(
+          sender: 'JM-HDFCBK-S',
+          body:
+              'PAYMENT ALERT!\nRs.4500.00 deducted from HDFC Bank A/c XX1234 '
+              'towards HDFC LTD UMRN: HDFC7020208251013841',
+        ),
+        scanBatchId: 'scan-31e',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.merchant, 'hdfc ltd');
+      expect(txn.payeeType, PayeeType.merchant);
+    });
+
+    test('an explicit towards-payee beats an opaque UPI handle', () {
+      expect(
+        merchantOf(
+          sender: 'VA-AXISBK-S',
+          'Your A/c has been debited towards Google for Rs.1999.00 on '
+          '28-07-26. xfkxfma537eoyvuzwkvss3vbvbr1oxoo@okaxis - Axis Bank',
+        ),
+        'google',
+      );
+    });
+  });
+
   group('direction follows the verb governing the amount', () {
     test('a loan EMI is an outflow, not income', () {
       final txn = parser.parseOne(

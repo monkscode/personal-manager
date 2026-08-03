@@ -52,7 +52,7 @@ class RecurringObligationCandidates implements ObligationCandidateSource {
       // fold together (D8); otherwise a stable per-merchant/cadence key.
       dedupeKey: commitment.configuredPlanKey ??
           'sms_recurring:${commitment.merchantNorm}:${commitment.cadence.name}',
-      merchant: commitment.merchantNorm,
+      merchant: _label(commitment),
       merchantNorm: commitment.merchantNorm,
       categoryKey: commitment.categoryKey,
       amountPaise: commitment.amountPaise,
@@ -64,7 +64,7 @@ class RecurringObligationCandidates implements ObligationCandidateSource {
       paymentAccountScope: AccountScope.primary,
       paymentStatus: ReconciliationPaymentStatus.unpaid,
       nextExpectedSource: NextExpectedSource.lockedCadence,
-      payeeType: PayeeType.merchant,
+      payeeType: commitment.payeeType,
       // Algorithm-detected until the user confirms the cadence in review — and
       // the review status has to say so too. Stamping `confirmed` here made the
       // matcher report `isUserConfirmed`, which is the only thing that lifts a
@@ -76,6 +76,24 @@ class RecurringObligationCandidates implements ObligationCandidateSource {
       createdAt: now,
       updatedAt: now,
     );
+  }
+
+  /// The name the forecast shows. `merchantNorm` stays the grouping key; only
+  /// the label changes, so attribution is untouched.
+  ///
+  /// A bank-mandate payee is title-cased and qualified: the user sees
+  /// "Indian Clearing Corporation Lt mandate" rather than a line that reads like
+  /// a shop they bought something from (TASK-31's bank-as-payee decision).
+  static String _label(RecurringCommitment commitment) {
+    if (commitment.payeeType != PayeeType.bankMandate) {
+      return commitment.merchantNorm;
+    }
+    final titled = commitment.merchantNorm
+        .split(' ')
+        .where((word) => word.isNotEmpty)
+        .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+        .join(' ');
+    return '$titled mandate';
   }
 
   static ReconciliationRecurrence _recurrence(RecurringCadence cadence) =>

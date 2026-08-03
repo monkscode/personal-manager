@@ -96,7 +96,19 @@ extension TxnTypeStorage on TxnType {
   };
 }
 
-enum PayeeType { merchant, p2pIndividual, selfTransfer, wallet, unknown }
+enum PayeeType {
+  merchant,
+  p2pIndividual,
+  selfTransfer,
+  wallet,
+
+  /// A bank or clearing house standing in as the payee of a NACH/ACH mandate
+  /// (`HDFC BANK LTD`, `Indian Clearing Corporation Lt`). It is a real
+  /// originator and keeps its owner key so the rupee is attributed, but it is
+  /// not a shop and must never be shown to the user as one (TASK-31).
+  bankMandate,
+  unknown,
+}
 
 extension PayeeTypeStorage on PayeeType {
   String get storageValue => switch (this) {
@@ -104,6 +116,7 @@ extension PayeeTypeStorage on PayeeType {
     PayeeType.p2pIndividual => 'p2p_individual',
     PayeeType.selfTransfer => 'self_transfer',
     PayeeType.wallet => 'wallet',
+    PayeeType.bankMandate => 'bank_mandate',
     PayeeType.unknown => 'unknown',
   };
 }

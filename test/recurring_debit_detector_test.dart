@@ -1,12 +1,13 @@
 import 'package:expense_insight/data/models.dart';
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/recurring_debit_detector.dart';
+import 'package:expense_insight/services/sms_transaction_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ParsedTxn debit({
   required DateTime date,
   required int amountPaise,
-  String merchant = 'ICICI Pru MF',
+  String? merchant = 'ICICI Pru MF',
   String categoryKey = 'investment',
   TxnType type = TxnType.upi,
   String? smsId,
@@ -50,6 +51,67 @@ List<ParsedTxn> monthly({
 final _now = DateTime(2026, 7, 1);
 
 void main() {
+  // TASK-31's acceptance test: the outcome the whole task exists for. 46 rows
+  // and ₹10.6L of ACH/NACH mandate debits sat ownerless on the device, which is
+  // exactly the recurring-commitment population the forecast is built to find.
+  group('ACH mandate debits parsed end to end', () {
+    const parser = SmsTransactionParser();
+
+    ParsedTxn parseAch(DateTime at) => parser.parseOne(
+      RawSms(
+        sender: 'VM-HDFCBK-S',
+        receivedAt: at,
+        body:
+            'UPDATE: Rs.5000.00 debited from HDFC Bank A/c XX1234 on '
+            '05-JUL-26. Info: ACH D- GROWW INVEST TECH PR-HK7R5VFDNFHO. '
+            'Avl bal:Rs.20000.00',
+      ),
+      scanBatchId: 'ach',
+      bodyHashSalt: 'salt',
+    )!;
+
+    test('three monthly ACH debits lock as a monthly commitment', () {
+      final commitments = const RecurringDebitDetector().detect(
+        [
+          parseAch(DateTime(2026, 5, 5, 9)),
+          parseAch(DateTime(2026, 6, 5, 9)),
+          parseAch(DateTime(2026, 7, 5, 9)),
+        ],
+        configuredPlans: const [],
+        now: DateTime(2026, 7, 20),
+      );
+
+      expect(commitments, hasLength(1));
+      expect(commitments.single.merchantNorm, 'groww invest tech pr');
+      expect(commitments.single.amountPaise, 500000);
+      expect(commitments.single.cadence, RecurringCadence.monthly);
+    });
+
+    // Corrects a premise in TASK-31, which said a null merchant means these
+    // rows "can never group by merchantNorm". They always grouped — the owner
+    // key falls back to `sender`, so every mandate from one bank collapsed into
+    // one bucket of unrelated payees. That is why the device's single
+    // obligation was a garbage name rather than no obligation at all.
+    test('a null merchant groups under the sender, it does not vanish', () {
+      final ownerless = [
+        for (final month in [5, 6, 7])
+          debit(
+            date: DateTime(2026, month, 5),
+            amountPaise: 500000,
+            merchant: null,
+          ),
+      ];
+
+      final commitments = const RecurringDebitDetector().detect(
+        ownerless,
+        configuredPlans: const [],
+        now: DateTime(2026, 7, 20),
+      );
+
+      expect(commitments.single.merchantNorm, 'vm-icicib');
+    });
+  });
+
   const detector = RecurringDebitDetector();
 
   List<RecurringCommitment> detect(

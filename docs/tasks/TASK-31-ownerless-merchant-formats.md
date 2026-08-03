@@ -4,101 +4,136 @@
 must reach already-stored rows, and this is the task that will finally exercise that path)
 
 Not from the audit. Found on 2026-08-02 by installing the Phase-2 build on the device and
-measuring the real database, the same way TASK-28 and TASK-29 were found.
+measuring the real database, the same way TASK-28 and TASK-29 were found. **Re-measured
+2026-08-03** before the fix; see "Corrections to this file".
 
 ---
 
 ## Measured on live data
 
 386 rows on the author's device. **79 of them (20.5%) have `merchant IS NULL`**, carrying
-**₹12,39,544 of the table's ₹36,06,019 — 34.4% of all transaction value.**
-
-Every one of these bodies *contains the payee name*. The parser simply has no pattern for
-the format, so the row is typed `other` / `payeeType=unknown` and stored ownerless.
+**₹12,39,544 of the table's ₹36,06,019 — 34.4% of all transaction value.** Both figures
+reproduced exactly on re-measurement.
 
 | # | Format | Rows | Value | Payee sits at |
 |---|---|---|---|---|
 | 1 | HDFC `Info: ACH D- <PAYEE>-<REF>.` | 26 | ₹6,71,320 | between `ACH D- ` and the last `-` |
 | 2 | HDFC `PAYMENT ALERT! … towards <PAYEE> UMRN: <id>` | 20 | ₹3,93,075 | between `towards ` and ` UMRN:` |
-| 3 | Axis multiline `UPI/P2A|P2M/<ref>/<PAYEE>` | 5 | ₹59,422 | last `/`-segment |
-| 4 | Axis card `Spent … Card no. … <date> <MERCHANT>` | 2 | ₹10,382 | own line after the date |
-| 5 | HDFC ATM `Withdrawn … From HDFC Bank Card xNNNN At <LOCATION>` | 1 | ₹20,000 | after ` At ` |
-| 6 | Kotak `Payment of … received for Customer ID … from Kotak - <PAYEE>` | 2 | ₹2,041 | after `Kotak - ` |
-| 7 | residual (mandate pre-notifications — see TASK-32, Axis CC due reminders, IMPS credits) | 23 | ₹83,304 | — |
+| 3 | Axis multiline `UPI/P2A\|P2M/<ref>/<PAYEE>` | 5 | ₹59,422 | first segment after the ref |
+| 4 | Axis card `Spent … Card no. … <date> <MERCHANT>` | 2 | ₹10,382 | own line after the timestamp line |
+| 5 | HDFC ATM `Withdrawn … Card xNNNN At <LOCATION>` | 1 | ₹20,000 | after ` At ` |
+| 6 | Kotak `Payment of … received … from Kotak - <PAYEE>` | 2 | ₹2,041 | after `Kotak - ` |
+| 7 | residual | 23 | ₹83,304 | — |
 
-Sample bodies, as redacted on the device:
-
-```
-UPDATE: [amount] debited from HDFC Bank [account] on 05-JUL-26.
-  Info: ACH D- GROWW INVEST TECH PR-HK7R5VFDNFHO. Avl bal:[amount]
-PAYMENT ALERT!
-  [amount] deducted from HDFC Bank [account] towards Indian Clearing Corporation Lt UMRN: HDFC70…
-[amount] debited / [account] / 01-12-25, 10:58:24 / UPI/P2M/568843434007/CHEQ DIGITAL PRIVAT
-Spent [amount] / Axis Bank Card no. [account] / 07-12-25 19:31:06 IST / Google / Avl Limit: [amount]
-Withdrawn [amount] From HDFC Bank Card x7102 At SCIENCE CITY-II On 2025-12-07:14:18:33
-```
-
-### Confirmed to be a *current* gap, not stale rows
-
-This was checked rather than assumed. Feeding the three `ACH D-` bodies above to the
-**current** `SmsTransactionParser.parseOne` returns:
-
-```
-parsed=true merchant=null type=other dir=debit payee=unknown   (×3)
-```
-
-— byte-identical to what is stored. So `hasSameParseAs` is right to return true and
-TASK-30's `refreshParse` is right not to fire. There is nothing wrong with the refresh
-machinery; the parser genuinely cannot read these formats today. `grep -rn "ACH" lib/`
-returns no parser hit at all.
+The residual 23 breaks down as **17 mandate pre-notices + 5 Axis CC due reminders + 1 IMPS
+credit**. The first 22 are all future-tense notices and belong to TASK-32, which stops
+them being stored as transactions at all. So the population this task must give owners to
+is **57 rows**, and formats 1–6 cover **56** of them.
 
 ---
 
-## Why it matters more than the row count suggests
+## Corrections to this file (2026-08-03)
 
-**Recurring detection groups by `merchantNorm`** (`recurring_debit_detector.dart`). Formats
-1 and 2 are NACH/ACH mandate auto-debits — 46 rows and ₹10,64,395, 29.5% of all value —
-which is *exactly* the recurring-commitment population the forecast exists to detect. With
-a null merchant they can never group, so none of them can ever lock as a commitment.
+**1. "Recurring detection groups by `merchantNorm` … With a null merchant they can never
+group, so none of them can ever lock as a commitment." — false, and it misread the
+symptom.**
 
-The device bears this out: the `obligations` table holds **one** row, and its merchant is
-`xfkxfma537eoyvuzwkvss3vbvbr1oxoo` — a reference number captured as a payee name. The
-forecast's entire "Recurring payments" line is ₹1,999 built on that one record, while ₹10L
-of genuine mandate debits sit unattributed.
+`RecurringDebitDetector._ownerNorm` is `txn.merchant ?? txn.upiVpaNorm ?? txn.sender`.
+A null merchant falls back to the **sender**, so the 46 mandate rows always grouped — into
+one bucket per bank sender ID, mixing unrelated payees at unrelated amounts. The amount
+consistency check then failed, so nothing locked. The rows did not vanish from detection;
+they poisoned it. A test now pins the fallback (`a null merchant groups under the sender,
+it does not vanish`) so this is not re-derived a third time.
 
-Formats 3–5 are ordinary discretionary spend (Google, Flipkart, an ATM withdrawal at
-SCIENCE CITY-II) that lands in the forecast with no owner to explain it, which is the
-"no number without a traceable reason" promise failing in the why-log.
+**2. "Confirmed to be a *current* gap, not stale rows" — true for format 1 only, and it
+was generalised to all six.** Format 5 (the ATM withdrawal) **already parses correctly**
+today: `_merchantAt` matches `At SCIENCE CITY-II On 2025-` and returns `science city-ii`.
+Its stored NULL is a **stale row**, not a parser gap, and TASK-30's `refreshParse` is what
+will fix it. Written as a test before any change, it was the one of the eight that passed
+straight away.
+
+**3. The regex sketch for format 3 was wrong for half its rows.** The file offered
+`UPI/P2[AM]/\d+/(.+?)(?:\n|$)` and described the payee as the "last `/`-segment". The P2A
+credit shape is `UPI/P2A/154680721130/DHRUVIL U/HDFC/For - Axis Bank`, where the payee is
+the **first** segment after the reference and the last segment is `For - Axis Bank`. The
+capture has to terminate on `/` as well as the line end. The sketches were correctly
+flagged in the brief as "unverified starting points"; this one needed the correction.
+
+**4. An opaque UPI handle outranking a named payee was not in the format table**, though
+this file's own prose names it: the device's single obligation was merchant
+`xfkxfma537eoyvuzwkvss3vbvbr1oxoo`. That row is *not* ownerless, so it was outside the 79,
+but it is the same defect. `Your A/c has been debited towards Google for … <vpa>` says
+"Google" in plain words while `_merchant` returned the VPA local part, because the VPA was
+checked first. A named payee now outranks the handle.
 
 ---
 
-## Fix
+## Fix (as landed)
 
-Add a pattern per format to the parser's merchant extraction. Each is a bounded capture
-with an unambiguous anchor — none needs the greedy matching TASK-08 removed:
+Five patterns added to the parser, each with an unambiguous anchor and a bounded capture
+(TASK-08's rule — none may run to the end of the body):
 
-- `ACH D-\s*(.+?)-[A-Z0-9]+\.` → group 1, trimmed
-- `towards\s+(.+?)\s+UMRN:` → group 1
-- `UPI/P2[AM]/\d+/(.+?)(?:\n|$)` → group 1
-- the line following the timestamp line in the Axis `Spent` layout
-- `\bAt\s+(.+?)\s+On\s+\d{4}-` → group 1
+| pattern | covers |
+|---|---|
+| `\btowards\s+(.{2,40}?)(?:\s+for\b\|\s+umrn\b\|\s+on\s+\d\|,\|\.(?:\s\|$)\|\n\|$)` | format 2, and the `towards`-vs-VPA case |
+| `\bach\s+d-\s*(.+?)-[a-z0-9]+\.` | format 1 |
+| `\bupi/p2[am]/\d+/([^/\n]{2,})` | format 3, both P2M and P2A |
+| `\bcard no\.[^\n]*\n[^\n]*\d{1,2}:\d{2}:\d{2}[^\n]*\n\s*([^\n]{2,40})` | format 4 |
+| `\bfrom\s+kotak\s*-\s*([^\n]{2,40})` | format 6 |
 
-Watch two things the existing tasks already established:
+Format 5 needed no pattern. Ordering matters in one place: the UPI-rail pattern is tried
+before the Axis card-line pattern, because in the Axis UPI layout the line after the
+timestamp *is* the `UPI/…` line. A named payee is resolved before the VPA fallback.
 
-- **TASK-08's rule** — capture must stop at the first delimiter, not run to end of body.
-- **The payer-key caveat in `salary_income_detector`** — a merchant that is really the
-  *bank* (`HDFC BANK LTD`, `Indian Clearing Corporation Lt`) is not a useful payee. Decide
-  whether to map those to a `bankMandate` payee type rather than a merchant, or the
-  recurring detector will lock a commitment named "HDFC BANK LTD".
+### Bank-as-payee decision (required by this task): **extract, then classify**
 
-## Tests to write first
+The payee is always captured, so the rupee gets an owner — that is the whole point of the
+task, and leaving ₹10.6L unattributed to avoid an ugly label would be the wrong trade. But
+a bank or clearing house is not a merchant, so:
 
-`test/sms_transaction_parser_test.dart` — one per format above, asserting the extracted
-merchant and that the capture stops at the delimiter. Add the bank-name case explicitly.
+- New `PayeeType.bankMandate` (stored as `bank_mandate`), set when the extracted payee
+  matches `\bbank\s+(?:ltd|limited)\b|\bclearing\s+corp|\biccl\b|\bnse\s+clearing\b|\bbse\s+star\b`.
+  Deliberately narrow: **`HDFC LTD` is the housing-finance lender, a genuine EMI payee, and
+  must not match** — only `HDFC BANK LTD` does. Both appear on the device.
+- `RecurringCommitment` carries the group's payee type, and
+  `RecurringObligationCandidates` labels a bank-mandate commitment
+  `"Indian Clearing Corporation Lt mandate"` while leaving `merchantNorm` — the grouping
+  and matching key — untouched. The forecast never shows a line that reads like a shop.
+- A body that names its payee outright now yields `PayeeType.merchant` instead of
+  `unknown`, which is what it always meant.
 
-`test/recurring_debit_detector_test.dart` — three monthly `ACH D- GROWW INVEST TECH PR`
-debits at a stable amount lock as a monthly commitment. This is the outcome the whole task
-is for; it fails today because the merchant is null.
+## Tests written first
+
+`test/sms_transaction_parser_test.dart` — one per format, all RED before the fix except
+where noted:
+
+- [x] format 1 `ACH D-` → `groww invest tech pr`. **RED:** `Expected: 'groww invest tech
+      pr' / Actual: <null>`
+- [x] format 2 `towards … UMRN:` → `hdfc ltd`. **RED:** `Actual: <null>`
+- [x] format 3 P2M → `cheq digital privat`. **RED:** `Actual: <null>`
+- [x] format 3 P2A stops at the next slash → `dhruvil u`. **RED:** `Actual: <null>`
+- [x] format 4 Axis card line → `google`. **RED:** `Actual: 'card purchase'`
+- [x] format 5 ATM → `science city-ii`. **PASSED WITHOUT CHANGE** — a guard, not
+      regression coverage. See correction 2.
+- [x] format 6 Kotak → `adani total gas`. **RED:** `Actual: <null>`
+- [x] a named payee beats an opaque handle. **RED:** `Actual:
+      'xfkxfma537eoyvuzwkvss3vbvbr1oxoo'`
+- [x] bank-as-payee: clearing house and `HDFC BANK LTD` are `bankMandate`; `HDFC LTD` and
+      `GROWW INVEST TECH PR` stay `merchant`. **RED:** all four were `PayeeType.unknown`.
+
+`test/recurring_debit_detector_test.dart`:
+
+- [x] Three monthly `ACH D- GROWW INVEST TECH PR` debits, parsed from real bodies end to
+      end, lock as a monthly commitment. This is the outcome the task exists for. Written
+      after the unit-level cycles, so it is an **acceptance** test — but it is genuine
+      coverage, not a guard: it fails without the format-1 pattern.
+- [x] A null merchant groups under the sender (correction 1).
+
+`test/recurring_obligation_candidates_test.dart`:
+
+- [x] A bank-mandate commitment keeps `merchantNorm` and is labelled
+      `"Indian Clearing Corporation Lt mandate"`. **RED:** `Expected:
+      PayeeType.bankMandate / Actual: PayeeType.merchant`.
 
 ## Verification
 
@@ -107,26 +142,31 @@ flutter analyze
 flutter test
 ```
 
-Then on the device — and note this task is the one that finally exercises TASK-30:
-
-```bash
-flutter build apk --debug && adb install -r build/app/outputs/flutter-apk/app-debug.apk
-```
-
-Pull-to-refresh on Home, then re-measure. Because these 79 rows are already stored, the
-only way they gain merchants is through TASK-30's `refreshParse`.
-
-TASK-30's box is already closed — the refresh was proven on a single seeded row, carrying
-the user's decision and `created_at` across. This task is what exercises the same path at
-population scale, on rows that became stale for real rather than by hand, so record the
-before/after counts here when it lands.
+`No issues found!` · **787 passing, 0 failing** (764 before TASK-32 and TASK-31).
 
 ## Definition of done
 
-- [ ] A pattern per format, each with a parser test
-- [ ] Bank-as-payee decision recorded
-- [ ] ACH mandate debits lock as recurring commitments
-- [ ] `flutter analyze` clean, `flutter test` green
+- [x] A pattern per format, each with a parser test
+- [x] Bank-as-payee decision recorded
+- [x] ACH mandate debits lock as recurring commitments
+- [x] `flutter analyze` clean, `flutter test` green
 - [ ] On device: ownerless rows fall from 79, and the count is recorded here
 - [ ] On device: the refreshed rows keep their `review_status` and `created_at`
-- [ ] Suggested commit: `Extract payees from ACH, NACH, Axis UPI and ATM formats`
+- [x] Suggested commit: `Extract payees from ACH, NACH, Axis UPI and ATM formats`
+
+## Findings opened by this task, not fixed here
+
+- **Format 6 is booked as income.** Both Kotak rows are stored `direction=credit`: the
+  body reads "Payment of ₹X … is received … from Kotak - Adani Total Gas", which is the
+  *biller* confirming it received the user's money. Money left the user. `_isIncomeCredit`
+  has nothing to exclude it with, so ₹2,041 of outflow is counted as income. Direction
+  inference — TASK-06's area, not merchant extraction.
+- **Format 4 is booked as a bank debit, not a card purchase.** `_cardMarker` lists
+  `avl lmt` and `available limit`, but the Axis body says **`Avl Limit`**, and
+  `card\s+[*x]*\d{4}` does not match `Card no. XX7111` because of the intervening `no.`.
+  So Axis card spend lands in bank consumption and will double-count against the card bill
+  payment — TASK-28's shape, at ₹10,382 measured.
+- **The same alert arrives from several sender IDs.** Rows 23 (`JM-HDFCBK-S`) and 71
+  (`AD-HDFCBK-S`) are byte-identical `UMRN: HDFC7020208251013841` debits. Distinct
+  `sms_id`s and no shared `ref_number`, so neither dedup path fires. Now that both carry
+  the same merchant they will also group as two occurrences of one commitment.

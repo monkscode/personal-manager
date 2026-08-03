@@ -360,6 +360,7 @@ class ObligationRepository {
     'p2p_individual' => PayeeType.p2pIndividual,
     'self_transfer' => PayeeType.selfTransfer,
     'wallet' => PayeeType.wallet,
+    'bank_mandate' => PayeeType.bankMandate,
     'unknown' => PayeeType.unknown,
     _ => throw ArgumentError.value(value, 'payee_type'),
   };

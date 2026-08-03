@@ -52,10 +52,16 @@ class RecurringCommitment {
     required this.confidence,
     required this.occurrences,
     required this.matchedConfiguredPlan,
+    this.payeeType = PayeeType.merchant,
     this.configuredPlanKey,
   });
 
   final String merchantNorm;
+
+  /// What kind of payee the group's occurrences agree on. A `bankMandate` group
+  /// is a real commitment with a real owner key, but its name is a clearing
+  /// house or the bank itself and must not be shown as a merchant (TASK-31).
+  final PayeeType payeeType;
   final int amountPaise;
   final RecurringCadence cadence;
   final String categoryKey;
@@ -198,6 +204,7 @@ class RecurringDebitDetector {
       return _GroupAnalysis(
         commitment: RecurringCommitment(
           merchantNorm: merchantNorm,
+          payeeType: _dominantPayeeType(sorted),
           amountPaise: median,
           cadence: cadence,
           categoryKey: categoryKey,
@@ -327,6 +334,14 @@ class RecurringDebitDetector {
     final raw = txn.merchant ?? txn.upiVpaNorm ?? txn.sender;
     return raw.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
   }
+
+  /// A group is a bank mandate when any occurrence says so — the classification
+  /// comes from the payee name, which is constant across the group, so one
+  /// occurrence naming a clearing house settles it for all of them.
+  PayeeType _dominantPayeeType(List<ParsedTxn> txns) =>
+      txns.any((t) => t.payeeType == PayeeType.bankMandate)
+      ? PayeeType.bankMandate
+      : PayeeType.merchant;
 
   String _dominantCategory(List<ParsedTxn> txns) {
     final counts = <String, int>{};
