@@ -93,6 +93,84 @@ void main() {
   Future<List<ParsedTxn>> allRows() =>
       txRepo.allSince(DateTime.fromMillisecondsSinceEpoch(0));
 
+  group('future-dated mandate notices (TASK-32)', () {
+    test('a mandate notice becomes a dated obligation, never a debit', () async {
+      await orchestrator().run(
+        outcome: SmsScanOutcome.success([
+          bankSms(
+            providerId: 'mandate-1',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2026, 7, 26, 9),
+            body:
+                'For the upcoming mandate set for 28-07-26, Rs.1999.00 will be '
+                'debited from your A/c towards Google for GOOGLE, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+        ]),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: false,
+        bodyHashSalt: 'salt',
+        now: DateTime(2026, 7, 26, 9),
+      );
+
+      expect(await allRows(), isEmpty);
+
+      final obligations = await obliRepo.allActive();
+      expect(obligations, hasLength(1));
+      expect(obligations.single.merchantNorm, 'google');
+      expect(obligations.single.amountPaise, 199900);
+      expect(obligations.single.dueDate, DateTime(2026, 7, 28));
+      expect(
+        obligations.single.nextExpectedSource,
+        NextExpectedSource.explicitDueDate,
+      );
+      // TASK-18's rule: an algorithm's read of a bank SMS is never presented
+      // back to the user as their own confirmed decision.
+      expect(
+        obligations.single.userCadenceStatus,
+        UserCadenceStatus.algorithmDetected,
+      );
+      expect(
+        obligations.single.reviewStatus,
+        ObligationReviewStatus.needsReview,
+      );
+    });
+
+    test('a locked commitment for the same payee owns the rupee alone', () async {
+      await orchestrator(
+        candidateSource: _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey: 'sms_recurring:google:monthly',
+          ).copyWith(merchant: 'google', merchantNorm: 'google'),
+        ]),
+      ).run(
+        outcome: SmsScanOutcome.success([
+          bankSms(
+            providerId: 'mandate-2',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2026, 7, 26, 9),
+            body:
+                'For the upcoming mandate set for 28-07-26, Rs.1999.00 will be '
+                'debited from your A/c towards Google for GOOGLE, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+        ]),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: false,
+        bodyHashSalt: 'salt',
+        now: DateTime(2026, 7, 26, 9),
+      );
+
+      // Not two obligations for one debit: the commitment locked from real
+      // history is the stronger signal and keeps the rupee.
+      final obligations = await obliRepo.allActive();
+      expect(obligations, hasLength(1));
+      expect(obligations.single.dedupeKey, 'sms_recurring:google:monthly');
+    });
+  });
+
   group('non-success outcomes', () {
     test('return a typed no-op and never touch the database', () async {
       final result = await orchestrator().run(

@@ -1220,10 +1220,10 @@ bool _isConsumptionSpend(ParsedTxn t) {
   if (t.type == TxnType.transfer || t.type == TxnType.atm) return false;
   if (t.payeeType == PayeeType.selfTransfer) return false;
   if (t.instrument == PaymentInstrument.card) return false;
+  if (t.isFutureDebitNotice) return false;
   final body = t.rawBodyRedacted.toLowerCase();
   return !_matchesAny(body, _kCashWithdrawalMarkers) &&
       !_matchesAny(body, _kInvestmentMarkers) &&
-      !_matchesAny(body, _kFutureDebitNoticeMarkers) &&
       !_matchesAny(body, _kCreditCardPurchaseMarkers);
 }
 
@@ -1246,16 +1246,6 @@ const _kInvestmentMarkers = [
   'nse clearing',
   'bse star',
   'kfintech',
-];
-
-/// Future auto-pay mandate registrations and bill-due reminders — advisory
-/// notices, not a completed debit (the money has not left the account yet).
-const _kFutureDebitNoticeMarkers = [
-  'will be deducted',
-  'will be debited',
-  'upcoming mandate',
-  'mandate set for',
-  'is due for payment',
 ];
 
 /// Credit-card purchase alerts, identified by the reported available *limit*

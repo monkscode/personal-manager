@@ -74,6 +74,10 @@ class SeasonalEstimator {
     for (final txn in discretionaryHistory) {
       if (txn.type == TxnType.transfer || txn.type == TxnType.atm) continue;
       if (txn.instrument == PaymentInstrument.card) continue;
+      // A bank *announcement* of a future debit is not spend. Rows written
+      // before TASK-32 stored one beside the real debit, so the same rupee
+      // entered the trailing average twice.
+      if (txn.isFutureDebitNotice) continue;
       final ownerKey = txn.ownerKey;
       if (ownerKey != null && ownedOwnerKeys.contains(ownerKey)) continue;
       byCategory.putIfAbsent(txn.categoryKey, () => []).add(txn);

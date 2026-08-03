@@ -162,6 +162,73 @@ extension CoverageBucketStorage on CoverageBucket {
   };
 }
 
+/// The future tense that marks a bank message as an *announcement* of money
+/// about to move rather than a record of money that moved.
+///
+/// Single source of truth, read at two moments. The parser consults it at write
+/// time so a notice is never stored as an actual (TASK-32); the read paths
+/// consult it via [ParsedTxnFutureNotice.isFutureDebitNotice] so the rows
+/// already on disk — 30 of them on the author's device, ₹86,304, 26
+/// user-confirmed — stop double-counting without anything being deleted.
+///
+/// It previously existed twice, as this regex in the parser and as a shorter
+/// substring list in `real_insights`, which is why the estimator and the
+/// recurring detector never saw the exclusion at all.
+final RegExp kFutureDebitNoticePattern = RegExp(
+  r'\bwill be (?:debited|credited|deducted)\b'
+  r'|\bis due on\b'
+  r'|\bdue for payment\b'
+  r'|\bscheduled for\b'
+  r'|\bupcoming mandate\b'
+  r'|\bmandate set for\b',
+  caseSensitive: false,
+);
+
+/// A debit the bank has *announced* but not yet executed — an upcoming NACH
+/// mandate, an e-mandate pre-notice, or a card-bill auto-debit reminder.
+///
+/// It is deliberately **not** a [ParsedTxn]. The money has not moved, and the
+/// real debit alert arrives days later; storing both counts the same rupee
+/// twice (TASK-32, measured at 30 rows / ₹86,304 on a real device). What the
+/// notice does carry — a payee, an amount and an explicit date — is exactly an
+/// obligation, so it is routed there instead of being dropped.
+class FutureDebitNotice {
+  const FutureDebitNotice({
+    required this.smsId,
+    required this.sender,
+    required this.amountPaise,
+    required this.dueDate,
+    required this.categoryKey,
+    this.payee,
+    this.accountLast4,
+  }) : assert(amountPaise > 0);
+
+  final String smsId;
+  final String sender;
+  final int amountPaise;
+
+  /// The date the notice names for the debit, not the date it arrived.
+  final DateTime dueDate;
+  final String categoryKey;
+
+  /// The named payee, lower-cased. Null when the body announces a debit but
+  /// names nobody — the notice is still emitted so the amount is not silently
+  /// excluded, but it cannot form an owner key.
+  final String? payee;
+  final String? accountLast4;
+}
+
+/// What one SMS yielded: a completed transaction, a future-dated notice, or
+/// neither. Exactly one of [txn] and [notice] is ever non-null.
+class SmsParseResult {
+  const SmsParseResult({this.txn, this.notice});
+
+  const SmsParseResult.none() : txn = null, notice = null;
+
+  final ParsedTxn? txn;
+  final FutureDebitNotice? notice;
+}
+
 class ParsedTxn {
   ParsedTxn({
     required this.smsId,
@@ -339,4 +406,16 @@ class ParsedTxn {
     return '${local.year.toString().padLeft(4, '0')}-'
         '${local.month.toString().padLeft(2, '0')}';
   }
+}
+
+extension ParsedTxnFutureNotice on ParsedTxn {
+  /// Whether this stored row is really a bank *announcement* of a future debit
+  /// rather than a completed one.
+  ///
+  /// Re-derived from the redacted body at read time, exactly like the
+  /// cash-withdrawal and credit-card-purchase checks in `real_insights`, so it
+  /// corrects rows written before the parser learned to route notices to
+  /// obligations — without deleting a row the user has confirmed.
+  bool get isFutureDebitNotice =>
+      kFutureDebitNoticePattern.hasMatch(rawBodyRedacted);
 }

@@ -4,6 +4,7 @@ import '../data/obligation_models.dart';
 import '../data/obligation_repository.dart';
 import '../data/sms_models.dart';
 import '../data/transaction_repository.dart';
+import 'mandate_notice_obligations.dart';
 import 'sms_ingestion_policy.dart';
 import 'sms_transaction_parser.dart';
 
@@ -89,11 +90,13 @@ class SmsScanOrchestrator {
   SmsScanOrchestrator({
     this.parser = const SmsTransactionParser(),
     this.candidateSource = const NoObligationCandidates(),
+    this.noticeObligations = const MandateNoticeObligations(),
     String Function()? newScanBatchId,
   }) : _newScanBatchId = newScanBatchId ?? _defaultBatchId;
 
   final SmsTransactionParser parser;
   final ObligationCandidateSource candidateSource;
+  final MandateNoticeObligations noticeObligations;
   final String Function() _newScanBatchId;
 
   static const _uuid = Uuid();
@@ -122,13 +125,25 @@ class SmsScanOrchestrator {
     var refreshedParse = 0;
     final collisionSetIds = <String>{};
     final persisted = <ParsedTxn>[];
+    final notices = <FutureDebitNotice>[];
 
     for (final sms in outcome.messages) {
-      final parsedTxn = parser.parseOne(
+      final result = parser.parse(
         sms,
         scanBatchId: scanBatchId,
         bodyHashSalt: bodyHashSalt,
       );
+
+      // A future-dated notice is not an actual — it announces money that has
+      // not moved. It becomes an obligation below rather than a debit row, so
+      // it cannot double-count against the real debit that follows (TASK-32).
+      final notice = result.notice;
+      if (notice != null) {
+        notices.add(notice);
+        continue;
+      }
+
+      final parsedTxn = result.txn;
       if (parsedTxn == null) continue;
       parsed++;
 
@@ -177,6 +192,17 @@ class SmsScanOrchestrator {
         );
       }
       await obliRepo.upsert(candidate, now: timestamp);
+    }
+
+    // One owner per rupee: when history has already locked a commitment for
+    // this payee, that commitment owns the future debit and the notice must not
+    // raise a second obligation beside it. The rupee is still attributed — just
+    // to the stronger of the two signals, the one backed by real occurrences.
+    final ownedByCommitment = {for (final c in candidates) c.merchantNorm};
+    for (final notice in notices) {
+      final obligation = noticeObligations.toObligation(notice, now: timestamp);
+      if (ownedByCommitment.contains(obligation.merchantNorm)) continue;
+      await obliRepo.upsert(obligation, now: timestamp);
     }
 
     return ScanRunResult(

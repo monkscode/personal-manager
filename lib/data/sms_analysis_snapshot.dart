@@ -316,6 +316,7 @@ class SmsAnalysisSnapshot {
     for (final txn in active) {
       if (txn.direction != TransactionDirection.debit) continue;
       if (txn.type == TxnType.transfer || txn.type == TxnType.atm) continue;
+      if (txn.isFutureDebitNotice) continue;
       if (txn.txnDate.month != now.month) continue;
       if (txn.txnDate.year == now.year) {
         current[txn.categoryKey] =

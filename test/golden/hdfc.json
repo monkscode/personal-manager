@@ -67,10 +67,9 @@
     "sender": "VM-HDFCBK",
     "body": "Rs.499.00 will be debited from your A/c XX1234 on 05-Jul-25 for NETFLIX UPI Autopay. Ref 512345678901.",
     "receivedAt": "2025-07-02T10:00:00",
-    "isTxn": true,
-    "direction": "debit",
-    "amountPaise": 49900,
-    "autoAdd": false
+    "isTxn": false,
+    "notice": true,
+    "amountPaise": 49900
   },
   {
     "sender": "VM-HDFCBK",

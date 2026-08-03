@@ -133,6 +133,10 @@ class RecurringDebitDetector {
     for (final txn in history) {
       if (txn.direction != TransactionDirection.debit) continue;
       if (txn.type == TxnType.atm) continue;
+      // An announced debit is not an occurrence. Counting the notice and the
+      // real debit as two occurrences of the same commitment inflated the
+      // group and broke its cadence — the gaps read 0 days, not 30 (TASK-32).
+      if (txn.isFutureDebitNotice) continue;
       groups.putIfAbsent(_ownerNorm(txn), () => []).add(txn);
     }
     return groups;

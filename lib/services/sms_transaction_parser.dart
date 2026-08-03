@@ -178,12 +178,23 @@ class SmsTransactionParser {
   static final RegExp _failureMarker = RegExp(
     r'\bfailed\b|\bdeclined\b|\bunsuccessful\b|\bnot (?:be )?processed\b|\breversed due to\b',
   );
-  // A pre-notice announces money that has not moved yet. It is kept — an
-  // AutoPay mandate is real obligation signal — but it may never become a dated
-  // actual, or it double-counts when the real debit alert lands days later.
-  // Vocabulary matches `_kFutureDebitNoticeMarkers` in `real_insights.dart`.
-  static final RegExp _futureNoticeMarker = RegExp(
-    r'\bwill be (?:debited|credited|deducted)\b|\bis due on\b|\bdue for payment\b|\bscheduled for\b|\bupcoming mandate\b|\bmandate set for\b',
+  // A pre-notice announces money that has not moved yet. It is never an actual;
+  // `_parseNotice` routes it to an obligation instead. The vocabulary lives in
+  // `sms_models` because the read paths need the identical definition to
+  // recognise rows stored before that rule existed.
+  static final RegExp _futureNoticeMarker = kFutureDebitNoticePattern;
+  // Who a pre-notice names. `towards <PAYEE>` covers the Axis NACH mandate and
+  // the Axis card-bill reminder; `for <PAYEE> mandate` covers HDFC's
+  // `E-Mandate!`; `for <PAYEE> AutoPay` covers the UPI AutoPay pre-debit.
+  // Each terminator is explicit so the capture stops at the name.
+  static final RegExp _payeeTowards = RegExp(
+    r'\btowards\s+(.{2,40}?)(?:\s+for\b|\s+umrn\b|\s+on\s+\d|,|\.(?:\s|$)|\n|$)',
+  );
+  static final RegExp _payeeForMandate = RegExp(
+    r'\bfor\s+(.{2,60}?)\s+mandate\b',
+  );
+  static final RegExp _payeeForAutopay = RegExp(
+    r'\bfor\s+(.{2,40}?)\s+(?:upi\s+)?autopay\b',
   );
   // The date a pre-notice names for the debit: `on 05-Jul-25`, `on 11/08/26`,
   // `on 05 Jul 2025`.
@@ -205,7 +216,104 @@ class SmsTransactionParser {
     'dec': 12,
   };
 
+  /// The completed transaction in [sms], or null when the message is not one.
+  /// A future-tense notice is *not* one — use [parse] to reach it.
   ParsedTxn? parseOne(
+    RawSms sms, {
+    required String scanBatchId,
+    required String bodyHashSalt,
+  }) => parse(
+    sms,
+    scanBatchId: scanBatchId,
+    bodyHashSalt: bodyHashSalt,
+  ).txn;
+
+  /// Everything [sms] yields: a completed transaction, a future-dated notice,
+  /// or neither.
+  SmsParseResult parse(
+    RawSms sms, {
+    required String scanBatchId,
+    required String bodyHashSalt,
+  }) {
+    final txn = _parseActual(
+      sms,
+      scanBatchId: scanBatchId,
+      bodyHashSalt: bodyHashSalt,
+    );
+    if (txn != null) return SmsParseResult(txn: txn);
+    return SmsParseResult(notice: _parseNotice(sms, bodyHashSalt: bodyHashSalt));
+  }
+
+  /// The future-dated debit [sms] announces, or null when it announces none.
+  ///
+  /// Gated exactly like [_parseActual] — a promo, an OTP, a failure notice or a
+  /// non-bank sender is no more a notice than it is a transaction. Only an
+  /// announced *outflow* qualifies: "your card credit balance will be credited
+  /// to your savings account" is not an obligation.
+  FutureDebitNotice? _parseNotice(RawSms sms, {required String bodyHashSalt}) {
+    final body = sms.body;
+    final lower = body.toLowerCase();
+    if (!_isStrictBankSms(sms.sender, lower)) return null;
+    if (_isOtp(lower)) return null;
+    if (_failureMarker.hasMatch(lower)) return null;
+    if (_promoSignal(lower) == _PromoSignal.reject) return null;
+    if (!_futureNoticeMarker.hasMatch(lower)) return null;
+
+    final amount = _extractAmount(body, lower);
+    final amountPaise = amount.paise;
+    if (amountPaise == null || amountPaise <= 0) return null;
+    if (_direction(lower, amount.start, amount.end) !=
+        TransactionDirection.debit) {
+      return null;
+    }
+
+    final payee = _noticePayee(lower);
+    return FutureDebitNotice(
+      smsId: SmsPrivacy.stableSmsId(sms, salt: bodyHashSalt),
+      sender: sms.sender,
+      amountPaise: amountPaise,
+      // The whole point of the notice is the date it names. Falling back to the
+      // arrival date keeps a dateless notice from being dropped.
+      dueDate: _statedDate(lower) ?? sms.receivedAt,
+      categoryKey: _category(lower, payee),
+      payee: payee,
+      accountLast4:
+          _account.firstMatch(body)?.group(1) ??
+          _cardEnding.firstMatch(body)?.group(1),
+    );
+  }
+
+  /// The payee a notice names, in decreasing order of explicitness. Each
+  /// capture is bounded by its own terminator (TASK-08's rule) so none runs
+  /// past the name into the date, the reference or the bank's footer.
+  String? _noticePayee(String lower) {
+    for (final pattern in [
+      _payeeTowards,
+      _payeeForMandate,
+      _payeeForAutopay,
+    ]) {
+      final payee = _tidyPayee(pattern.firstMatch(lower)?.group(1));
+      if (payee != null) return payee;
+    }
+    return null;
+  }
+
+  /// Collapses whitespace and strips the boilerplate that brackets a payee in
+  /// these formats — a leading `AutoPay`, a trailing `no.`/`a/c`. A bare run of
+  /// digits is a reference, never a name.
+  String? _tidyPayee(String? raw) {
+    if (raw == null) return null;
+    final tidied = raw
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .replaceFirst(RegExp(r'^autopay\s+'), '')
+        .replaceFirst(RegExp(r'\s+(?:no|a/c|ac)\.?$'), '')
+        .trim();
+    if (tidied.length < 2 || _bareDigits.hasMatch(tidied)) return null;
+    return tidied;
+  }
+
+  ParsedTxn? _parseActual(
     RawSms sms, {
     required String scanBatchId,
     required String bodyHashSalt,
@@ -250,19 +358,17 @@ class SmsTransactionParser {
       body: body,
     );
 
-    // A pre-notice is dated the day it announces, not the day it arrived, so
-    // the row lines up with the real debit alert instead of landing days early.
-    final isFutureNotice = _futureNoticeMarker.hasMatch(lower);
-    final txnDate = isFutureNotice
-        ? (_statedDate(lower) ?? sms.receivedAt)
-        : sms.receivedAt;
+    // A future-tense notice announces money that has not moved. It is never an
+    // actual — see `parse`, which routes it to an obligation instead.
+    if (_futureNoticeMarker.hasMatch(lower)) return null;
+
+    final txnDate = sms.receivedAt;
 
     // A parser-uncertain row is kept but always routed to review, even at high
-    // confidence, so an ambiguous amount, a promotional tail or money that has
-    // not moved yet is never silently auto-added. The ingestion policy honours
-    // this reason on every later scan, so the row can never be auto-added.
-    final uncertain =
-        amount.uncertain || isFutureNotice || promo == _PromoSignal.review;
+    // confidence, so an ambiguous amount or a promotional tail is never
+    // silently auto-added. The ingestion policy honours this reason on every
+    // later scan, so the row can never be auto-added.
+    final uncertain = amount.uncertain || promo == _PromoSignal.review;
     final needsReview = confidence < kAutoAddConfidenceThreshold || uncertain;
     final reviewReason = uncertain
         ? ReviewReason.parserUncertain

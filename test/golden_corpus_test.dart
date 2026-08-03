@@ -27,6 +27,7 @@ class _Sample {
         direction = j['direction'] as String?,
         amountPaise = j['amountPaise'] as int?,
         autoAdd = j['autoAdd'] as bool?,
+        notice = (j['notice'] as bool?) ?? false,
         merchant = j['merchant'] as String?,
         instrument = j['instrument'] as String?;
 
@@ -43,10 +44,14 @@ class _Sample {
   final String? merchant;
   final String? instrument;
 
-  /// Explicitly `false` on a real transaction that must never be auto-added —
-  /// an AutoPay pre-notice, say, which is genuine signal but not a dated
-  /// actual. Null means the sample makes no claim either way.
+  /// Explicitly `false` on a real transaction that must never be auto-added.
+  /// Null means the sample makes no claim either way.
   final bool? autoAdd;
+
+  /// True when the body announces a *future* debit. Such a sample is not a
+  /// transaction (`isTxn` is false) but must not be discarded either: it has to
+  /// come back as a [FutureDebitNotice] so the obligation survives (TASK-32).
+  final bool notice;
 }
 
 void main() {
@@ -156,6 +161,30 @@ void main() {
         }
       }
     }
+  });
+
+  test('a future-notice sample is not a transaction but is never dropped', () {
+    var seen = 0;
+    for (final file in _bankFiles) {
+      for (final s in load(file)) {
+        if (!s.notice) continue;
+        seen++;
+        final result = parser.parse(
+          RawSms(sender: s.sender, body: s.body, receivedAt: s.receivedAt),
+          scanBatchId: 'golden',
+          bodyHashSalt: 'golden-salt',
+        );
+        expect(result.txn, isNull, reason: 'stored as an actual: "${s.body}"');
+        expect(
+          result.notice?.amountPaise,
+          s.amountPaise,
+          reason: 'notice lost or mis-valued: "${s.body}"',
+        );
+      }
+    }
+    // Guards the gate itself: without a labelled sample the assertions above
+    // are vacuous and would pass on an empty corpus.
+    expect(seen, greaterThanOrEqualTo(1));
   });
 
   test('the corpus carries the hard negatives the gate depends on', () {

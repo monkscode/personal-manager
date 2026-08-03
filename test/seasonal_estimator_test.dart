@@ -11,6 +11,7 @@ ParsedTxn spend({
   TxnType type = TxnType.upi,
   String? ownerKey,
   int day = 12,
+  String rawBodyRedacted = 'r',
 }) {
   final parts = yyyymm.split('-');
   final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), day);
@@ -29,7 +30,7 @@ ParsedTxn spend({
     source: TxnSource.sms,
     ownerKey: ownerKey,
     coverageBucket: CoverageBucket.datedEvent,
-    rawBodyRedacted: 'r',
+    rawBodyRedacted: rawBodyRedacted,
     bodyHash: 'h',
     scanBatchId: 'b',
   );
@@ -50,6 +51,52 @@ void main() {
     ownedOwnerKeys: owned,
     now: _now,
   );
+
+  // TASK-32. 30 rows on the author's device were future-tense notices stored as
+  // completed debits alongside the real debit. The parser no longer stores new
+  // ones, but the stored rows outlive the fix, so the estimator has to read
+  // past them too — the same read-time correction `_isConsumptionSpend`
+  // already applies in `real_insights`.
+  group('future-dated notices already stored as debits', () {
+    test('an announced debit never enters the estimate', () {
+      final announced = spend(
+        yyyymm: '2026-06',
+        amountPaise: 199900,
+        rawBodyRedacted:
+            'For the upcoming mandate set for 28-06-26, [amount] will be '
+            'debited from your A/c towards Google - Axis Bank',
+      );
+
+      expect(estimate([announced]).totalAmountPaise, 0);
+    });
+
+    test('the real debit beside it still counts once', () {
+      final announced = spend(
+        yyyymm: '2026-06',
+        amountPaise: 199900,
+        rawBodyRedacted:
+            'For the upcoming mandate set for 28-06-26, [amount] will be '
+            'debited from your A/c towards Google - Axis Bank',
+      );
+      final real = spend(
+        yyyymm: '2026-06',
+        amountPaise: 199900,
+        day: 28,
+        rawBodyRedacted:
+            'Your A/c has been debited towards Google for [amount] on '
+            '28-06-26. - Axis Bank',
+      );
+
+      // The announcement adds nothing: the pair estimates exactly as the real
+      // debit alone does. Asserted as an equality rather than a literal so it
+      // does not encode the trailing-window arithmetic.
+      expect(
+        estimate([announced, real]).totalAmountPaise,
+        estimate([real]).totalAmountPaise,
+      );
+      expect(estimate([real]).totalAmountPaise, greaterThan(0));
+    });
+  });
 
   group('blend', () {
     test('blends same-month median with the trailing average', () {

@@ -307,8 +307,12 @@ void main() {
       );
     });
 
-    test('an autopay pre-notice takes the stated date and never auto-adds', () {
-      final txn = parser.parseOne(
+    // Superseded by TASK-32. This pre-notice used to be stored as a debit dated
+    // at the announced day, on the theory that the real debit would later fold
+    // into it. On the device that theory failed — 30 notices sat alongside 30
+    // real debits — so a notice is no longer an actual at all.
+    test('an autopay pre-notice is a dated notice, not a transaction', () {
+      final result = parser.parse(
         sms(
           sender: 'VM-HDFCBK',
           receivedAt: DateTime(2025, 7, 2, 10),
@@ -318,21 +322,13 @@ void main() {
         ),
         scanBatchId: 'scan-17',
         bodyHashSalt: 'test-salt',
-      )!;
-
-      expect(txn.txnLocalDate, '2025-07-05');
-      expect(txn.reviewStatus, ReviewStatus.needsReview);
-      expect(txn.reviewReason, ReviewReason.parserUncertain);
-      expect(txn.coverageBucket, CoverageBucket.reviewPending);
-
-      final decision = SmsIngestionPolicy.classify(
-        incoming: txn,
-        existing: const [],
-        isFirstScan: false,
       );
 
-      expect(decision.action, IngestionAction.queueReview);
-      expect(decision.transaction.reviewStatus, ReviewStatus.needsReview);
+      expect(result.txn, isNull);
+      expect(result.notice!.dueDate, DateTime(2025, 7, 5));
+      expect(result.notice!.payee, 'netflix');
+      expect(result.notice!.amountPaise, 49900);
+      expect(result.notice!.accountLast4, '1234');
     });
 
     test('a pre-notice plus the real debit ingest as one transaction', () {
@@ -354,12 +350,15 @@ void main() {
       ];
 
       final stored = <ParsedTxn>[];
+      final notices = <FutureDebitNotice>[];
       for (final message in messages) {
-        final parsed = parser.parseOne(
+        final result = parser.parse(
           message,
           scanBatchId: 'autopay',
           bodyHashSalt: 'test-salt',
         );
+        if (result.notice != null) notices.add(result.notice!);
+        final parsed = result.txn;
         if (parsed == null) continue;
         final decision = SmsIngestionPolicy.classify(
           incoming: parsed,
@@ -371,10 +370,79 @@ void main() {
         }
       }
 
+      // One rupee, one owner: the announcement is an obligation signal and the
+      // debit alert is the actual. Only the latter is a stored transaction.
       expect(stored, hasLength(1));
       expect(stored.single.amountPaise, 49900);
       expect(stored.single.txnLocalDate, '2025-07-05');
-      expect(stored.single.reviewStatus, isNot(ReviewStatus.autoAdded));
+      expect(notices, hasLength(1));
+      expect(notices.single.amountPaise, 49900);
+    });
+  });
+
+  // Bodies below are the real Axis/HDFC shapes measured on the author's device
+  // on 2026-08-03 (TASK-32), reproduced with the amounts un-redacted.
+  group('a future-tense notice is never a completed debit', () {
+    test('an upcoming-mandate notice produces no transaction', () {
+      expect(
+        parser.parseOne(
+          sms(
+            sender: 'AX-AXISBK-S',
+            receivedAt: DateTime(2026, 7, 26, 9),
+            body:
+                'For the upcoming mandate set for 28-07-26, Rs.1999.00 will be '
+                'debited from your A/c towards Google for GOOGLE, 512345678901. '
+                'To stop execution, pause mandate - Axis Bank',
+          ),
+          scanBatchId: 'scan-32a',
+          bodyHashSalt: 'test-salt',
+        ),
+        isNull,
+      );
+    });
+
+    test('it surfaces instead as a dated notice carrying payee and due date', () {
+      final notice = parser
+          .parse(
+            sms(
+              sender: 'AX-AXISBK-S',
+              receivedAt: DateTime(2026, 7, 26, 9),
+              body:
+                  'For the upcoming mandate set for 28-07-26, Rs.1999.00 will '
+                  'be debited from your A/c towards Google for GOOGLE, '
+                  '512345678901. To stop execution, pause mandate - Axis Bank',
+            ),
+            scanBatchId: 'scan-32b',
+            bodyHashSalt: 'test-salt',
+          )
+          .notice!;
+
+      expect(notice.payee, 'google');
+      expect(notice.amountPaise, 199900);
+      expect(notice.dueDate, DateTime(2026, 7, 28));
+    });
+
+    // GUARD, not regression coverage: this passes with or without the tense
+    // check, because a past-tense body carries no future marker. It is here to
+    // fail loudly if the future-notice vocabulary is ever widened far enough to
+    // swallow the real NACH debit — the 20 `UMRN:` rows of TASK-31 format 2.
+    test('GUARD: a past-tense NACH debit is still an actual', () {
+      final result = parser.parse(
+        sms(
+          sender: 'JX-HDFCBK-S',
+          receivedAt: DateTime(2026, 7, 5, 8),
+          body:
+              'PAYMENT ALERT!\nRs.4500.00 deducted from HDFC Bank A/c XX1234 '
+              'towards Indian Clearing Corporation Lt UMRN: HDFC7020308251001350',
+        ),
+        scanBatchId: 'scan-32c',
+        bodyHashSalt: 'test-salt',
+      );
+
+      expect(result.notice, isNull);
+      expect(result.txn!.direction, TransactionDirection.debit);
+      expect(result.txn!.amountPaise, 450000);
+      expect(result.txn!.txnLocalDate, '2026-07-05');
     });
   });
 
