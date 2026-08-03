@@ -102,7 +102,8 @@ flutter test
 - [x] Unchanged parses still skip, so rescans stay idempotent
 - [x] Refreshed rows feed recurring detection
 - [x] `flutter analyze` clean, `flutter test` green — **688 passing** (was 679)
-- [~] Verified on-device: **outcome confirmed, mechanism not exercisable — see below**
+- [x] Verified on-device: refresh repairs a stored row, preserving decision and
+      `created_at` — measured under a controlled edit, see below
 - [x] Suggested commit: `Re-parse stored rows when the parser has since been corrected`
 
 ---
@@ -145,9 +146,46 @@ There is also no way to detect a *past* refresh after the fact: `transactions` h
 `updated_at`, and `created_at` is deliberately preserved. So whether the path ran during
 the 2026-08-02 07:11 scan is unknowable from the stored data.
 
-**How to close this box properly.** TASK-31 changes the parse of 79 rows that are already
-stored. `refreshParse` is the only route by which those rows can gain merchants, so
-verifying TASK-31 on the device verifies this task at the same time — including that the
-refreshed rows keep their `review_status` and `created_at`. That check is written into
-TASK-31's definition of done. Leaving this box open until then rather than ticking it on
-an outcome the insert path also explains.
+### Closing it: a controlled edit on the real database
+
+Since no naturally-occurring row had a changed parse, one was made to. The full database
+was pulled first as a backup, the app force-stopped, and a single row edited to look like
+pre-fix parser output — merchant cleared, payee type dropped to `unknown` — while leaving
+its `review_status` alone. The message body is a real HDFC UPI credit alert the current
+parser reads correctly, so this is exactly the situation the task describes: a stored row
+whose parse the present parser would improve.
+
+Target: `sms_id = provider:12138`, a **user-confirmed** row.
+
+| field | seeded state | after one pull-to-refresh | |
+|---|---|---|---|
+| `merchant` | `NULL` | `priyalpatel1910` | repaired |
+| `payee_type` | `unknown` | `p2p_individual` | repaired |
+| `review_status` | `confirmed` | `confirmed` | **decision survived** |
+| `needs_review` | `0` | `0` | consistent |
+| `created_at` | `1783717193076` | `1783717193076` | **not restamped** |
+| row count | 386 | 386 | no duplicate |
+
+Scope was checked, not assumed. Comparing the result against the pre-test backup across
+`sms_id, merchant, payee_type, direction, type, amount_paise, review_status, created_at,
+category_key, confidence`, **zero rows differ** — the app repaired the seeded damage and
+touched nothing else. Decision totals were identical throughout: 191 auto-added,
+187 confirmed, 6 dismissed, 2 needs-review.
+
+So all four claims hold on real data: the refresh fires, the fresh parse lands, the user's
+decision is carried across, and `created_at` is preserved.
+
+**One observable side effect, not previously recorded.** The refreshed row's `id` changed
+(42 → 697). The rewrite goes through `ConflictAlgorithm.replace`, which deletes and
+reinserts, so `AUTOINCREMENT` issues a new rowid. Exactly one id changed — only the
+refreshed row. This is benign here: nothing in `lib/` references `transactions.id`, there
+is no foreign key or `transaction_id` column anywhere, and the stable identity is the
+`sms_id UNIQUE` column. Worth knowing before anything ever keys on the rowid, and it is
+the same REPLACE behaviour TASK-26 flags on the normal ingest path.
+
+**Still true, and still the better end-to-end proof.** No *naturally* stale row exists on
+this device — the 79 merchant-less rows are current parser gaps, not stale output. TASK-31
+changes the parse of those 79 already-stored rows, and `refreshParse` is the only route by
+which they can gain merchants, so verifying TASK-31 on the device will exercise this path
+at population scale rather than on one seeded row. That check stays in TASK-31's
+definition of done.

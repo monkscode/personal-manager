@@ -114,8 +114,12 @@ flutter build apk --debug && adb install -r build/app/outputs/flutter-apk/app-de
 ```
 
 Pull-to-refresh on Home, then re-measure. Because these 79 rows are already stored, the
-only way they gain merchants is through TASK-30's `refreshParse`. So this verification
-closes TASK-30's open on-device box at the same time — see the note recorded there.
+only way they gain merchants is through TASK-30's `refreshParse`.
+
+TASK-30's box is already closed — the refresh was proven on a single seeded row, carrying
+the user's decision and `created_at` across. This task is what exercises the same path at
+population scale, on rows that became stale for real rather than by hand, so record the
+before/after counts here when it lands.
 
 ## Definition of done
 
