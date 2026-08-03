@@ -150,9 +150,51 @@ flutter test
 - [x] Bank-as-payee decision recorded
 - [x] ACH mandate debits lock as recurring commitments
 - [x] `flutter analyze` clean, `flutter test` green
-- [ ] On device: ownerless rows fall from 79, and the count is recorded here
-- [ ] On device: the refreshed rows keep their `review_status` and `created_at`
+- [x] On device: ownerless rows fell **79 → 34** — see below
+- [x] On device: the refreshed rows kept their `review_status` and `created_at`
 - [x] Suggested commit: `Extract payees from ACH, NACH, Axis UPI and ATM formats`
+
+## On-device result (2026-08-03, SM-G781B, after one pull-to-refresh)
+
+This is the task that finally exercised TASK-30's `refreshParse` at population scale, on
+rows that went stale for real. **304 of 387 rows were rewritten in place.**
+
+| | before | after |
+|---|---|---|
+| rows | 386 | 387 (one new SMS arrived) |
+| `merchant IS NULL` | 79 (₹12,39,544) | **34** (₹2,49,940) |
+| rows typed `bank_mandate` | 0 | 35 |
+| obligations | 2 | 8 |
+
+**`created_at` and `review_status` survive the rewrite**, verified on a specific row: the
+28-07-26 Google debit was `id=400, created=1785415878118, auto_added` before and
+`id=711, created=1785415878118, auto_added` after. Table-wide, 187 confirmed and 6
+dismissed are unchanged. The `id` change is TASK-30's already-recorded benign
+REPLACE + AUTOINCREMENT behaviour.
+
+The device's garbage-named obligation is fixed at the source: the Axis rows that stored
+merchant `xfkxfma537eoyvuzwkvss3vbvbr1oxoo` now store `google`, and a new commitment
+`Hdfc Bank Ltd mandate` (`merchant_norm=hdfc bank ltd`, `payee_type=bank_mandate`) locked
+from the ACH history — the bank-as-payee decision working end to end.
+
+### The 34 that remain, and why 45 rather than 56 gained a payee
+
+| bucket | rows | status |
+|---|---|---|
+| notice rows kept by TASK-32's fix-forward decision | 22 | **as designed** — not deleted, and excluded at read time |
+| Dec-2025 rows the scan never re-read | 11 | **blocked by the reader, not the parser** — see below |
+| the IMPS credit | 1 | out of this task's format list, as stated above |
+
+45 + 11 = 56, the full format-1..6 population, so the parser's coverage is complete. The
+11 were never handed to it.
+
+**New defect found while verifying this: the scan reads only the newest ~1,000 inbox
+messages.** `SmsReaderService.scan` computes `total = 11,596` correctly, then its read loop
+breaks on the first empty batch. In this run it stopped at provider id ≈ 11,403 — 967 inbox
+messages sit at or above 11,433 — and every one of the 11 stragglers is below that boundary
+(provider ids 11,243–11,347, dated 1–10 Dec 2025). Their messages are still in the inbox;
+they were simply never read. Filed as **[TASK-33](TASK-33-scan-reads-only-newest-1000-sms.md)**,
+because it caps TASK-30's refresh reach and, worse, would silently truncate a first scan.
 
 ## Findings opened by this task, not fixed here
 

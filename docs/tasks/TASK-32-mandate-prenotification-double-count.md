@@ -193,8 +193,37 @@ flutter test
 - [x] They surface as dated obligations instead of being dropped
 - [x] Decision recorded for the rows already stored (26 user-confirmed of 30)
 - [x] `flutter analyze` clean, `flutter test` green
-- [ ] On device: re-measure after TASK-31 lands and record the before/after here
+- [x] On device: re-measured after TASK-31 landed — see below
 - [x] Suggested commit: `Treat future-dated bank notices as obligations, not debits`
+
+## On-device result (2026-08-03, SM-G781B, after one pull-to-refresh)
+
+**Zero future-notice rows were written by the scan.** Every row rewritten by the refresh
+(`id > 697`, the pre-scan maximum) was checked against the notice vocabulary: `count=0`.
+The 22 notice rows that remain are the pre-existing ones, untouched by design — they kept
+their original low `id`s, so the refresh never rewrote them either.
+
+**The obligations table went 2 → 8.** Five are new and carry
+`next_expected_source=explicit_due_date`, which is the half of this task that was supposed
+to be valuable:
+
+| obligation | amount | source |
+|---|---|---|
+| `phonepe` | ₹120.07 | explicit_due_date |
+| `google` | ₹1,999 | explicit_due_date |
+| `google asia pacific pte.ltd` | ₹1,999 | explicit_due_date |
+| `axis bank cc` | ₹15,191 | explicit_due_date |
+| `bharat connect postpaid bill payment` | ₹181.36 | explicit_due_date |
+
+Before this task the same table held two rows, both named after an opaque VPA local part.
+
+**User decisions intact:** 187 confirmed and 6 dismissed, unchanged across the scan.
+
+**"Need for September" did not move** (₹1,18,270 before and after). That is the expected
+outcome and it corroborates correction 2 above: the headline is built from
+`_typicalMonthlySpendPaise`, which already excluded notices, so there was nothing there to
+recover. The five new obligations are `needsReview`, so they correctly do not enter the
+forecast until the user confirms them.
 
 ## Findings opened by this task, not fixed here
 

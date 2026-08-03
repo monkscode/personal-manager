@@ -11,9 +11,15 @@ two Critical defects that four reviewers reading the source did not.
 
 **TASK-31 and TASK-32 were added the same way**, at the end of Phase 2, by installing the
 build and measuring the real database. The device keeps earning its place: 34% of all
-transaction value is stored with no merchant (TASK-31), and mandate pre-notifications are
+transaction value is stored with no merchant (TASK-31), and future-tense bank notices are
 booked as completed debits alongside the real debit (TASK-32) — a straight breach of "one
 owner per rupee" that nobody reading the source had caught.
+
+**TASK-33 was found while *verifying* TASK-31 on the device**, which is the point worth
+keeping: the fix was correct and the on-device numbers still did not add up, and chasing
+that 11-row gap surfaced a Critical silent exclusion in the reader. Do not stop at "the
+tests pass and the number improved" — reconcile the device numbers exactly, and treat a
+remainder you cannot explain as a finding rather than as noise.
 
 Each task file is self-contained: it states the defect, a concrete failing scenario,
 the required fix, the tests to write, and a definition of done. One agent should be
@@ -72,7 +78,8 @@ earlier fixes exist.
 | [TASK-29](TASK-29-hdfc-upi-payee-no-merchant.md) | HDFC `Sent … To <PAYEE>` yields no merchant; 171/173 rows ownerless | Critical |
 | [TASK-30](TASK-30-reparse-stored-rows.md) | A parser fix never reaches already-stored rows (210 of 383 stale) | Critical |
 | [TASK-31](TASK-31-ownerless-merchant-formats.md) | ACH/NACH/Axis/ATM payees unread — 79 rows, 34% of value, ownerless | Important |
-| [TASK-32](TASK-32-mandate-prenotification-double-count.md) | Upcoming-mandate notices stored as completed debits (17 rows) | Critical |
+| [TASK-32](TASK-32-mandate-prenotification-double-count.md) | Future-tense notices stored as completed debits (30 rows, ₹86,304) | Critical |
+| [TASK-33](TASK-33-scan-reads-only-newest-1000-sms.md) | A scan reads only the newest ~1,000 SMS and reports success | Critical |
 
 ### Phase 2 — Reconciliation
 
