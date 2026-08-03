@@ -24,6 +24,17 @@ history from 387 rows starting in Nov 2025 to 2,058 rows starting in Oct 2018, s
 measurement taken before 2026-08-03 was taken against half the analysis window**. Re-measure
 rather than trusting a number quoted in an earlier task file.
 
+**TASK-34 was found at the end of Phase 3**, by installing the build and going looking for
+the coverage lines the phase had just added. They were all computed correctly and **not one
+of them was reachable**: `_recommendationCard` is the only widget that renders any part of
+`ForecastOutlook`, it holds the only route to the why-log, and it sits in the branch taken
+when `forecastExplorer` is *null* — which never happens on the live SMS path. The
+replacement, `HomeForecastExplorer`, is never instantiated anywhere in `lib/`. Three phases
+of work have been feeding a channel with no outlet, and "no silent exclusion" has been
+violated at the UI layer the whole time while every model-layer test passed. **Check that a
+fix is reachable by a user, not merely correct** — a passing test that renders a screen
+directly proves the screen works, not that anything can open it.
+
 **A task file's own premises are evidence, not fact.** TASK-31, TASK-32 and TASK-33 each
 turned out to contain a premise that did not survive being checked against the source or
 the device — including, in TASK-33, all three of the mechanism, the trigger and the measured
@@ -113,6 +124,7 @@ earlier fixes exist.
 | [TASK-22](TASK-22-anchor-integrity.md) | Float-parsed balance; phantom ₹0 anchor at 0.9 confidence | Important ×2 |
 | [TASK-23](TASK-23-horizon-dedupe-and-buffer.md) | Label-only future dedupe; unreachable buffer headline | Important ×2 |
 | [TASK-24](TASK-24-forecast-minors.md) | Forecast and money minors (11 items) | Minor |
+| [TASK-34](TASK-34-forecast-surface-unreachable.md) | The whole forecast surface is unreachable on the live SMS path | Critical |
 
 ### Phase 4 — Persistence hardening
 
