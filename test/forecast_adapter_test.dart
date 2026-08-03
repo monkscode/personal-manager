@@ -98,9 +98,11 @@ SmsAnalysisSnapshot _snap({
   SalaryProfile salary = _detectedSalary,
   List<RecurringCommitment> commitments = const [],
   SeasonalEstimate? seasonal,
+  List<SeasonalEstimate> horizonSeasonal = const [],
   List<ObligationRecord> obligations = const [],
   List<ForecastRiskDecision> riskDecisions = const [],
 }) => SmsAnalysisSnapshot(
+  horizonSeasonal: horizonSeasonal,
   targetMonth: DateTime(2026, 8),
   hasData: true,
   commitments: commitments,
@@ -162,6 +164,7 @@ ObligationRecord _confirmedObligation({
 );
 
 void main() {
+  _task21();
   group('ForecastAdapter — in-month minimum drives the headline', () {
     test('rent before salary makes a temporary shortfall', () {
       final outlook = _build(
@@ -1469,5 +1472,134 @@ void main() {
         expect(hasOutflow, isTrue, reason: 'Outflow must survive');
       },
     );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TASK-21 — discretionary spend across the whole horizon.
+// ---------------------------------------------------------------------------
+
+/// A whole-horizon seasonal estimate of [monthlyPaise] per month at
+/// [confidence], as the snapshot reducer now produces.
+List<SeasonalEstimate> _flatHorizon(
+  int monthlyPaise, {
+  double confidence = kSeasonalConfidenceSeasonal,
+  String category = 'everyday',
+}) => [
+  for (var offset = 0; offset < kForecastHorizonMonths; offset++)
+    SeasonalEstimate(
+      targetMonth: DateTime(2026, 8 + offset).month,
+      byCategory: {
+        category: CategorySeasonalEstimate(
+          categoryKey: category,
+          amountPaise: monthlyPaise,
+          confidence: confidence,
+        ),
+      },
+    ),
+];
+
+void _task21() {
+  // The task file's scenario: 85k salary, 40k of fixed commitments, a stable
+  // 28k/month of tracked discretionary spend.
+  const salaryPaise = 8500000;
+  const commitmentPaise = 4000000;
+  const discretionaryPaise = 2800000;
+
+  SmsAnalysisSnapshot snapshot({
+    List<SeasonalEstimate> horizonSeasonal = const [],
+  }) => _snap(
+    items: const [],
+    anchor: BalanceAnchor(
+      amountPaise: 10000000,
+      asOf: DateTime(2026, 8, 1),
+      source: BalanceAnchorSource.smsBankBalance,
+    ),
+    commitments: [
+      RecurringCommitment(
+        merchantNorm: 'rent',
+        amountPaise: commitmentPaise,
+        cadence: RecurringCadence.monthly,
+        categoryKey: 'housing',
+        nextExpected: DateTime(2026, 8, 5),
+        confidence: 0.9,
+        occurrences: 6,
+        matchedConfiguredPlan: false,
+      ),
+    ],
+    horizonSeasonal: horizonSeasonal,
+  );
+
+  group('discretionary spend across the horizon (TASK-21)', () {
+    test('month 6 is not six months of discretionary spend too high', () {
+      final without = _build(snapshot()).months[6].closingBalancePaise;
+      final with_ = _build(
+        snapshot(horizonSeasonal: _flatHorizon(discretionaryPaise)),
+      ).months[6].closingBalancePaise;
+
+      // Six future months of spend (offsets 1..6) must be missing from the
+      // un-estimated projection, and the gap must not have been rounded away.
+      expect(without - with_, discretionaryPaise * 6);
+    });
+
+    test('the gap does not compound across the carry-forward chain', () {
+      final months = _build(
+        snapshot(horizonSeasonal: _flatHorizon(discretionaryPaise)),
+      ).months;
+
+      // Each future month moves by exactly salary − commitment − discretionary.
+      const perMonth = salaryPaise - commitmentPaise - discretionaryPaise;
+      for (var offset = 2; offset < kForecastHorizonMonths; offset++) {
+        expect(
+          months[offset].closingBalancePaise -
+              months[offset - 1].closingBalancePaise,
+          perMonth,
+          reason: 'month $offset drifted from the steady-state step',
+        );
+      }
+    });
+
+    test('every horizon month has an estimate or names the omission', () {
+      for (final horizon in [
+        <SeasonalEstimate>[],
+        _flatHorizon(discretionaryPaise),
+        // Too weak to be a hard ledger event: it must still be named.
+        _flatHorizon(discretionaryPaise, confidence: kSeasonalConfidenceThin),
+      ]) {
+        final outlook = _build(snapshot(horizonSeasonal: horizon));
+        for (var offset = 0; offset < kForecastHorizonMonths; offset++) {
+          final month = outlook.months[offset];
+          final hasEstimate = month.events.any(
+            (e) => e.source == ForecastEventSource.seasonal,
+          );
+          final namesOmission = month.coverageLines.any(
+            (l) => l.reason == CoverageReason.discretionaryNotModelled,
+          );
+          expect(
+            hasEstimate || namesOmission,
+            isTrue,
+            reason:
+                'month $offset silently omits discretionary spend '
+                '(horizon length ${horizon.length})',
+          );
+        }
+      }
+    });
+
+    test('a weak estimate is named with the amount it left out', () {
+      final outlook = _build(
+        snapshot(
+          horizonSeasonal: _flatHorizon(
+            discretionaryPaise,
+            confidence: kSeasonalConfidenceThin,
+          ),
+        ),
+      );
+
+      final line = outlook.months[3].coverageLines.singleWhere(
+        (l) => l.reason == CoverageReason.discretionaryNotModelled,
+      );
+      expect(line.amountPaise, discretionaryPaise);
+    });
   });
 }

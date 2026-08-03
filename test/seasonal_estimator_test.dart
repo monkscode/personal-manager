@@ -39,6 +39,7 @@ ParsedTxn spend({
 final _now = DateTime(2026, 7, 15);
 
 void main() {
+  _task21Blocker();
   const estimator = SeasonalEstimator();
 
   SeasonalEstimate estimate(
@@ -214,6 +215,70 @@ void main() {
       expect(kSeasonalSameMonthWeight, 0.6);
       expect(kSeasonalTrailingWeight, 0.4);
       expect(kSeasonalTrailingN, 3);
+    });
+  });
+}
+
+// TASK-21's blocker. `_isPriorYearTargetMonth` compared each observation's year
+// against `now.year`, so forecasting a month that falls in the *next* calendar
+// year threw away the most recent same-month observation there is.
+void _task21Blocker() {
+  const estimator = SeasonalEstimator();
+
+  SeasonalEstimate estimateAt(
+    List<ParsedTxn> history, {
+    required int targetMonth,
+    required DateTime now,
+  }) => estimator.estimate(
+    targetMonth1to12: targetMonth,
+    discretionaryHistory: history,
+    ownedOwnerKeys: const {},
+    now: now,
+  );
+
+  group('a horizon crossing a year boundary (TASK-21)', () {
+    // Six distinct months of history clears kSeasonalThinHistoryMonths so the
+    // same-month branch is reachable at all.
+    List<ParsedTxn> history() => [
+      spend(yyyymm: '2025-01', amountPaise: 900000),
+      spend(yyyymm: '2026-01', amountPaise: 1000000),
+      spend(yyyymm: '2026-09', amountPaise: 100000),
+      spend(yyyymm: '2026-10', amountPaise: 100000),
+      spend(yyyymm: '2026-11', amountPaise: 100000),
+      spend(yyyymm: '2026-12', amountPaise: 100000),
+    ];
+
+    test('forecasting Jan 2027 from Dec 2026 uses January 2026', () {
+      final result = estimateAt(
+        history(),
+        targetMonth: 1,
+        now: DateTime(2026, 12, 20),
+      );
+
+      // Two prior Januaries (2025 and 2026) → seasonal, not single-year.
+      expect(result.byCategory['food']!.confidence, kSeasonalConfidenceSeasonal);
+      // Median of 9,00,000 and 10,00,000 paise is 9,50,000; the trailing three
+      // months (Sep-Nov 2026) average 1,00,000.
+      expect(
+        result.byCategory['food']!.amountPaise,
+        (0.6 * 950000 + 0.4 * 100000).round(),
+      );
+    });
+
+    test('the target month still excludes its own partial data', () {
+      final result = estimateAt(
+        [...history(), spend(yyyymm: '2026-12', amountPaise: 5000000, day: 1)],
+        targetMonth: 12,
+        now: DateTime(2026, 12, 20),
+      );
+
+      // December 2026 is the month being forecast: its own partial spend may
+      // not become its own same-month evidence. Only Dec 2025 would count, and
+      // there is none, so there is no same-month signal at all.
+      expect(
+        result.byCategory['food']!.confidence,
+        kSeasonalConfidenceRecentOnly,
+      );
     });
   });
 }

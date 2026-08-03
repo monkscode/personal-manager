@@ -1,5 +1,13 @@
 import 'sms_models.dart';
 
+/// Months of forward outlook the rolling ledger projects (matches the 12-bar
+/// year chart the screens render).
+///
+/// Lives with the models rather than in `forecast_adapter.dart` so the snapshot
+/// reducer can size its per-month seasonal estimates to the same horizon
+/// without importing the adapter that consumes it (TASK-21).
+const int kForecastHorizonMonths = 12;
+
 enum LedgerDirection { inflow, outflow }
 
 enum ForecastEventSource {
@@ -47,6 +55,12 @@ enum CoverageReason {
   /// The amount is accounted for — by the winner — but it must still be named,
   /// or a dropped duplicate is indistinguishable from money that vanished.
   duplicateSuppressed,
+
+  /// This month's everyday spending is not in the ledger — either there is no
+  /// seasonal estimate for it, or the estimate was too weak to be treated as a
+  /// hard event. Without this line a horizon month models rent and EMIs against
+  /// full salary and reads as confidently in surplus (TASK-21).
+  discretionaryNotModelled,
 }
 
 enum CoverageAction {

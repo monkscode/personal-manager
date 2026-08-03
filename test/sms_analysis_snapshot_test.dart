@@ -58,6 +58,7 @@ List<ParsedTxn> monthlySip({required int count, int day = 10}) => [
 ];
 
 void main() {
+  _task21Horizon();
   final now = DateTime(2026, 8, 15);
 
   group('kAnalysisLookbackMonths', () {
@@ -600,4 +601,74 @@ class _CountingDatabase implements Database {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName}');
+}
+
+// TASK-21: the reducer called the estimator once, for the target month, so
+// every future month projected fixed costs against full salary with no
+// everyday spending at all.
+void _task21Horizon() {
+  final now = DateTime(2026, 8, 15);
+
+  // A December that costs three times an ordinary month, twice over, so the
+  // same-month median has something seasonal to find.
+  List<ParsedTxn> history() => [
+    for (final year in [2024, 2025])
+      txn(
+        amountPaise: 3000000,
+        date: DateTime(year, 12, 10),
+        categoryKey: 'food',
+        merchant: 'grocer',
+      ),
+    for (var m = 1; m <= 8; m++)
+      txn(
+        amountPaise: 1000000,
+        date: DateTime(2026, m, 10),
+        categoryKey: 'food',
+        merchant: 'grocer',
+      ),
+  ];
+
+  group('a seasonal estimate per horizon month (TASK-21)', () {
+    test('December is estimated higher than an ordinary month', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: history(),
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+
+      expect(snapshot.horizonSeasonal, hasLength(kForecastHorizonMonths));
+      expect(snapshot.seasonal, same(snapshot.horizonSeasonal.first));
+
+      // Offsets from August 2026: 4 → December 2026, 5 → January 2027.
+      final december = snapshot.horizonSeasonal[4];
+      final january = snapshot.horizonSeasonal[5];
+      expect(december.targetMonth, 12);
+      expect(january.targetMonth, 1);
+      expect(
+        december.totalAmountPaise,
+        greaterThan(january.totalAmountPaise),
+        reason: 'December must carry its own seasonal magnitude',
+      );
+    });
+
+    test('every horizon month is estimated, not just the target month', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: history(),
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+
+      for (var offset = 0; offset < kForecastHorizonMonths; offset++) {
+        expect(
+          snapshot.horizonSeasonal[offset].totalAmountPaise,
+          greaterThan(0),
+          reason: 'offset $offset has no everyday spending at all',
+        );
+      }
+    });
+  });
 }

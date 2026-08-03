@@ -57,6 +57,7 @@ class SmsAnalysisSnapshot {
     required this.obligations,
     required this.reservePlan,
     required this.riskDecisions,
+    this.horizonSeasonal = const [],
     this.allTxns = const [],
     this.anchor,
     this.anchorFreshness,
@@ -94,6 +95,16 @@ class SmsAnalysisSnapshot {
   final SalaryProfile salary;
   final List<IncomeCandidate> otherIncome;
   final SeasonalEstimate seasonal;
+
+  /// One seasonal estimate per month of the forecast horizon, indexed by offset
+  /// from [targetMonth] — element 0 is [seasonal] itself.
+  ///
+  /// The estimator was called once, for the target month, so horizon months 1
+  /// through 11 modelled rent and EMIs against full salary with no groceries,
+  /// fuel or eating out at all — false-safe in the one direction the spec
+  /// forbids (TASK-21). Empty means "not estimated", which the adapter reports
+  /// as a coverage line rather than treating as zero spend.
+  final List<SeasonalEstimate> horizonSeasonal;
 
   /// Owned reconciliation items for [targetMonth], ready for the forecast
   /// reconciliation engine (paid/unpaid already resolved).
@@ -176,12 +187,24 @@ class SmsAnalysisSnapshot {
     final otherIncome = salaryDetector.detectOtherIncome(credits, now: now);
 
     final ownedOwnerKeys = _ownedOwnerKeys(active, commitments);
-    final seasonal = const SeasonalEstimator().estimate(
-      targetMonth1to12: now.month,
-      discretionaryHistory: active,
-      ownedOwnerKeys: ownedOwnerKeys,
-      now: now,
-    );
+    // One estimate per horizon month, not just the target month: every future
+    // month needs its own seasonal magnitude or it projects fixed costs against
+    // full salary and reads as confidently in surplus (TASK-21). December's
+    // higher spend lands in December because the estimator is asked about
+    // December.
+    final horizonSeasonal = <SeasonalEstimate>[
+      for (var offset = 0; offset < kForecastHorizonMonths; offset++)
+        const SeasonalEstimator().estimate(
+          targetMonth1to12: DateTime(
+            targetMonth.year,
+            targetMonth.month + offset,
+          ).month,
+          discretionaryHistory: active,
+          ownedOwnerKeys: ownedOwnerKeys,
+          now: now,
+        ),
+    ];
+    final seasonal = horizonSeasonal.first;
 
     final cards = _cardEstimates(active, targetMonth);
 
@@ -227,6 +250,7 @@ class SmsAnalysisSnapshot {
       salary: salary,
       otherIncome: List.unmodifiable(otherIncome),
       seasonal: seasonal,
+      horizonSeasonal: horizonSeasonal,
       reconciliationItems: List.unmodifiable(reconciliationItems),
       cards: List.unmodifiable(cards),
       currentMonthTxns: List.unmodifiable(currentMonthTxns),

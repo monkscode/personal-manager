@@ -17,6 +17,7 @@ class ForecastLedgerEngine {
     required BalanceAnchor anchor,
     required List<ForecastEvent> events,
     List<ForecastCoverageLine> coverageLines = const [],
+    Map<int, List<ForecastCoverageLine>> horizonCoverageLines = const {},
     DateTime? now,
   }) {
     if (monthCount < 1) {
@@ -31,7 +32,14 @@ class ForecastLedgerEngine {
         targetMonth: targetMonth,
         anchor: openingAnchor,
         events: events,
-        coverageLines: offset == 0 ? coverageLines : const [],
+        // [coverageLines] describe the target month's reconciliation and belong
+        // to offset 0 alone. [horizonCoverageLines] is the per-month channel
+        // future months previously had no access to at all, which is why an
+        // omission in month 7 could not be reported anywhere (TASK-21).
+        coverageLines: [
+          if (offset == 0) ...coverageLines,
+          ...?horizonCoverageLines[offset],
+        ],
         offset: offset,
         now: now,
       );

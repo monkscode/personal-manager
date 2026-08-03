@@ -100,9 +100,10 @@ class SeasonalEstimator {
           ? _mean(_winsorizeUpper(trailingValues, allNets))
           : _mean(trailingValues.map((v) => v.toDouble()).toList());
 
+      final targetYear = _targetYear(now, targetMonth1to12);
       final sameMonthValues = [
         for (final period in monthlyNets.keys)
-          if (_isPriorYearTargetMonth(period, targetMonth1to12, now.year))
+          if (_isPriorYearTargetMonth(period, targetMonth1to12, targetYear))
             monthlyNets[period]!,
       ];
 
@@ -169,11 +170,29 @@ class SeasonalEstimator {
     return periods;
   }
 
-  bool _isPriorYearTargetMonth(String period, int targetMonth, int currentYear) {
+  /// The calendar year the forecast means when it asks for [targetMonth1to12]:
+  /// the next occurrence of that month at or after [now]'s month. A forecast
+  /// never estimates a month that has already passed, so December asking for
+  /// January means *next* January.
+  int _targetYear(DateTime now, int targetMonth1to12) =>
+      targetMonth1to12 >= now.month ? now.year : now.year + 1;
+
+  /// Whether [period] is the target month in a year strictly before the one
+  /// being forecast.
+  ///
+  /// This compares against the **target** year, not `now.year`. Comparing
+  /// against `now.year` was harmless while the only caller asked for
+  /// `now.month`, but it meant forecasting January 2027 from December 2026
+  /// discarded January 2026 — the single most relevant observation — and
+  /// downgraded the result from [kSeasonalConfidenceSeasonal] to
+  /// [kSeasonalConfidenceSingleYear] (TASK-21). The target month's own partial
+  /// data is still excluded, because its year is never strictly less than
+  /// itself.
+  bool _isPriorYearTargetMonth(String period, int targetMonth, int targetYear) {
     final parts = period.split('-');
     final year = int.parse(parts[0]);
     final month = int.parse(parts[1]);
-    return month == targetMonth && year < currentYear;
+    return month == targetMonth && year < targetYear;
   }
 
   /// Caps trailing one-offs at the [reference] distribution's upper percentile

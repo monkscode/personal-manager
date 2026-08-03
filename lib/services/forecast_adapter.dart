@@ -12,10 +12,7 @@ import 'forecast_reconciliation_engine.dart';
 import 'recurring_debit_detector.dart';
 import 'reserve_planner.dart';
 import 'salary_income_detector.dart';
-
-/// Months of forward outlook the rolling ledger projects (matches the 12-bar
-/// year chart the screens render).
-const int kForecastHorizonMonths = 12;
+import 'seasonal_estimator.dart';
 
 /// Minimum size (paise) of an obligation beyond the target month that is
 /// surfaced as a dated forward-earmark heads-up so "extra" stays honest
@@ -202,6 +199,11 @@ class ForecastAdapter {
       anchor: anchor,
       events: hardEvents,
       coverageLines: reconciliation.coverageLines,
+      horizonCoverageLines: _discretionaryCoverage(
+        snapshot,
+        targetMonth,
+        hardEvents,
+      ),
       now: referenceNow,
     );
     final month0 = months.first;
@@ -404,6 +406,7 @@ class ForecastAdapter {
           ),
         );
       }
+      events.addAll(_seasonalEvents(snapshot, month, offset));
     }
 
     // Add future obligation events after projected commitments so they are
@@ -415,6 +418,85 @@ class ForecastAdapter {
     events.addAll(canonicalEvents);
 
     return events;
+  }
+
+  /// A `discretionaryNotModelled` line for every horizon month whose everyday
+  /// spending never reached the ledger.
+  ///
+  /// Two ways that happens, and both must be named: there is no seasonal
+  /// estimate for the month at all, or there is one but it was too weak to
+  /// clear [kReserveHardConfidence] and was partitioned into the risk lines.
+  /// Either way the month models fixed costs against full salary, and a surplus
+  /// that omits groceries is exactly the false-safe reading the spec forbids.
+  /// When an estimate exists the line carries its amount, so the omission is
+  /// quantified rather than merely flagged.
+  Map<int, List<ForecastCoverageLine>> _discretionaryCoverage(
+    SmsAnalysisSnapshot snapshot,
+    DateTime targetMonth,
+    List<ForecastEvent> hardEvents,
+  ) {
+    final modelledMonths = <String>{
+      for (final event in hardEvents)
+        if (event.source == ForecastEventSource.seasonal) _monthKey(event.date),
+    };
+
+    final lines = <int, List<ForecastCoverageLine>>{};
+    for (var offset = 0; offset < kForecastHorizonMonths; offset++) {
+      final month = DateTime(targetMonth.year, targetMonth.month + offset);
+      if (modelledMonths.contains(_monthKey(month))) continue;
+
+      final estimate = _seasonalFor(snapshot, offset);
+      final total = estimate?.totalAmountPaise ?? 0;
+      lines[offset] = [
+        ForecastCoverageLine(
+          label: 'Everyday spending not included',
+          reason: CoverageReason.discretionaryNotModelled,
+          action: CoverageAction.review,
+          confidence: 0.3,
+          amountPaise: total > 0 ? total : null,
+          ownerKey: 'seasonal:${_monthKey(month)}',
+        ),
+      ];
+    }
+    return lines;
+  }
+
+  /// This future month's estimated everyday spending, one event per category.
+  ///
+  /// The target month gets its seasonal estimate through the reconciliation
+  /// engine, which nets it against month-to-date spend and spreads the residual
+  /// over the days still ahead (TASK-16). A future month has no month-to-date
+  /// spend, so it takes the full estimate — and no intra-month timing evidence
+  /// either, so it is dated on the last day rather than spread across ~30 days
+  /// per category, which would multiply ledger lines by an order of magnitude
+  /// for precision the estimate does not contain.
+  List<ForecastEvent> _seasonalEvents(
+    SmsAnalysisSnapshot snapshot,
+    DateTime month,
+    int offset,
+  ) {
+    final estimate = _seasonalFor(snapshot, offset);
+    if (estimate == null) return const [];
+    final lastDay = DateTime(month.year, month.month + 1, 0).day;
+    return [
+      for (final category in estimate.byCategory.values)
+        if (category.amountPaise > 0)
+          ForecastEvent(
+            date: DateTime(month.year, month.month, lastDay),
+            amountPaise: category.amountPaise,
+            direction: LedgerDirection.outflow,
+            source: ForecastEventSource.seasonal,
+            ownerKey: 'seasonal:${category.categoryKey}',
+            label: _titleCase(category.categoryKey),
+            confidence: category.confidence,
+          ),
+    ];
+  }
+
+  static SeasonalEstimate? _seasonalFor(SmsAnalysisSnapshot snapshot, int offset) {
+    final horizon = snapshot.horizonSeasonal;
+    if (offset < 0 || offset >= horizon.length) return null;
+    return horizon[offset];
   }
 
   /// Projects confirmed, active obligations from [obligations] across future
