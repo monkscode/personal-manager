@@ -292,12 +292,19 @@ List<ForecastLine> _hardLinesForMonth(
   }
 
   // 1. For each hard event, find matching reconciliation line or create one.
-  for (final event in events) {
+  for (var i = 0; i < events.length; i++) {
+    final event = events[i];
     final em = _normalizeMonth(event.date);
     if (em.year != monthStart.year || em.month != monthStart.month) continue;
 
+    // The event's position is part of the key. Two genuinely distinct events
+    // can share an owner key, a date and an amount — two debits to the same
+    // payee on the same day — and the ledger subtracts both. Keying on
+    // ownerKey:millis:amount alone collapsed them to one why-log line, so the
+    // itemisation no longer added up to committedOutflowPaise (TASK-24 M5).
     final dedupeKey =
-        '${event.ownerKey}:${event.date.millisecondsSinceEpoch}:${event.amountPaise}';
+        '$i:${event.ownerKey}:${event.date.millisecondsSinceEpoch}:'
+        '${event.amountPaise}';
     if (usedKeys.contains(dedupeKey)) continue;
     usedKeys.add(dedupeKey);
 

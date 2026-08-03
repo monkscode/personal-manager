@@ -290,6 +290,7 @@ void main() {
   });
 
   _task22();
+  _task24();
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +402,64 @@ void _task22() {
         ),
         isEmpty,
       );
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TASK-24 M9 — the carry-forward month boundary.
+// ---------------------------------------------------------------------------
+
+void _task24() {
+  group('TASK-24 M9 — carry-forward asOf is a clean month boundary', () {
+    test('lands on the last instant of the month, not a microsecond of DST',
+        () {
+      final results = const ForecastLedgerEngine().buildRollingMonths(
+        firstMonth: DateTime(2026, 8),
+        monthCount: 3,
+        anchor: BalanceAnchor(
+          amountPaise: 1000000,
+          asOf: DateTime(2026, 8),
+          source: BalanceAnchorSource.smsBankBalance,
+        ),
+        now: DateTime(2026, 8),
+        events: const [],
+      );
+
+      // Month 1 opens on an anchor dated at the very end of August, so an
+      // event at midnight on 1 September is strictly after it.
+      final asOf = results[1].anchor.asOf;
+      expect(asOf.year, 2026);
+      expect(asOf.month, 8);
+      expect(asOf.day, 31);
+      expect(DateTime(2026, 9).isAfter(asOf), isTrue);
+    });
+
+    test('an event at midnight on the first still enters its month', () {
+      final results = const ForecastLedgerEngine().buildRollingMonths(
+        firstMonth: DateTime(2026, 8),
+        monthCount: 2,
+        anchor: BalanceAnchor(
+          amountPaise: 1000000,
+          asOf: DateTime(2026, 8),
+          source: BalanceAnchorSource.smsBankBalance,
+        ),
+        now: DateTime(2026, 8),
+        events: [
+          ForecastEvent(
+            date: DateTime(2026, 9),
+            amountPaise: 250000,
+            direction: LedgerDirection.outflow,
+            source: ForecastEventSource.recurring,
+            ownerKey: 'commitment:rent',
+            label: 'Rent',
+            confidence: 0.9,
+          ),
+        ],
+      );
+
+      expect(results[1].events, hasLength(1));
+      expect(results[1].closingBalancePaise, 750000);
     });
   });
 }

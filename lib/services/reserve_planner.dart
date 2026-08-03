@@ -122,7 +122,9 @@ class ReservePlanner {
       final fundedPaise = obligation.reserveFundedPaise;
       final remainingPaise = (targetPaise - fundedPaise).clamp(0, targetPaise);
       final isFullyFunded = remainingPaise == 0;
-      final isOverdue = obligation.dueDate!.isBefore(now);
+      // Day-only: a bill due today at 00:00 is not overdue at 2pm today
+      // (TASK-24 M3).
+      final isOverdue = _dayOnly(obligation.dueDate!).isBefore(_dayOnly(now));
 
       final contributions = isFullyFunded
           ? <ReserveContribution>[]
@@ -188,42 +190,40 @@ class ReservePlanner {
       }
     }
 
-    // If only immediate opportunity or no opportunities left
-    if (opportunities.isEmpty) {
-      return [];
-    }
-
-    // Distribute remaining amount across opportunities
+    // Distribute the remaining amount across the opportunities in whole-rupee
+    // instalments, using integer arithmetic throughout: money never touches a
+    // double (TASK-24 M1).
     final numOpportunities = opportunities.length;
-    final perOpportunityPaise = (remainingPaise / numOpportunities).ceil();
-
-    // Ceiling to whole rupees (100 paise)
-    final ceiledPerOpportunity = ((perOpportunityPaise + 99) ~/ 100) * 100;
+    final perOpportunityPaise =
+        (remainingPaise + numOpportunities - 1) ~/ numOpportunities;
+    final instalmentPaise = _ceilToRupee(perOpportunityPaise);
 
     final contributions = <ReserveContribution>[];
     var distributed = 0;
 
-    for (var i = 0; i < opportunities.length; i++) {
-      final isLast = i == opportunities.length - 1;
-      int amount;
-      if (isLast) {
-        // For last contribution, take remaining and ceiling to whole rupees
-        final remaining = remainingPaise - distributed;
-        amount = ((remaining + 99) ~/ 100) * 100;
-      } else {
-        amount = ceiledPerOpportunity.clamp(0, remainingPaise - distributed);
-      }
-
-      if (amount > 0) {
-        contributions.add(
-          ReserveContribution(date: opportunities[i], amountPaise: amount),
-        );
-        distributed += amount;
-      }
+    for (final date in opportunities) {
+      if (distributed >= remainingPaise) break;
+      final outstanding = remainingPaise - distributed;
+      // The final instalment absorbs the residual rather than repeating the
+      // already-ceiled instalment, so the plan overshoots the target by less
+      // than one rupee in total. Some overshoot is unavoidable while
+      // instalments are whole rupees.
+      final amount = instalmentPaise < outstanding
+          ? instalmentPaise
+          : _ceilToRupee(outstanding);
+      contributions.add(
+        ReserveContribution(date: date, amountPaise: amount),
+      );
+      distributed += amount;
     }
 
     return contributions;
   }
+
+  static int _ceilToRupee(int paise) => ((paise + 99) ~/ 100) * 100;
+
+  static DateTime _dayOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
   DateTime _getSalaryDateForMonth(DateTime month, int salaryDay) {
     // Get the last day of the month

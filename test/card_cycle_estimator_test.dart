@@ -283,4 +283,32 @@ void main() {
       expect(estimate.dueDate, DateTime(2026, 2, 28));
     });
   });
+
+  group('TASK-24 M7 — outstandingPaise on an unpaid statement', () {
+    test('is the statement total, not null', () {
+      final estimate = const CardCycleEstimator().estimate(
+        [cardTxn(amountPaise: 300000, date: DateTime(2026, 7, 10))],
+        cycle: cycle,
+        statementMonth: DateTime(2026, 7),
+        statementTotalPaise: 500000,
+      );
+
+      expect(estimate.paymentStatus, ReconciliationPaymentStatus.unpaid);
+      expect(estimate.outstandingPaise, 500000);
+    });
+
+    test('an overpayment clears the balance and never goes negative', () {
+      final estimate = const CardCycleEstimator().estimate(
+        [cardTxn(amountPaise: 300000, date: DateTime(2026, 7, 10))],
+        cycle: cycle,
+        statementMonth: DateTime(2026, 7),
+        statementTotalPaise: 500000,
+        amountPaidPaise: 600000,
+      );
+
+      expect(estimate.paymentStatus, ReconciliationPaymentStatus.paid);
+      expect(estimate.outstandingPaise, 0);
+    });
+  });
+
 }

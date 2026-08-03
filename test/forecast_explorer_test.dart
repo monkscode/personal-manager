@@ -56,7 +56,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 9000000,
         ),
         lines: const [],
@@ -159,7 +159,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 9000000,
         ),
         lines: const [],
@@ -211,7 +211,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 10000000,
         ),
         lines: const [],
@@ -266,7 +266,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 1000000,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 8000000,
         ),
         lines: [
@@ -361,7 +361,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 8000000,
         ),
         lines: [
@@ -541,7 +541,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 10000000,
         ),
         lines: const [],
@@ -631,7 +631,7 @@ void main() {
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 500000,
-            expectedPaise: 0,
+            expectedSalaryPaise: 0,
             freePaise: 9500000,
           ),
           lines: [openingLine],
@@ -729,7 +729,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 1800000,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 7200000,
         ),
         lines: const [],
@@ -770,7 +770,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 10000000,
         ),
         lines: const [],
@@ -831,7 +831,7 @@ void main() {
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 0,
-            expectedPaise: 0,
+            expectedSalaryPaise: 0,
             freePaise: 10000000,
           ),
           lines: const [], // No reconciliation lines for future months
@@ -892,7 +892,7 @@ void main() {
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 0,
-            expectedPaise: 0,
+            expectedSalaryPaise: 0,
             freePaise: 10000000,
           ),
           lines: [weakLine], // Reconciliation produced this review line
@@ -960,7 +960,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 210000,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 9790000,
         ),
         lines: [richLine],
@@ -1025,7 +1025,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 10000000,
         ),
         lines: [anchorLine],
@@ -1082,7 +1082,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 10000000,
         ),
         lines: const [], // Not in target-month reconciliation
@@ -1159,7 +1159,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 1500000,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 8500000,
         ),
         lines: [reconLine],
@@ -1220,7 +1220,7 @@ void main() {
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
           committedPaise: 0,
-          expectedPaise: 0,
+          expectedSalaryPaise: 0,
           freePaise: 10000000,
         ),
         lines: const [],
@@ -1249,6 +1249,87 @@ void main() {
       expect(sepPlan.hardLines.first.ownerKey, 'salary:monthly');
     });
   });
+
+  group('TASK-24 M5/M6 — why-log lines and inflow naming', () {
+    test('keeps two real events that share owner, date and amount', () {
+      // Two genuine ACT Fibernet debits of the same amount on the same day.
+      // The ledger subtracts both; the why-log used to key on
+      // ownerKey:millis:amount and show one, so the itemisation no longer
+      // added up to committedOutflowPaise.
+      final july = DateTime(2026, 7, 1);
+      final day = DateTime(2026, 7, 12);
+      final outlook = _buildOutlook(
+        events: [
+          ForecastEvent(
+            date: day,
+            amountPaise: 118000,
+            direction: LedgerDirection.outflow,
+            source: ForecastEventSource.recurring,
+            ownerKey: 'commitment:actfibernet',
+            label: 'Actfibernet',
+            confidence: 0.9,
+          ),
+          ForecastEvent(
+            date: day,
+            amountPaise: 118000,
+            direction: LedgerDirection.outflow,
+            source: ForecastEventSource.recurring,
+            ownerKey: 'commitment:actfibernet',
+            label: 'Actfibernet',
+            confidence: 0.9,
+          ),
+        ],
+        openingPaise: 10000000,
+      );
+      final plan = buildForecastExplorer(
+        outlook: outlook,
+        reservePlan: const ReservePlan.empty(),
+        now: july,
+      ).planAt(0);
+
+      final itemised = plan.hardLines
+          .where((l) => l.ownerKey == 'commitment:actfibernet')
+          .fold<int>(0, (sum, l) => sum + l.amountPaise);
+      expect(plan.committedOutflowPaise, 236000);
+      expect(itemised, plan.committedOutflowPaise);
+    });
+
+    test('opening + expected inflow - committed outflow == closing', () {
+      final outlook = _buildOutlook(
+        events: [
+          _outflow(DateTime(2026, 7, 5), 1800000),
+          _inflow(DateTime(2026, 7, 10), 8500000),
+        ],
+        openingPaise: 10000000,
+      );
+      final plan = buildForecastExplorer(
+        outlook: outlook,
+        reservePlan: const ReservePlan.empty(),
+        now: DateTime(2026, 7, 1),
+      ).planAt(0);
+
+      expect(
+        plan.openingBalancePaise +
+            plan.expectedInflowPaise -
+            plan.committedOutflowPaise,
+        plan.closingBalancePaise,
+      );
+    });
+
+    test('the salary strip names salary explicitly, not "expected"', () {
+      // ForecastMonthPlan.expectedInflowPaise is every inflow;
+      // ForecastSalaryStrip counts salary alone. Two meanings for one word,
+      // exposed from the same layer, is what the spec forbids.
+      const strip = ForecastSalaryStrip(
+        committedPaise: 1800000,
+        expectedSalaryPaise: 8500000,
+        freePaise: 16700000,
+      );
+
+      expect(strip.expectedSalaryPaise, 8500000);
+    });
+  });
+
 }
 
 // Helper builders
@@ -1273,7 +1354,7 @@ ForecastOutlook _buildOutlook({
     isSeasonalBufferShortfall: false,
     salary: ForecastSalaryStrip(
       committedPaise: 0,
-      expectedPaise: 0,
+      expectedSalaryPaise: 0,
       freePaise: result.closingBalancePaise,
     ),
     lines: const [],
@@ -1315,7 +1396,7 @@ ForecastOutlook _buildOutlookWithMonthlyOutflows(List<int> outflowsPerMonth) {
     isSeasonalBufferShortfall: false,
     salary: ForecastSalaryStrip(
       committedPaise: 0,
-      expectedPaise: 0,
+      expectedSalaryPaise: 0,
       freePaise: months.first.closingBalancePaise,
     ),
     lines: const [],

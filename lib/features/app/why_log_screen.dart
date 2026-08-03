@@ -498,6 +498,7 @@ class WhyLogScreen extends StatelessWidget {
     CoverageReason.unscheduledObligation => 'No due date yet',
     CoverageReason.reviewNeeded => 'Needs review',
     CoverageReason.possiblyAlreadyPaid => 'May already be paid',
+    CoverageReason.pastDueObligation => 'Past due',
     CoverageReason.p2pConfirmationRequired => 'Confirm this person',
     CoverageReason.setCardCycle => 'Set your card cycle',
     CoverageReason.transferBridgeReview => 'Transfer to confirm',

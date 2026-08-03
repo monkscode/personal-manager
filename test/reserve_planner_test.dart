@@ -390,6 +390,55 @@ void main() {
       expect(result.availableToEnable, isEmpty);
     });
   });
+
+  group('TASK-24 M1/M3 — reserve arithmetic', () {
+    test('overshoots the target by less than a rupee, in whole rupees', () {
+      // 12,345,67 paise over several opportunities. Every instalment must be a
+      // whole number of rupees, the plan must reach the target, and it must not
+      // sail past it: the last contribution used to re-ceil a residual that had
+      // already been ceiled, so the total could exceed the target by up to 99
+      // paise on top of the rounding that was already applied.
+      // Every target clears kReserveMinimumPaise, or the obligation is offered
+      // for enabling instead of scheduled and there is nothing to assert.
+      for (final target in [1234567, 6000000, 1000001, 1000050, 9999999]) {
+        final result = const ReservePlanner().build(
+          obligations: [_lic(amountPaise: target, dueDate: DateTime(2027, 2, 12))],
+          now: DateTime(2026, 7, 22),
+          expectedSalaryDay: 1,
+        );
+        final contributions = result.schedules.single.contributions;
+        final total = contributions.fold<int>(0, (sum, c) => sum + c.amountPaise);
+
+        expect(total, greaterThanOrEqualTo(target), reason: 'target $target');
+        expect(total, lessThan(target + 100), reason: 'target $target');
+        for (final c in contributions) {
+          expect(c.amountPaise % 100, 0, reason: 'target $target: whole rupees');
+          expect(c.amountPaise, greaterThan(0), reason: 'target $target');
+        }
+      }
+    });
+
+    test('a bill due today is not already overdue', () {
+      final result = const ReservePlanner().build(
+        obligations: [_lic(amountPaise: 6000000, dueDate: DateTime(2026, 7, 22))],
+        now: DateTime(2026, 7, 22, 14, 30),
+        expectedSalaryDay: 1,
+      );
+
+      expect(result.schedules.single.isOverdue, isFalse);
+    });
+
+    test('a bill due yesterday is overdue (guard)', () {
+      final result = const ReservePlanner().build(
+        obligations: [_lic(amountPaise: 6000000, dueDate: DateTime(2026, 7, 21))],
+        now: DateTime(2026, 7, 22, 14, 30),
+        expectedSalaryDay: 1,
+      );
+
+      expect(result.schedules.single.isOverdue, isTrue);
+    });
+  });
+
 }
 
 ObligationRecord _lic({

@@ -28,7 +28,7 @@ const int kProjectedEventDayCap = 28;
 class ForecastSalaryStrip {
   const ForecastSalaryStrip({
     required this.committedPaise,
-    required this.expectedPaise,
+    required this.expectedSalaryPaise,
     required this.freePaise,
   });
 
@@ -37,7 +37,7 @@ class ForecastSalaryStrip {
 
   /// Salary expected to arrive in the target month (0 when already inside the
   /// balance anchor).
-  final int expectedPaise;
+  final int expectedSalaryPaise;
 
   /// What remains after the month's flows — the projected closing balance.
   final int freePaise;
@@ -151,8 +151,10 @@ class ForecastAdapter {
     // 3. Build the single candidate horizon, apply risk decisions, then
     //    partition into hard events (enter ledger) and risk lines (surfaced
     //    separately so weak candidates cannot create false safety).
-    //    Target-month events from reconciliation are always hard (already
-    //    resolved by the reconciliation engine).
+    //    Target-month events from reconciliation go through the same partition
+    //    as everything else — being reconciled does not make an item hard, and
+    //    a weak target-month candidate is routed to the risk lines like any
+    //    other (TASK-24 M4; the comment here used to claim the opposite).
     final horizon = _horizonEvents(
       snapshot,
       reconciliation,
@@ -871,7 +873,7 @@ class ForecastAdapter {
     }
     return ForecastSalaryStrip(
       committedPaise: committed,
-      expectedPaise: expected,
+      expectedSalaryPaise: expected,
       freePaise: month0.closingBalancePaise,
     );
   }

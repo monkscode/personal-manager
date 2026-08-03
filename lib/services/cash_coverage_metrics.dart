@@ -30,11 +30,25 @@ class CashCoverageMetrics {
   const CashCoverageMetrics();
 
   /// Trailing-[kCashDrainWindowDays] slice of [history] relative to [now].
+  ///
+  /// Day-normalised at both ends. A wall-clock cutoff made the window edge
+  /// drift through the day — the same transaction was inside the window at
+  /// 00:05 and outside it at 23:55 — and excluded a transaction *exactly*
+  /// [kCashDrainWindowDays] old (TASK-24 M10).
   List<ParsedTxn> trailingWindow(List<ParsedTxn> history, DateTime now) {
-    final cutoff = now.subtract(const Duration(days: kCashDrainWindowDays));
+    final cutoff = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(const Duration(days: kCashDrainWindowDays));
     return [
       for (final txn in history)
-        if (txn.txnDate.isAfter(cutoff)) txn,
+        if (!DateTime(
+          txn.txnDate.year,
+          txn.txnDate.month,
+          txn.txnDate.day,
+        ).isBefore(cutoff))
+          txn,
     ];
   }
 

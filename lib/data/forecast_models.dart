@@ -42,6 +42,11 @@ enum CoverageReason {
   unscheduledObligation,
   reviewNeeded,
   possiblyAlreadyPaid,
+
+  /// Dated outside the target month and already past its due date. Distinct
+  /// from [futureEarmark]: this is money the user owes *now*, so it carries an
+  /// action rather than being filed as a heads-up (TASK-24 M11).
+  pastDueObligation,
   p2pConfirmationRequired,
   setCardCycle,
   transferBridgeReview,

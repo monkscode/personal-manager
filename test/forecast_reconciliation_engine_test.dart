@@ -1029,6 +1029,7 @@ void main() {
   });
 
   _task22();
+  _task24();
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1117,56 @@ void _task22() {
       );
 
       expect(isPossiblyPaid(result), isTrue);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TASK-24 M11 — a past-due obligation is not a "future" earmark.
+// ---------------------------------------------------------------------------
+
+void _task24() {
+  group('TASK-24 M11 — past-due is distinguished from future', () {
+    ForecastReconciliationResult withDue(DateTime dueDate) {
+      final items = [
+        ReconciliationItem(
+          id: 'lic',
+          label: 'LIC premium',
+          amountPaise: 470000,
+          direction: LedgerDirection.outflow,
+          owner: ForecastOwner.gmailBill,
+          source: ForecastItemSource.gmail,
+          dueDate: dueDate,
+          paymentStatus: ReconciliationPaymentStatus.unpaid,
+          matchKey: 'lic',
+        ),
+      ];
+      final result = const ForecastReconciliationEngine().reconcileMonth(
+        targetMonth: DateTime(2026, 8),
+        anchor: BalanceAnchor(
+          amountPaise: 10000000,
+          asOf: DateTime(2026, 8, 20),
+          source: BalanceAnchorSource.smsBankBalance,
+        ),
+        items: items,
+        now: DateTime(2026, 8, 20),
+      );
+      expectRupeeConservation(result, items);
+      return result;
+    }
+
+    test('an unpaid bill due last month is past-due, with an action', () {
+      final line = withDue(DateTime(2026, 7, 14)).coverageLines.single;
+
+      expect(line.reason, isNot(CoverageReason.futureEarmark));
+      expect(line.reason, CoverageReason.pastDueObligation);
+      expect(line.action, isNot(CoverageAction.none));
+    });
+
+    test('an unpaid bill due next month is still a future earmark (guard)', () {
+      final line = withDue(DateTime(2026, 9, 14)).coverageLines.single;
+
+      expect(line.reason, CoverageReason.futureEarmark);
     });
   });
 }

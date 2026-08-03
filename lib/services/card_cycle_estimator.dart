@@ -108,6 +108,10 @@ class CardCycleEstimator {
         statementEventAmount = outstanding;
       } else {
         paymentStatus = ReconciliationPaymentStatus.unpaid;
+        // Nothing paid against a known statement: the whole statement is
+        // outstanding. Leaving this null made a knowable amount look unknown
+        // (TASK-24 M7).
+        outstanding = statementTotalPaise;
         statementEventAmount = statementTotalPaise;
       }
     } else {

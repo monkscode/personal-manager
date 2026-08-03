@@ -426,7 +426,7 @@ void main() {
       );
 
       expect(outlook.salary.committedPaise, 1800000); // dated outflows
-      expect(outlook.salary.expectedPaise, 8500000); // salary inflow this month
+      expect(outlook.salary.expectedSalaryPaise, 8500000); // salary inflow this month
       expect(outlook.salary.freePaise, 7200000); // closing balance
     });
   });

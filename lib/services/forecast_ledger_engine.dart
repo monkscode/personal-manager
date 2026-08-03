@@ -50,13 +50,28 @@ class ForecastLedgerEngine {
       );
       results.add(result);
 
+      // The last instant of this month, built from calendar fields (day 0 of
+      // the next month is the last day of this one). Subtracting a microsecond
+      // from the next month operates on the underlying *instant*, so in a zone
+      // with a midnight DST transition on the 1st it can land inside the 1st
+      // and make every event dated at midnight "already in anchor"
+      // (TASK-24 M9). Not reachable in IST; this is deterministic anywhere.
       final nextMonth = DateTime(
         firstMonth.year,
         firstMonth.month + offset + 1,
       );
       openingAnchor = BalanceAnchor(
         amountPaise: result.closingBalancePaise,
-        asOf: nextMonth.subtract(const Duration(microseconds: 1)),
+        asOf: DateTime(
+          nextMonth.year,
+          nextMonth.month,
+          0,
+          23,
+          59,
+          59,
+          999,
+          999,
+        ),
         accountLast4: anchor.accountLast4,
         source: BalanceAnchorSource.projectedCarryForward,
         // A close projected from an evidence-free opening is no more evidenced

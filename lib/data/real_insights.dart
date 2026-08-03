@@ -448,7 +448,7 @@ Insights _forecastInsights(
   String abbrevOf(int i) => kMonths[(outlook.targetMonth.month - 1 + i) % 12];
 
   final committed = outlook.salary.committedPaise;
-  final expected = outlook.salary.expectedPaise;
+  final expected = outlook.salary.expectedSalaryPaise;
   final shortfall = outlook.shortfallPaise;
   final surplus = outlook.surplusPaise;
   final isShort = shortfall > 0;

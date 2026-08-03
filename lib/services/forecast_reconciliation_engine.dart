@@ -286,11 +286,21 @@ class ForecastReconciliationEngine {
     }
 
     if (!_sameMonth(eventDate, targetMonth)) {
+      // An item dated *before* the target month is not a heads-up about the
+      // future — it is money already owed. Filing it as `futureEarmark` with
+      // `CoverageAction.none` told the user nothing was needed and gave them
+      // no way to act; `_forwardEarmarks` then hid it below the ₹10,000 floor
+      // as well (TASK-24 M11).
+      final isPastDue =
+          eventDate.isBefore(targetMonth) &&
+          item.paymentStatus != ReconciliationPaymentStatus.paid;
       _assignCoverage(
         item,
-        CoverageReason.futureEarmark,
-        CoverageAction.none,
-        ForecastLineStatus.coverage,
+        isPastDue
+            ? CoverageReason.pastDueObligation
+            : CoverageReason.futureEarmark,
+        isPastDue ? CoverageAction.review : CoverageAction.none,
+        isPastDue ? ForecastLineStatus.overdue : ForecastLineStatus.coverage,
         CoverageBucket.quantifiedExcluded,
         coverageLines,
         lines,

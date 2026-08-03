@@ -150,4 +150,40 @@ void main() {
       expect(metrics.isCurrentMonthCashMaterial(history, now), isFalse);
     });
   });
+
+  group('TASK-24 M10 — the trailing window is day-normalised', () {
+    test('does not move with the time of day', () {
+      // A midday transaction on the window's edge day: with a wall-clock
+      // cutoff it is inside the window at 00:05 and outside it at 23:55 on the
+      // very same day.
+      final txn = cashTxn(amountPaise: 100000, date: DateTime(2026, 4, 1, 12));
+      final morning = metrics.trailingWindow([txn], DateTime(2026, 6, 30, 0, 5));
+      final evening = metrics.trailingWindow([
+        txn,
+      ], DateTime(2026, 6, 30, 23, 55));
+
+      expect(morning.length, evening.length);
+    });
+
+    test('includes a transaction exactly 90 days old', () {
+      final asOf = DateTime(2026, 6, 30);
+      final exactly90 = cashTxn(
+        amountPaise: 100000,
+        date: asOf.subtract(const Duration(days: kCashDrainWindowDays)),
+      );
+
+      expect(metrics.trailingWindow([exactly90], asOf), hasLength(1));
+    });
+
+    test('still excludes a transaction 91 days old (guard)', () {
+      final asOf = DateTime(2026, 6, 30);
+      final tooOld = cashTxn(
+        amountPaise: 100000,
+        date: asOf.subtract(const Duration(days: kCashDrainWindowDays + 1)),
+      );
+
+      expect(metrics.trailingWindow([tooOld], asOf), isEmpty);
+    });
+  });
+
 }
