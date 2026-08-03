@@ -20,11 +20,6 @@ import 'seasonal_estimator.dart';
 /// (spec §7 "Forward earmark"). ₹10,000.
 const int kForwardEarmarkMinPaise = 1000000;
 
-/// A shortfall driven by a discretionary/seasonal estimate below this
-/// confidence is labelled an *estimated buffer shortfall*, not a hard
-/// due-date shortfall (spec §7).
-const double kSeasonalBufferConfidenceThreshold = 0.5;
-
 /// Day-of-month a projected recurring/salary event is placed on when only the
 /// cadence (not an exact day) is known; clamped so it is always a valid day.
 const int kProjectedEventDayCap = 28;
@@ -158,12 +153,13 @@ class ForecastAdapter {
     //    separately so weak candidates cannot create false safety).
     //    Target-month events from reconciliation are always hard (already
     //    resolved by the reconciliation engine).
-    final candidateEvents = _horizonEvents(
+    final horizon = _horizonEvents(
       snapshot,
       reconciliation,
       targetMonth,
       referenceNow,
     );
+    final candidateEvents = horizon.events;
     final riskDecisionMap = _buildDecisionMap(snapshot.riskDecisions);
     final hardEvents = <ForecastEvent>[];
     final riskLines = <ForecastLine>[];
@@ -200,10 +196,9 @@ class ForecastAdapter {
       anchor: anchor,
       events: hardEvents,
       coverageLines: reconciliation.coverageLines,
-      horizonCoverageLines: _discretionaryCoverage(
-        snapshot,
-        targetMonth,
-        hardEvents,
+      horizonCoverageLines: _mergeHorizonCoverage(
+        _discretionaryCoverage(snapshot, targetMonth, hardEvents),
+        horizon.ambiguity,
       ),
       now: referenceNow,
     );
@@ -294,7 +289,8 @@ class ForecastAdapter {
 
   // ---- horizon events -----------------------------------------------------
 
-  List<ForecastEvent> _horizonEvents(
+  ({List<ForecastEvent> events, Map<int, List<ForecastCoverageLine>> ambiguity})
+  _horizonEvents(
     SmsAnalysisSnapshot snapshot,
     ForecastReconciliationResult reconciliation,
     DateTime targetMonth,
@@ -345,48 +341,46 @@ class ForecastAdapter {
       );
     }
 
-    // Build identity-based dedup keys from future obligation events.
-    // Uses canonical dedupeKey+month for exact identity, and
-    // label+direction+month+amount for economic equivalence checking.
+    // Build identity-based dedup keys from future obligation events, on the
+    // canonical dedupeKey + month.
     final futureIdentityKeys = <String>{
       for (final e in futureObligationEvents)
         if (e.obligationDedupeKey != null)
           '${e.obligationDedupeKey}:${_monthKey(e.date)}',
     };
-    final futureEconomicKeys = <String>{
-      for (final e in futureObligationEvents)
-        '${_normLabel(e.label)}:${e.direction.name}:${_monthKey(e.date)}:${e.amountPaise}',
-    };
 
     // Project confirmed active obligations across future offsets 1..11 so they
-    // appear as hard canonical events throughout the 12-month horizon.
+    // appear as hard canonical events throughout the 12-month horizon. The
+    // index records what each projection *is* — category included — so a
+    // detected commitment can be joined to it without relying on the merchant
+    // string matching character for character (TASK-23).
+    final projectedObligations = <_HorizonObligation>[
+      // A future reconciliation item carries no category, so a commitment can
+      // only ever join it by label. Named limitation, not an oversight.
+      for (final e in futureObligationEvents) _HorizonObligation.fromEvent(e),
+    ];
     final canonicalEvents = _projectCanonicalObligations(
       snapshot.obligations,
       targetMonth,
       futureIdentityKeys,
+      projectedObligations,
     );
-    // Register canonical projections for economic-equivalence suppression of
-    // detected commitments below.
-    final canonicalEconomicKeys = <String>{
-      for (final e in canonicalEvents)
-        '${_normLabel(e.label)}:${e.direction.name}:${_monthKey(e.date)}:${e.amountPaise}',
-    };
 
+    final ambiguity = <int, List<ForecastCoverageLine>>{};
     for (var offset = 1; offset < kForecastHorizonMonths; offset++) {
       final month = DateTime(targetMonth.year, targetMonth.month + offset);
       for (final commitment in snapshot.commitments) {
         if (!_cadenceHitsMonth(commitment, month)) continue;
-        // Suppress only if an economically equivalent canonical/future
-        // obligation exists: same label, direction, month, and amount within
-        // recurring jitter tolerance.
-        if (_isCommitmentSuppressed(
+        final verdict = _commitmentSuppression(
           commitment,
           month,
-          canonicalEconomicKeys,
-          futureEconomicKeys,
-          canonicalEvents,
-          futureObligationEvents,
-        )) {
+          projectedObligations,
+        );
+        if (verdict.suppressed) {
+          final line = verdict.line;
+          if (line != null) {
+            (ambiguity[offset] ??= <ForecastCoverageLine>[]).add(line);
+          }
           continue;
         }
 
@@ -427,7 +421,21 @@ class ForecastAdapter {
     // be partitioned as hard by _isHard.
     events.addAll(canonicalEvents);
 
-    return events;
+    return (events: events, ambiguity: ambiguity);
+  }
+
+  static Map<int, List<ForecastCoverageLine>> _mergeHorizonCoverage(
+    Map<int, List<ForecastCoverageLine>> a,
+    Map<int, List<ForecastCoverageLine>> b,
+  ) {
+    if (b.isEmpty) return a;
+    final merged = <int, List<ForecastCoverageLine>>{
+      for (final entry in a.entries) entry.key: [...entry.value],
+    };
+    for (final entry in b.entries) {
+      (merged[entry.key] ??= <ForecastCoverageLine>[]).addAll(entry.value);
+    }
+    return merged;
   }
 
   /// A `discretionaryNotModelled` line for every horizon month whose everyday
@@ -520,6 +528,7 @@ class ForecastAdapter {
     List<ObligationRecord> obligations,
     DateTime targetMonth,
     Set<String> existingMonthKeys,
+    List<_HorizonObligation> index,
   ) {
     final events = <ForecastEvent>[];
     // Track keys we project to avoid duplicate projection across obligations
@@ -584,6 +593,16 @@ class ForecastAdapter {
             confidence: obl.confidence,
             isUserConfirmed: isConfirmed,
             obligationDedupeKey: obl.dedupeKey,
+          ),
+        );
+        index.add(
+          _HorizonObligation(
+            label: obl.merchant,
+            labelKey: _normLabel(obl.merchant),
+            categoryKey: obl.categoryKey,
+            monthKey: _monthKey(month),
+            amountPaise: amount,
+            direction: LedgerDirection.outflow,
           ),
         );
       }
@@ -696,7 +715,14 @@ class ForecastAdapter {
   }
 
   /// Normalize a label for deduplication purposes.
-  static String _normLabel(String label) => label.trim().toLowerCase();
+  ///
+  /// Case, spacing and punctuation are all noise here: an SMS-detected
+  /// commitment carries `merchantNorm` ("actfibernet") while a Gmail obligation
+  /// carries the merchant as written ("ACT Fibernet"). Trim-and-lowercase alone
+  /// left those two spellings of one bill projecting into every future month
+  /// (TASK-23).
+  static String _normLabel(String label) =>
+      label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
   bool _cadenceHitsMonth(RecurringCommitment commitment, DateTime month) {
     final expected = commitment.nextExpected;
@@ -711,48 +737,59 @@ class ForecastAdapter {
     };
   }
 
-  /// Suppresses a detected commitment only when an economically equivalent
-  /// canonical or future obligation exists: same normalized label, direction,
-  /// month, and amount within recurring jitter tolerance.
-  bool _isCommitmentSuppressed(
+  /// Whether a detected commitment is already carried by an obligation this
+  /// month, and how sure the join is.
+  ///
+  /// The spec's join order is reference id, then cadence, then an amount
+  /// window — merchant text last, because SMS merchant extraction is weak.
+  /// Every candidate here has already passed cadence (it is being projected
+  /// into this month) and the amount window; what remains is deciding whether
+  /// two differently-spelled payees are one payee.
+  _SuppressionVerdict _commitmentSuppression(
     RecurringCommitment commitment,
     DateTime month,
-    Set<String> canonicalEconomicKeys,
-    Set<String> futureEconomicKeys,
-    List<ForecastEvent> canonicalEvents,
-    List<ForecastEvent> futureObligationEvents,
+    List<_HorizonObligation> projected,
   ) {
     final normLabel = _normLabel(commitment.merchantNorm);
     final monthStr = _monthKey(month);
-    final direction = LedgerDirection.outflow; // commitments are always outflow
+    const direction = LedgerDirection.outflow; // commitments are always outflow
 
-    // Check exact economic match first (fast path).
-    final exactKey =
-        '$normLabel:${direction.name}:$monthStr:${commitment.amountPaise}';
-    if (canonicalEconomicKeys.contains(exactKey) ||
-        futureEconomicKeys.contains(exactKey)) {
-      return true;
-    }
-
-    // Check amount-within-jitter against canonical events in the same month.
-    for (final e in canonicalEvents) {
-      if (_normLabel(e.label) != normLabel) continue;
-      if (e.direction != direction) continue;
-      if (_monthKey(e.date) != monthStr) continue;
-      if (_withinRecurringJitter(commitment.amountPaise, e.amountPaise)) {
-        return true;
+    _HorizonObligation? ambiguous;
+    for (final obligation in projected) {
+      if (obligation.direction != direction) continue;
+      if (obligation.monthKey != monthStr) continue;
+      if (!_withinRecurringJitter(
+        commitment.amountPaise,
+        obligation.amountPaise,
+      )) {
+        continue;
+      }
+      // Same payee once spelling is discounted: an unambiguous duplicate.
+      // An empty key is not an identity — a label of nothing but punctuation
+      // normalises to "" and would otherwise make every such payee the same
+      // payee, which is the ownerless-key grouping failure TASK-31 and TASK-33
+      // found in the parser.
+      if (normLabel.isNotEmpty && obligation.labelKey == normLabel) {
+        return const _SuppressionVerdict.confident();
+      }
+      // Different payee text, same category, amount and month. That is real
+      // ambiguity, and the spec routes ambiguity to review. Projecting both
+      // would double-count the rupee; dropping it unnamed would make it vanish.
+      // So it is carried once and named (TASK-23).
+      if (obligation.categoryKey != null &&
+          obligation.categoryKey == commitment.categoryKey) {
+        ambiguous ??= obligation;
       }
     }
-    // Check amount-within-jitter against future obligation events.
-    for (final e in futureObligationEvents) {
-      if (_normLabel(e.label) != normLabel) continue;
-      if (e.direction != direction) continue;
-      if (_monthKey(e.date) != monthStr) continue;
-      if (_withinRecurringJitter(commitment.amountPaise, e.amountPaise)) {
-        return true;
-      }
+    if (ambiguous != null) {
+      return _SuppressionVerdict.ambiguous(
+        commitmentLabel: _titleCase(commitment.merchantNorm),
+        obligationLabel: ambiguous.label,
+        ownerKey: 'commitment:${commitment.merchantNorm}',
+        amountPaise: commitment.amountPaise,
+      );
     }
-    return false;
+    return const _SuppressionVerdict.none();
   }
 
   /// Whether [actual] is within the recurring amount jitter tolerance of [expected].
@@ -795,6 +832,19 @@ class ForecastAdapter {
     return !configured;
   }
 
+  /// Whether the in-month low is driven purely by *estimated* everyday spending
+  /// rather than by a dated bill — the difference between "your buffer looks
+  /// thin" and "you owe this on the 5th".
+  ///
+  /// This used to demand `confidence < kSeasonalBufferConfidenceThreshold`
+  /// (0.5) as well, which contradicted `_isHard`: nothing below
+  /// [kReserveHardConfidence] (0.8) is ever admitted to the ledger, so no event
+  /// in [ForecastMonthResult.events] could satisfy both. The headline was
+  /// unreachable except through a risk the user had explicitly confirmed, which
+  /// is backwards. The threshold has been deleted rather than worked around —
+  /// admitting sub-0.5 events to the ledger would break the rule that weak
+  /// candidates may not create a false shortfall. Being a seasonal estimate is
+  /// itself the softness the headline is reporting (TASK-23).
   bool _isSeasonalBufferShortfall(ForecastMonthResult month0) {
     if (month0.minimumBalancePaise >= 0) return false;
     final minDay = _dayOnly(month0.minimumBalanceDate);
@@ -803,11 +853,7 @@ class ForecastAdapter {
           e.direction == LedgerDirection.outflow && _dayOnly(e.date) == minDay,
     );
     return driving.isNotEmpty &&
-        driving.every(
-          (e) =>
-              e.source == ForecastEventSource.seasonal &&
-              e.confidence < kSeasonalBufferConfidenceThreshold,
-        );
+        driving.every((e) => e.source == ForecastEventSource.seasonal);
   }
 
   ForecastSalaryStrip _salaryStrip(ForecastMonthResult month0) {
@@ -890,4 +936,63 @@ class ForecastAdapter {
         .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
         .join(' ');
   }
+}
+
+/// An obligation already projected into a horizon month, carrying enough
+/// identity to join a detected recurring commitment to it without relying on
+/// the merchant string matching character for character (TASK-23).
+class _HorizonObligation {
+  const _HorizonObligation({
+    required this.label,
+    required this.labelKey,
+    required this.monthKey,
+    required this.amountPaise,
+    required this.direction,
+    this.categoryKey,
+  });
+
+  /// A future reconciliation item has no category on it, so a commitment can
+  /// only ever join one of these by label.
+  factory _HorizonObligation.fromEvent(ForecastEvent event) =>
+      _HorizonObligation(
+        label: event.label,
+        labelKey: ForecastAdapter._normLabel(event.label),
+        monthKey: ForecastAdapter._monthKey(event.date),
+        amountPaise: event.amountPaise,
+        direction: event.direction,
+      );
+
+  final String label;
+  final String labelKey;
+  final String? categoryKey;
+  final String monthKey;
+  final int amountPaise;
+  final LedgerDirection direction;
+}
+
+/// Whether a detected commitment is already carried by a projected obligation,
+/// and — when the join was ambiguous — the coverage line that names it.
+class _SuppressionVerdict {
+  const _SuppressionVerdict.none() : suppressed = false, line = null;
+
+  const _SuppressionVerdict.confident() : suppressed = true, line = null;
+
+  _SuppressionVerdict.ambiguous({
+    required String commitmentLabel,
+    required String obligationLabel,
+    required String ownerKey,
+    required int amountPaise,
+  }) : suppressed = true,
+       line = ForecastCoverageLine(
+         label: '"$commitmentLabel" looks like the same commitment as '
+             '"$obligationLabel" — counted once',
+         reason: CoverageReason.duplicateSuppressed,
+         action: CoverageAction.review,
+         confidence: 0.5,
+         amountPaise: amountPaise,
+         ownerKey: ownerKey,
+       );
+
+  final bool suppressed;
+  final ForecastCoverageLine? line;
 }

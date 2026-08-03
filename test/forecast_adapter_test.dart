@@ -1475,6 +1475,7 @@ void main() {
   });
 
   _task22();
+  _task23();
 }
 
 // ---------------------------------------------------------------------------
@@ -1709,6 +1710,204 @@ void _task22() {
         isEmpty,
       );
       expect(outlook.closingBalancePaise, lessThanOrEqualTo(-1800000));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TASK-23 — horizon dedupe by identity, and a reachable seasonal-buffer
+// headline.
+// ---------------------------------------------------------------------------
+
+void _task23() {
+  RecurringCommitment commitment({
+    required String merchantNorm,
+    required int amountPaise,
+    required String categoryKey,
+  }) => RecurringCommitment(
+    merchantNorm: merchantNorm,
+    amountPaise: amountPaise,
+    cadence: RecurringCadence.monthly,
+    categoryKey: categoryKey,
+    nextExpected: DateTime(2026, 9, 12),
+    confidence: 0.9,
+    occurrences: 6,
+    matchedConfiguredPlan: false,
+  );
+
+  List<ForecastEvent> septemberOutflows(ForecastOutlook outlook, int paise) =>
+      outlook.months[1].events
+          .where(
+            (e) =>
+                e.direction == LedgerDirection.outflow &&
+                e.amountPaise == paise,
+          )
+          .toList();
+
+  group('TASK-23 — horizon commitments dedupe by identity, not label text', () {
+    test('joins "ACT Fibernet" to "actfibernet" at the same amount', () {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+          items: const [],
+          commitments: [
+            commitment(
+              merchantNorm: 'actfibernet',
+              amountPaise: 118000,
+              categoryKey: 'bills',
+            ),
+          ],
+          obligations: [
+            _confirmedObligation(
+              dedupeKey: 'gmail:act-fibernet',
+              merchant: 'ACT Fibernet',
+              amountPaise: 118000,
+              dueDate: DateTime(2026, 8, 12),
+              dueDay: 12,
+            ),
+          ],
+        ),
+      );
+
+      expect(septemberOutflows(outlook, 118000), hasLength(1));
+    });
+
+    test('still projects both when the merchants are genuinely different '
+        '(guard)', () {
+      // Same amount and cadence, different categories: no reason to believe
+      // these are one commitment.
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+          items: const [],
+          commitments: [
+            commitment(
+              merchantNorm: 'gym membership',
+              amountPaise: 118000,
+              categoryKey: 'health',
+            ),
+          ],
+          obligations: [
+            _confirmedObligation(
+              dedupeKey: 'gmail:act-fibernet',
+              merchant: 'ACT Fibernet',
+              amountPaise: 118000,
+              dueDate: DateTime(2026, 8, 12),
+              dueDay: 12,
+            ),
+          ],
+        ),
+      );
+
+      expect(septemberOutflows(outlook, 118000), hasLength(2));
+    });
+
+    test('never joins two payees whose labels normalise to nothing', () {
+      // Stripping punctuation is what lets "ACT Fibernet" meet "actfibernet",
+      // but a label that is *only* punctuation normalises to the empty string.
+      // Two of those must not collapse into one owner -- that is the same
+      // ownerless-key grouping failure TASK-31 and TASK-33 found in the parser.
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+          items: const [],
+          commitments: [
+            commitment(
+              merchantNorm: '---',
+              amountPaise: 118000,
+              categoryKey: 'health',
+            ),
+          ],
+          obligations: [
+            _confirmedObligation(
+              dedupeKey: 'gmail:mystery',
+              merchant: '***',
+              amountPaise: 118000,
+              dueDate: DateTime(2026, 8, 12),
+              dueDay: 12,
+            ),
+          ],
+        ),
+      );
+
+      expect(septemberOutflows(outlook, 118000), hasLength(2));
+    });
+
+    test('routes an ambiguous same-category match to review instead of '
+        'silently doubling it', () {
+      // Different merchant strings that do not normalise to each other, but the
+      // same category, amount and month. The spec routes ambiguity to review;
+      // it may not be counted twice, and it may not vanish unnamed.
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+          items: const [],
+          commitments: [
+            commitment(
+              merchantNorm: 'act broadband',
+              amountPaise: 118000,
+              categoryKey: 'bills',
+            ),
+          ],
+          obligations: [
+            _confirmedObligation(
+              dedupeKey: 'gmail:act-fibernet',
+              merchant: 'ACT Fibernet',
+              amountPaise: 118000,
+              dueDate: DateTime(2026, 8, 12),
+              dueDay: 12,
+            ),
+          ],
+        ),
+      );
+
+      expect(septemberOutflows(outlook, 118000), hasLength(1));
+      final review = outlook.months[1].coverageLines.where(
+        (line) => line.reason == CoverageReason.duplicateSuppressed,
+      );
+      expect(review, hasLength(1));
+      expect(review.single.action, CoverageAction.review);
+      expect(review.single.amountPaise, 118000);
+    });
+  });
+
+  group('TASK-23 — the seasonal buffer headline is reachable', () {
+    ForecastOutlook shortfallDrivenBy(ForecastOwner owner, double confidence) =>
+        _build(
+          _snap(
+            anchor: _anchor(500000, DateTime(2026, 8, 1)),
+            items: [
+              _outflow(
+                'discretionary',
+                'Everyday spending',
+                2000000,
+                DateTime(2026, 8, 20),
+                owner: owner,
+                confidence: confidence,
+              ),
+            ],
+          ),
+        );
+
+    test('fires when the in-month low is driven by estimated spend', () {
+      // Confidence 0.85 clears `_isHard` (0.8) and so is the only kind of
+      // seasonal event that can reach the ledger at all.
+      final outlook = shortfallDrivenBy(ForecastOwner.discretionarySpend, 0.85);
+
+      expect(outlook.shortfallPaise, 1500000);
+      expect(outlook.isSeasonalBufferShortfall, isTrue);
+      expect(outlook.headline, contains('Estimated buffer shortfall'));
+    });
+
+    test('does not fire when a fixed bill drives the low (guard)', () {
+      final outlook = shortfallDrivenBy(
+        ForecastOwner.recurringCommitment,
+        0.85,
+      );
+
+      expect(outlook.shortfallPaise, 1500000);
+      expect(outlook.isSeasonalBufferShortfall, isFalse);
+      expect(outlook.headline, contains('You need'));
     });
   });
 }
