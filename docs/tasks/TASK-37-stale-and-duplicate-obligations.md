@@ -168,6 +168,31 @@ The pre-existing fresh-vs-migrated drift tests (TASK-25) cover v5 unchanged, bec
 - [x] 12 tests, 3 honestly labelled guards, RED established by reverting the mechanism
 - [x] `flutter analyze` — No issues found!
 - [x] `flutter test` — 916 passing, 0 failing (was 904)
+- [x] Migration verified on the device against real data (below)
 - [ ] **The device sweep has not run.** Installing migrates v4 → v5 and nothing else; the
       retirement only happens on the next scan, which is the user's call. Until then the
       device still holds all nine obligations and still shows the ₹1,999 triple.
+
+---
+
+## Device migration, 2026-08-04
+
+Samsung SM-G781B. Built, `adb install -r`, launched to trigger `onUpgrade`. **No scan**, so
+no retirement ran — this verifies the migration alone.
+
+| | Before | After |
+|---|---|---|
+| `user_version` | 4 | **5** |
+| transactions / `MAX(id)` / `MIN(id)` | 2061 / 2716 / 14 | 2061 / 2716 / 14 |
+| auto_added / confirmed / needs_review / dismissed | 1759 / 187 / 109 / 6 | 1759 / 187 / 109 / 6 |
+| obligations / risk decisions | 9 / 3 | 9 / 3 |
+| `idx_*` indexes | 13 | 13 |
+| rows with `retired_at IS NOT NULL` | — | **0** |
+
+The last three columns read `reserve_enabled, reserve_funded_paise, retired_at` — the same
+order as `createObligationsTable` produces on a fresh install, so the drift the TASK-25
+tests guard against did not occur on real data either. All 187 confirmed decisions intact.
+
+**One-way door, stated plainly:** the stored version is now 5, and `refuseDowngrade` means
+a build older than this branch will refuse to open the database rather than wipe it. That
+is the intended behaviour (TASK-03), not a side effect to fix.

@@ -171,7 +171,7 @@ verification at the end of every phase.
 |---|---|---|---|
 | [TASK-35](TASK-35-risk-buffer-sums-inflows.md) | "Unconfirmed risk" totals an uncertain salary as money going out | Critical | **Done** |
 | [TASK-36](TASK-36-opaque-handle-as-merchant.md) | A UPI handle's local part is stored as the merchant name | Important | **Done** |
-| [TASK-37](TASK-37-stale-and-duplicate-obligations.md) | One commitment, three stored obligations | Critical | **Reproduced, NOT implemented** |
+| [TASK-37](TASK-37-stale-and-duplicate-obligations.md) | One commitment, three stored obligations | Critical | **Done** (stale half) |
 | [TASK-38](TASK-38-forecast-surface-cleanups.md) | Forecast-surface cleanups | Minor | **Done bar F4** |
 | [TASK-39](TASK-39-untidied-fallback-payee.md) | The `at`/`to` merchant fallbacks never tidied what they captured | Important | **Done** |
 
@@ -191,14 +191,21 @@ merchant-capture family. They are the local part of a real UPI VPA the bank put 
 and the parser reached for them only because a 40-character cap stopped `towards <PAYEE>`
 from matching a 45-character payee name.
 
-**Two things are pending and neither is a defect to go fix:**
+**The schema version is now 5.** `retired_at` on obligations, verified migrating on the
+device against 2,061 real rows with all 187 confirmed decisions intact. `refuseDowngrade`
+means a build older than this branch will now refuse to open that database — intended
+(TASK-03), not a regression.
 
-1. **TASK-37 is deliberately unimplemented.** The sweep writes to rows holding the user's
-   own review decisions, and needs a `retired_at` column at schema v5. Doing it carelessly
-   *is* TASK-02, the Critical that already happened here once.
-2. **Do not trigger a rescan before TASK-37 lands.** TASK-36 only changes rows as they are
-   re-parsed, and that same scan will strand `sms_recurring:ece9ae70…:monthly` as a
-   permanent orphan, because nothing can retire it.
+**What is still open, and neither item is a defect to go fix:**
+
+1. **TASK-37 fixed the stale half only.** `sms_mandate:google` and
+   `sms_mandate:google asia pacific pte.ltd` are both live and both re-derivable, so both
+   survive retirement: the ₹1,999 triple becomes a *double*. Merging them needs
+   merchant-identity resolution — the same unsolved problem as `hdfc ltd` / `hdfc bank ltd`
+   and `Bharat Connec`. That is the natural Phase 6.
+2. **The retirement sweep has never run on the device.** It fires on the next scan, which
+   is the user's call — a scan writes to their database. Until then the device still holds
+   nine obligations and still shows the triple.
 
 **Phase 5 was device-verified on 2026-08-04** and the database reconciled byte-identical
 before and after — install and navigation only, no scan, no destructive control tapped.
