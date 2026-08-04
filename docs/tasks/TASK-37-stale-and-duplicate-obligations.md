@@ -93,7 +93,17 @@ Expected: <1>
    This is why `_merge` constructs explicitly instead of using `copyWith`: `copyWith`
    resolves with `?? this.x` and cannot carry a null across. `copyWith` deliberately does
    **not** accept `retiredAt` at all, so it can never set a retirement it cannot clear.
-4. **`_projectCanonicalObligations` skips retired rows.**
+4. **Both projection paths skip retired rows** — `_projectCanonicalObligations` for the
+   horizon, and `ReconciliationMatcher._obligationOwners` for the target month.
+
+   > **The first version of this fix only did the first, and that was the wrong half.**
+   > Checking the device's stored rows afterwards showed the `sms_mandate:` obligations are
+   > `recurrence = onetime`, and `_obligationHitsMonth` returns `false` for onetime — so
+   > they never project into a horizon month at all. The three ₹1,999 lines photographed in
+   > the why-log are **August, the target month**, which is reconciled by a different path
+   > that had no retired check. Retiring a row would have stamped the database and left the
+   > duplicate on screen. Caught by reading the device's `recurrence` column instead of
+   > trusting the reproduction fixture, which had made all three `monthly`.
 5. **`CoverageReason.retiredObligation`** names each one, so a commitment leaving the
    forecast is never silent — the "no silent exclusion" invariant. Dismissed rows are
    excluded from the coverage line: the user already said they did not want it.
@@ -145,6 +155,11 @@ key again brings it back.
 
 `test/forecast_adapter_test.dart` — group `TASK-37`: retiring the stranded one takes it out
 of the forecast (3 lines → 2); and names it in a `retiredObligation` coverage line.
+
+`test/reconciliation_matcher_test.dart` — group `TASK-37`: a live obligation becomes an
+owner (**guard**); a retired one does not. The second failed with
+`Expected: empty / Actual: WhereIterable<ReconciliationItem>:[...]` before the target-month
+check existed — the gap described above.
 
 `test/sms_migration_test.dart`: a v2 obligation upgrades to v5 keeping its data, with
 `retired_at` **null** — a migration that defaulted it to a timestamp would drop every

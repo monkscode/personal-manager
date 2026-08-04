@@ -80,7 +80,9 @@ ObligationRecord obligation({
   String? sourceId,
   int? id = 1,
   DateTime? updatedAt,
+  DateTime? retiredAt,
 }) => ObligationRecord(
+  retiredAt: retiredAt,
   id: id,
   sourceType: sourceType,
   sourceId: sourceId,
@@ -1860,6 +1862,35 @@ void main() {
         ),
         isEmpty,
       );
+    });
+  });
+
+  group('TASK-37 — a retired obligation owns nothing in the target month', () {
+    // This is the path the device's duplicates actually took. The stored
+    // `sms_mandate:` obligations are `onetime`, and `_obligationHitsMonth`
+    // returns false for onetime, so they never project into a horizon month at
+    // all — the three ₹1,999 lines were in August, the *target* month, which
+    // is reconciled here rather than by `_projectCanonicalObligations`.
+    // Skipping retired rows there alone left the real defect on screen.
+    ObligationRecord google({DateTime? retiredAt}) => obligation(
+      sourceType: ObligationSourceType.smsRecurring,
+      amountPaise: 199900,
+      merchant: 'xfkxfma537eoyvuzwkvss3vbvbr1oxoo',
+      merchantNorm: 'xfkxfma537eoyvuzwkvss3vbvbr1oxoo',
+      dueDate: DateTime(2026, 8, 28),
+      retiredAt: retiredAt,
+    );
+
+    test('a live one becomes an owner (guard)', () {
+      final items = build(obligations: [google()]);
+
+      expect(items.where((i) => i.amountPaise == 199900), hasLength(1));
+    });
+
+    test('a retired one does not', () {
+      final items = build(obligations: [google(retiredAt: DateTime(2026, 8, 4))]);
+
+      expect(items.where((i) => i.amountPaise == 199900), isEmpty);
     });
   });
 }

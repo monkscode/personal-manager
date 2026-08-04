@@ -168,6 +168,12 @@ class ReconciliationMatcher {
   ) {
     final owners = <_JoinOwner>[];
     for (final obligation in obligations) {
+      // A retired obligation is one no scan can derive any more, so it must not
+      // own a rupee in the target month either. The horizon path skips these in
+      // `_projectCanonicalObligations`; without the same check here a retired
+      // row kept appearing in the target month's why-log, which is where the
+      // device's duplicates actually showed (TASK-37).
+      if (obligation.isRetired) continue;
       if (_annualHeadsUpExpired(obligation, targetMonth)) continue;
 
       final dueDate =
