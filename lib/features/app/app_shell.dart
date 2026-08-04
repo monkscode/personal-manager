@@ -22,7 +22,16 @@ class AppShell extends ConsumerWidget {
     final ctrl = ref.read(appControllerProvider.notifier);
     final index = _tabs.indexOf(tab).clamp(0, _tabs.length - 1);
 
-    final fabVisible = tab == 'home' || tab == 'transactions' || tab == 'investments';
+    // Home is deliberately absent. Since TASK-34 wired up the forecast surface
+    // it is a read-and-decide dashboard, and the FAB floated over it: on a
+    // 1080-wide screen it covered the tail of the "Free" value at the resting
+    // scroll position, and a risk row's "Dismiss" control once scrolled. The
+    // second is why this is a removal rather than a nudge — an interactive
+    // control the user cannot reach is not a cosmetic problem, and every other
+    // remedy (hide-on-scroll, re-laying the strip) fixes one collision while
+    // leaving the rest. Adding an expense still lives one tab away, on
+    // Activity, which is where transactions are (TASK-38 F4).
+    final fabVisible = tab == 'transactions' || tab == 'investments';
 
     return Scaffold(
       backgroundColor: p.bg,

@@ -10,7 +10,7 @@ any monetary value.
 |---|---|
 | F3 — the `discretionaryNotModelled` tile prints its label twice | **Fixed** |
 | `Insights.anchorConfirmLabel` rendered nowhere | **Deleted** (29 sites) |
-| F4 — the floating `+` overlaps the "Free" value | **Deferred — could not observe** |
+| F4 — the floating `+` overlaps the "Free" value | **Fixed** — dropped from Home |
 
 ---
 
@@ -83,7 +83,7 @@ The remaining 19 sites were `anchorConfirmLabel: ''` constructor arguments in
 
 ---
 
-## F4 — the floating `+` overlaps the "Free" value: CONFIRMED, not fixed
+## F4 — the floating `+` overlaps the "Free" value: FIXED
 
 **Observed on the device 2026-08-04** after the device returned to adb. The FAB covers the
 tail of `₹98,001`, leaving `₹98,00` legible.
@@ -108,28 +108,44 @@ Measured geometry, 1080×2400:
 is *mid-list*, not last — the 12-month chart, month detail, Drivers and risk rows all
 follow it. Padding only ever buys clearance at the *end* of a scrollable.
 
-### Why this is being handed back rather than guessed at
+### It is not only the "Free" value — and that decided the fix
 
-Every remaining option changes a shared, cross-tab affordance, and none is a cleanup:
+The second device screenshot shows the FAB covering the **"Dismiss" control of the
+`transport` risk row**. That is an interactive control the user cannot reach, not an
+obscured number, and it is the more serious of the two.
 
-1. **Hide the FAB while the list scrolls.** Solves it for *every* element, not just this
-   one. Changes `app_shell.dart`, which serves Home, Activity and Invest.
-2. **Drop the FAB from Home only.** `fabVisible` already enumerates tabs
-   (`app_shell.dart:25`), so it is a one-line change — but it removes an add-expense
-   affordance from the app's main screen.
-3. **Re-lay the strip** so no value occupies the bottom-right — changes a layout that is
-   correct everywhere the FAB is not.
+> **My own recommendation in this file was wrong and is corrected here.** It proposed
+> hiding the FAB while the list scrolls. That fails twice: the strip collision happens
+> **at rest, with no scrolling at all**, so hiding-on-scroll never fires for it; and it
+> leaves the at-rest case — the one actually photographed — untouched.
 
-These are product calls about what the Home screen is for, not defects with a right
-answer. Recommendation if one is wanted: **option 1**, because it is the only one that
-fixes the whole class rather than this one collision.
+Options, re-judged against both collisions:
 
-### The test to write first, either way
+| Option | Fixes the strip (at rest) | Fixes the buttons (scrolled) |
+|---|---|---|
+| Hide the FAB on scroll | No | Yes |
+| Re-lay the strip | Yes | No |
+| **Drop the FAB from Home** | **Yes** | **Yes** |
 
-A widget test pumping `AppShell` at the device's logical size (1080 physical ÷ DPR ≈
-393 × 873) asserting the FAB's rect does not intersect the "Free" value's rect. It needs
-no phone, and it turns a screenshot into a repeatable assertion. It should exist before
-any of the three options lands.
+**Chosen: drop the FAB from Home.** `fabVisible` already enumerates tabs
+(`app_shell.dart:25`), so it is one line. Since TASK-34 wired up the forecast surface,
+Home is a read-and-decide dashboard carrying its own controls — Confirm / Edit / Dismiss,
+"Start reserve" — and a floating add-expense button over financial figures was competing
+with them. Adding an expense still lives one tab away on Activity, which is where
+transactions are, and the FAB is unchanged there and on Invest.
+
+This is a product call, made on the user's instruction to proceed, and recorded as one
+rather than presented as a defect fix.
+
+### Tests
+
+| Test | Kind | RED symptom |
+|---|---|---|
+| `Home carries no floating action button` | Regression | `Expected: no matching candidates` / `Actual: Found 1 widget with type "FloatingActionButton"` |
+| `Activity still has one, so adding is not lost` | **Guard** | Passed before the fix. It is what stops the removal being widened to every tab. |
+
+Both boot the real app through `ExpenseInsightApp` and skip onboarding, so they exercise
+the shell the device runs rather than a widget in isolation.
 
 ---
 
@@ -139,8 +155,8 @@ any of the three options lands.
 - [x] `anchorConfirmLabel` deleted from `lib` and `test`; zero references remain
 - [x] Confirmed the provisional message still reaches the user from two other sites
 - [x] `flutter analyze` — No issues found!
-- [x] `flutter test` — 903 passing, 0 failing (was 901)
-- [x] F4 — observed and measured; fix is a product decision, handed back with options
+- [x] `flutter test` — 918 passing, 0 failing (903 after F3, 918 after F4 and TASK-37)
+- [x] F4 — fixed by dropping the FAB from Home; Activity keeps it
 - [x] Device verification — done, see below
 
 ---
