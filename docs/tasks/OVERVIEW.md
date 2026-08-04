@@ -173,6 +173,7 @@ verification at the end of every phase.
 | [TASK-36](TASK-36-opaque-handle-as-merchant.md) | A UPI handle's local part is stored as the merchant name | Important | **Done** |
 | [TASK-37](TASK-37-stale-and-duplicate-obligations.md) | One commitment, three stored obligations | Critical | **Reproduced, NOT implemented** |
 | [TASK-38](TASK-38-forecast-surface-cleanups.md) | Forecast-surface cleanups | Minor | **Done bar F4** |
+| [TASK-39](TASK-39-untidied-fallback-payee.md) | The `at`/`to` merchant fallbacks never tidied what they captured | Important | **Done** |
 
 **Phase 5's lesson is about measurement, not code: a number is only evidence once you know
 which collection it came from.** TASK-37's first reproduction counted
@@ -199,9 +200,18 @@ from matching a 45-character payee name.
    re-parsed, and that same scan will strand `sms_recurring:ece9ae70…:monthly` as a
    permanent orphan, because nothing can retire it.
 
-**Device verification for Phase 5 is outstanding.** The phone left wireless adb mid-session
-and could not be recovered. Nothing was written to it: the only contact was a read-only
-database pull whose copy was deleted, so the 2026-08-04 measurements still stand.
+**Phase 5 was device-verified on 2026-08-04** and the database reconciled byte-identical
+before and after — install and navigation only, no scan, no destructive control tapped.
+TASK-35 confirmed on real data (August's "Unconfirmed risk" ₹2,73,425 → ₹1,21,640, salary
+gone from the total), and TASK-37's double count confirmed rendered: `phonepe ₹120` and
+`ece9ae70… ₹120` both dated 29 Aug, plus three separate ₹1,999 Google lines.
+
+**And the install found a defect again — the fourth phase running.** A "Drivers" row read
+`autopay  bharat connec`, which traced to `_merchant`'s `at`/`to` fallbacks doing a bare
+`.trim()` where `_namedPayee` runs every capture through `_tidyPayee`. That is
+[TASK-39](TASK-39-untidied-fallback-payee.md), and it mattered beyond the scruffy label: it
+was minting a *fourth* stored spelling of one commitment, and `merchantNorm` is what the
+obligation dedupe key is built from — TASK-37's double count fed from upstream.
 
 ---
 
