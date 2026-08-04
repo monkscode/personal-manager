@@ -203,9 +203,17 @@ means a build older than this branch will now refuse to open that database — i
    survive retirement: the ₹1,999 triple becomes a *double*. Merging them needs
    merchant-identity resolution — the same unsolved problem as `hdfc ltd` / `hdfc bank ltd`
    and `Bharat Connec`. That is the natural Phase 6.
-2. **The retirement sweep has never run on the device.** It fires on the next scan, which
-   is the user's call — a scan writes to their database. Until then the device still holds
-   nine obligations and still shows the triple.
+2. **The sweep has now run on the device** (2026-08-04, user-triggered pull-to-refresh).
+   All three triggers fired; 2,061 rows and all 187 confirmed decisions survived; live
+   obligations went 9 → 7. It did **not** collapse either duplicate: a new pair replaced
+   the old one (`sms_mandate:phonepe` beside the corrected
+   `sms_recurring:bharat connect postpaid bill payment:monthly`, same amount *and* same due
+   day). Measured, not assumed — see TASK-37.
+3. **A reparse cannot un-book a stored notice.** 7 rows worth ₹1,001.77 still hold a UMN as
+   their merchant. The current parser returns *no transaction* for those bodies, but a
+   reparse only ever rewrites a stored row — it cannot retire one. TASK-32's defect
+   therefore persists in data written before that fix, and rescanning will never clear it.
+   New, measured, unfixed.
 
 **Phase 5 was device-verified on 2026-08-04** and the database reconciled byte-identical
 before and after — install and navigation only, no scan, no destructive control tapped.

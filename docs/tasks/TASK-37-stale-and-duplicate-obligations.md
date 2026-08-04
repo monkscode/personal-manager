@@ -245,3 +245,59 @@ tests guard against did not occur on real data either. All 187 confirmed decisio
 **One-way door, stated plainly:** the stored version is now 5, and `refuseDowngrade` means
 a build older than this branch will refuse to open the database rather than wipe it. That
 is the intended behaviour (TASK-03), not a side effect to fix.
+
+---
+
+## The sweep, run on the device 2026-08-04
+
+The user triggered the scan by hand (pull-to-refresh on Home). All three retirement
+triggers fired on real data.
+
+| | Before | After |
+|---|---|---|
+| transactions | 2061 | 2061 |
+| `MAX(id)` / `MIN(id)` | 2716 / 14 | 2785 / 19 |
+| auto_added / confirmed / needs_review / dismissed | 1759 / 187 / 109 / 6 | **1759 / 187 / 109 / 6** |
+| `merchant` = its own VPA local part | 41 | **18** |
+| `merchant` starting `autopay` | 8 | **0** |
+| obligations (live / retired) | 9 / 0 | 7 / 3 |
+
+The id churn is TASK-30's known REPLACE-reinsert behaviour, not row loss — the count is
+unchanged and **all 187 confirmed decisions survived**, which is the property the whole
+retire-don't-delete design exists to protect.
+
+| Obligation | Outcome | Trigger |
+|---|---|---|
+| #1 `sms_recurring:xfkxfma5…:monthly` | RETIRED | unre-derivable (rows parse to `google`) |
+| #2 `sms_recurring:ece9ae70…:monthly` | RETIRED | stranded by TASK-36, as predicted |
+| #4 `sms_mandate:bharat connect postpaid bill payment` | RETIRED | new commitment #10 owns the payee |
+| #10 `sms_recurring:bharat connect postpaid bill payment:monthly` | created | the corrected name |
+
+### What it did not fix, measured rather than assumed
+
+**A new duplicate replaced the old one.** #10 (`bharat connect postpaid bill payment`,
+₹120.07, monthly, day 29) and #5 (`sms_mandate:phonepe`, ₹120.07, onetime, day 29) are one
+autopay under the PSP's name and the biller network's name. Live obligations went 9 → 7,
+not 9 → 5:
+
+| Commitment | Live rows after the sweep |
+|---|---|
+| Google ₹1,999 | `sms_mandate:google`, `sms_mandate:google asia pacific pte.ltd` |
+| PhonePe / Bharat Connect ₹120.07 | `sms_mandate:phonepe`, `sms_recurring:bharat connect postpaid bill payment:monthly` |
+
+Both are the name-identity problem left open above, and the PhonePe pair is a *sharper*
+case than the Google one: same amount **and** same due day, differing only in name. Worth
+starting from when that work is picked up.
+
+### New finding — a reparse cannot un-book a stored notice
+
+7 rows carrying **₹1,001.77** still hold `77d1cc47c9de4e9c8e351a8077d60879` as their
+merchant. TASK-36 established these bodies are HDFC `E-Mandate!` *notices*, which the
+current parser routes to `_parseNotice` and returns **no transaction at all** for. They
+survive because a reparse *updates* stored rows and never deletes one the current parser
+would no longer classify as an actual.
+
+So TASK-32's defect — a future notice booked as a completed debit — persists in stored data
+for any row written before that fix, and no amount of rescanning clears it. That is a
+straight "one owner per rupee" breach on ₹1,001.77, and it needs a reparse path that can
+retire a row, not just rewrite it. **Not fixed here; recorded with its measurement.**
