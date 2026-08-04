@@ -508,7 +508,10 @@ class WhyLogScreen extends StatelessWidget {
     CoverageReason.cardCycleOnly => 'Card cycle only',
     CoverageReason.futureEarmark => 'Coming up later',
     CoverageReason.duplicateSuppressed => 'Counted once, under another name',
-    CoverageReason.discretionaryNotModelled => 'Everyday spending not included',
+    // Not the same words as the line's own label ('Everyday spending not
+    // included'), which is the title directly above it. This slot is the
+    // *reason*, like every other entry in this map.
+    CoverageReason.discretionaryNotModelled => 'Not modelled for this month',
   };
 
   String _actionLabel(CoverageAction a) => switch (a) {

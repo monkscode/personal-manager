@@ -285,7 +285,6 @@ void main() {
       );
 
       expect(outlook.isProvisional, isTrue);
-      expect(outlook.anchorConfirmLabel, isNotEmpty);
       expect(outlook.headline.toLowerCase(), contains('confirm'));
     });
 
@@ -1663,7 +1662,6 @@ void _task22() {
 
       expect(outlook.anchor.hasEvidence, isFalse);
       expect(outlook.isProvisional, isTrue);
-      expect(outlook.anchorConfirmLabel, isNotEmpty);
 
       final opening = outlook.months.first.lines.singleWhere(
         (line) => line.status == ForecastLineStatus.opening,

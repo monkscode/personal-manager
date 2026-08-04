@@ -177,7 +177,6 @@ void main() {
         );
 
         expect(i.anchorProvisional, isTrue);
-        expect(i.anchorConfirmLabel, 'Confirm balance');
       },
     );
 

@@ -413,4 +413,52 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('TASK-38 — a coverage tile does not print its label twice', () {
+    testWidgets('the discretionary tile says the words once', (tester) async {
+      await _pump(
+        tester,
+        lines: const [],
+        coverage: const [
+          ForecastCoverageLine(
+            label: 'Everyday spending not included',
+            reason: CoverageReason.discretionaryNotModelled,
+            action: CoverageAction.review,
+            confidence: 0.3,
+            amountPaise: 11746200,
+            ownerKey: 'seasonal:2026-08',
+          ),
+        ],
+      );
+
+      // Title is `c.label`; subtitle is `_reasonLabel(c.reason) · action`.
+      // Both were authored as "Everyday spending not included", so the tile
+      // read the same sentence twice, once with "· Review" appended.
+      expect(
+        find.textContaining('Everyday spending not included'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('and still explains itself in the subtitle', (tester) async {
+      // Removing the repetition must not leave the subtitle empty — the
+      // reason is what tells the user why the amount is missing.
+      await _pump(
+        tester,
+        lines: const [],
+        coverage: const [
+          ForecastCoverageLine(
+            label: 'Everyday spending not included',
+            reason: CoverageReason.discretionaryNotModelled,
+            action: CoverageAction.review,
+            confidence: 0.3,
+            amountPaise: 11746200,
+            ownerKey: 'seasonal:2026-08',
+          ),
+        ],
+      );
+
+      expect(find.textContaining('· Review'), findsOneWidget);
+    });
+  });
 }

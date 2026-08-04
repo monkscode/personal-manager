@@ -51,7 +51,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -125,8 +124,7 @@ void main() {
           shortfallPaise: 0,
           headline: 'OK',
           isProvisional: false,
-          anchorConfirmLabel: '',
-          salaryMissing: false,
+            salaryMissing: false,
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 0,
@@ -244,7 +242,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: true, // Provisional state
-        anchorConfirmLabel: 'Confirm balance',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -296,7 +293,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -351,7 +347,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -448,7 +443,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -630,7 +624,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -722,8 +715,7 @@ void main() {
           shortfallPaise: 0,
           headline: 'OK',
           isProvisional: false,
-          anchorConfirmLabel: '',
-          salaryMissing: false,
+            salaryMissing: false,
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 500000,
@@ -820,7 +812,6 @@ void main() {
         shortfallPaise: 1300000,
         headline: 'Short',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -861,7 +852,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -922,8 +912,7 @@ void main() {
           shortfallPaise: 0,
           headline: 'OK',
           isProvisional: false,
-          anchorConfirmLabel: '',
-          salaryMissing: false,
+            salaryMissing: false,
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 0,
@@ -984,8 +973,7 @@ void main() {
           shortfallPaise: 0,
           headline: 'OK',
           isProvisional: false,
-          anchorConfirmLabel: '',
-          salaryMissing: false,
+            salaryMissing: false,
           isSeasonalBufferShortfall: false,
           salary: const ForecastSalaryStrip(
             committedPaise: 0,
@@ -1053,7 +1041,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -1119,7 +1106,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -1176,7 +1162,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -1254,7 +1239,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -1315,7 +1299,6 @@ void main() {
         shortfallPaise: 0,
         headline: 'OK',
         isProvisional: false,
-        anchorConfirmLabel: '',
         salaryMissing: false,
         isSeasonalBufferShortfall: false,
         salary: const ForecastSalaryStrip(
@@ -1449,7 +1432,6 @@ ForecastOutlook _buildOutlook({
     shortfallPaise: result.shortfallPaise,
     headline: 'OK',
     isProvisional: false,
-    anchorConfirmLabel: '',
     salaryMissing: false,
     isSeasonalBufferShortfall: false,
     salary: ForecastSalaryStrip(
@@ -1491,7 +1473,6 @@ ForecastOutlook _buildOutlookWithMonthlyOutflows(List<int> outflowsPerMonth) {
     shortfallPaise: months.first.shortfallPaise,
     headline: 'OK',
     isProvisional: false,
-    anchorConfirmLabel: '',
     salaryMissing: false,
     isSeasonalBufferShortfall: false,
     salary: ForecastSalaryStrip(

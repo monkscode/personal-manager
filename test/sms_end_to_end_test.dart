@@ -199,6 +199,5 @@ void main() {
 
     final outlook = const ForecastAdapter().build(_state, snapshot, now: now);
     expect(outlook.isProvisional, isTrue);
-    expect(outlook.anchorConfirmLabel, 'Confirm balance');
   });
 }

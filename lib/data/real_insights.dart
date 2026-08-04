@@ -1001,7 +1001,6 @@ Insights _forecastInsights(
     salaryFree: inr(outlook.salary.freePaise / 100.0),
     forecastHeadline: outlook.headline,
     anchorProvisional: outlook.isProvisional,
-    anchorConfirmLabel: outlook.anchorConfirmLabel,
     anchorAsOfLabel: anchorAsOfLabel,
     coverageLines: outlook.coverageLines,
     expectedVsActual: expectedVsActual,

@@ -259,7 +259,6 @@ class Insights {
     this.salaryFree = '',
     this.forecastHeadline = '',
     this.anchorProvisional = false,
-    this.anchorConfirmLabel = '',
     this.anchorAsOfLabel = '',
     this.expectedVsActual = const [],
     this.yearOverYear = const [],
@@ -316,7 +315,6 @@ class Insights {
   final String salaryFree;
   final String forecastHeadline;
   final bool anchorProvisional;
-  final String anchorConfirmLabel;
   final String anchorAsOfLabel;
   final List<CompareRow> expectedVsActual;
   final List<CompareRow> yearOverYear;

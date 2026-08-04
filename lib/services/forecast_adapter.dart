@@ -58,7 +58,6 @@ class ForecastOutlook {
     required this.shortfallPaise,
     required this.headline,
     required this.isProvisional,
-    required this.anchorConfirmLabel,
     required this.salaryMissing,
     required this.isSeasonalBufferShortfall,
     required this.salary,
@@ -88,7 +87,6 @@ class ForecastOutlook {
 
   final String headline;
   final bool isProvisional;
-  final String anchorConfirmLabel;
   final bool salaryMissing;
   final bool isSeasonalBufferShortfall;
   final ForecastSalaryStrip salary;
@@ -236,7 +234,6 @@ class ForecastAdapter {
       shortfallPaise: month0.shortfallPaise,
       headline: headline,
       isProvisional: isProvisional,
-      anchorConfirmLabel: isProvisional ? 'Confirm balance' : '',
       salaryMissing: salaryMissing,
       isSeasonalBufferShortfall: seasonalBuffer,
       salary: salaryStrip,
