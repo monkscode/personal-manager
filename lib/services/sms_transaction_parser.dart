@@ -654,15 +654,21 @@ class SmsTransactionParser {
     final named = _namedPayee(lower);
     if (named != null) return named;
     if (upiVpa != null) return upiVpa.split('@').first;
-    final at = _merchantAt.firstMatch(lower)?.group(1)?.trim();
-    if (at != null && at.length >= 2) return at;
+    // Tidied like every `_namedPayee` capture. These fallbacks used to only
+    // `.trim()`, so `To AutoPay  Bharat Connec` was stored verbatim — a fourth
+    // spelling of a commitment that already had three, and the boilerplate
+    // prefix `_tidyPayee` exists to remove.
+    final at = _tidyPayee(_merchantAt.firstMatch(lower)?.group(1));
+    if (at != null) return at;
     // Every `to` in the body is a candidate, not just the first: a bank footer
     // ("Not you? SMS BLOCK 1234 to 919000000000") is a `to` with no payee after
     // it, and on a body with no real payee line it would otherwise be captured
     // and, worse, mask the merchant printed elsewhere in the message.
     for (final match in _merchantTo.allMatches(lower)) {
-      final to = match.group(1)?.trim();
-      if (to != null && to.length >= 2 && !_bareDigits.hasMatch(to)) return to;
+      // `_tidyPayee` already rejects a bare run of digits and anything under
+      // two characters, which is what this loop checked by hand.
+      final to = _tidyPayee(match.group(1));
+      if (to != null) return to;
     }
     return instrument == PaymentInstrument.card
         ? _kCardPurchaseFallback

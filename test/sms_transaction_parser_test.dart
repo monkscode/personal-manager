@@ -1079,6 +1079,26 @@ void main() {
       expect(result.notice, isNotNull);
     });
 
+    // Found on the device 2026-08-04, rendered as a "Drivers" row reading
+    // `autopay  bharat connec`. HDFC truncates the payee in the body itself;
+    // the double space and the `AutoPay` prefix are ours.
+    const upiMandate =
+        'UPI Mandate:\n'
+        'Sent Rs.118.00\n'
+        'from HDFC Bank A/c XX1234\n'
+        'To AutoPay  Bharat Connec\n'
+        '03/08/26\n'
+        'Ref 123456789012\n'
+        'Not You? Call 9812345678/SMS BLOCK UPI to 9812345678';
+
+    test('the `To <payee>` fallback tidies the name it captures', () {
+      // `_namedPayee` runs every capture through `_tidyPayee`, but the `at`
+      // and `to` fallbacks below it only `.trim()`. So this body kept its
+      // boilerplate prefix and its double space, minting a fourth spelling of
+      // a commitment that already has three.
+      expect(parse(upiMandate, sender: 'VM-HDFCBK').merchant, 'bharat connec');
+    });
+
     test('and it names the payee, not the UMN (guard)', () {
       // Guard: the notice path already reads `for <payee> mandate` at a
       // 60-character cap, so this passed before the fix. It is recorded
