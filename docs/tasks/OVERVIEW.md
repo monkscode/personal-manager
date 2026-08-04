@@ -161,6 +161,48 @@ The schema version is now **4**. Every future index needs both an `indexStatemen
 and a version bump; a test now asserts `schemaVersion` is at least the highest registered
 migration, which is the direction nothing covered.
 
+### Phase 5 — What the reachable surface exposed
+
+Opened 2026-08-04 from the four findings recorded at the end of TASK-34. None of these was
+visible until the forecast surface rendered, which is the standing argument for device
+verification at the end of every phase.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-35](TASK-35-risk-buffer-sums-inflows.md) | "Unconfirmed risk" totals an uncertain salary as money going out | Critical | **Done** |
+| [TASK-36](TASK-36-opaque-handle-as-merchant.md) | A UPI handle's local part is stored as the merchant name | Important | **Done** |
+| [TASK-37](TASK-37-stale-and-duplicate-obligations.md) | One commitment, three stored obligations | Critical | **Reproduced, NOT implemented** |
+| [TASK-38](TASK-38-forecast-surface-cleanups.md) | Forecast-surface cleanups | Minor | **Done bar F4** |
+
+**Phase 5's lesson is about measurement, not code: a number is only evidence once you know
+which collection it came from.** TASK-37's first reproduction counted
+`outlook.months[].events` and reported `0` where it expected `199900`. That list holds
+**hard events only** — a `needs_review` obligation at 0.7 confidence is partitioned into
+`riskLines` and never appears there. The defect is only visible across *both* partitions,
+because the user sees both. The error surfaced because a **guard** was written alongside
+the headline assertion: one obligation in, one line out. Without it the headline would have
+read 3-vs-3 and "passed" for entirely the wrong reason. Write the guard that proves the
+fixture, not only the assertion that proves the fix.
+
+TASK-34's own record of finding 2 was wrong on both counts and is corrected in TASK-36:
+the opaque strings are **not** internally generated and **are** in TASK-33's
+merchant-capture family. They are the local part of a real UPI VPA the bank put in the SMS,
+and the parser reached for them only because a 40-character cap stopped `towards <PAYEE>`
+from matching a 45-character payee name.
+
+**Two things are pending and neither is a defect to go fix:**
+
+1. **TASK-37 is deliberately unimplemented.** The sweep writes to rows holding the user's
+   own review decisions, and needs a `retired_at` column at schema v5. Doing it carelessly
+   *is* TASK-02, the Critical that already happened here once.
+2. **Do not trigger a rescan before TASK-37 lands.** TASK-36 only changes rows as they are
+   re-parsed, and that same scan will strand `sms_recurring:ece9ae70…:monthly` as a
+   permanent orphan, because nothing can retire it.
+
+**Device verification for Phase 5 is outstanding.** The phone left wireless adb mid-session
+and could not be recovered. Nothing was written to it: the only contact was a read-only
+database pull whose copy was deleted, so the 2026-08-04 measurements still stand.
+
 ---
 
 ## Context every agent needs
