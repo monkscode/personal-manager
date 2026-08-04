@@ -217,8 +217,14 @@ class SmsTransactionParser {
   // the Axis card-bill reminder; `for <PAYEE> mandate` covers HDFC's
   // `E-Mandate!`; `for <PAYEE> AutoPay` covers the UPI AutoPay pre-debit.
   // Each terminator is explicit so the capture stops at the name.
+  // 60, not 40: `AutoPay  Bharat Connect PostPaid Bill Payment` is 45
+  // characters, so a 40-cap could not reach the `for` terminator and the row
+  // fell through to the VPA local part, storing an opaque handle as the
+  // merchant on 22 of the device's rows. The cap is only a runaway backstop —
+  // the lazy capture still stops at the first terminator — so it must be wider
+  // than the longest real payee, and it matches `_payeeForMandate` below.
   static final RegExp _payeeTowards = RegExp(
-    r'\btowards\s+(.{2,40}?)(?:\s+for\b|\s+umrn\b|\s+on\s+\d|,|\.(?:\s|$)|\n|$)',
+    r'\btowards\s+(.{2,60}?)(?:\s+for\b|\s+umrn\b|\s+on\s+\d|,|\.(?:\s|$)|\n|$)',
   );
   static final RegExp _payeeForMandate = RegExp(
     r'\bfor\s+(.{2,60}?)\s+mandate\b',

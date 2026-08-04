@@ -1004,4 +1004,96 @@ void main() {
       );
     });
   });
+
+  group('TASK-36 — an opaque handle never stands in for a named payee', () {
+    ParsedTxn parse(String body, {String sender = 'AD-AXISBK-S'}) =>
+        parser.parseOne(
+          sms(sender: sender, body: body),
+          scanBatchId: 'scan-36',
+          bodyHashSalt: 'test-salt',
+        )!;
+
+    // Verbatim from the device (2,061 rows, 2026-08-04), with the redaction
+    // tokens substituted back. 22 stored rows carry this shape.
+    const bharatConnect =
+        'Your A/c has been debited towards AutoPay  Bharat Connect PostPaid '
+        'Bill Payment for Rs.120.07 on 29-07-26. '
+        'ece9ae70c53842d58abf92660f4698af@ybl - Axis Bank';
+
+    // The same sentence with a short payee. This one already parses correctly,
+    // which is what localises the defect to the length of the name.
+    const google =
+        'Your A/c has been debited towards Google for Rs.1999.00 on 28-07-26. '
+        'xfkxfma537eoyvuzwkvss3vbvbr1oxoo@apl - Axis Bank';
+
+    test('a short named payee is read from the body (guard)', () {
+      // Guard: this passed before the fix. It is the control that proves the
+      // failure below is about the payee's length and nothing else.
+      expect(parse(google).merchant, 'google');
+    });
+
+    test('a long named payee is read from the body too', () {
+      expect(parse(bharatConnect).merchant, isNot(startsWith('ece9ae70')));
+    });
+
+    test('and it normalises to the name the obligation is already stored '
+        'under', () {
+      // `_tidyPayee` collapses the double space and strips the leading
+      // `AutoPay`, landing on the exact `merchant_norm` of obligation #4 on
+      // the device. Anything else would create a second obligation for a
+      // commitment that already has one.
+      expect(
+        parse(bharatConnect).merchant,
+        'bharat connect postpaid bill payment',
+      );
+    });
+
+    test('the VPA is still captured even when the payee is named (guard)', () {
+      // The handle keeps its own column; the fix moves it out of `merchant`,
+      // it does not discard it.
+      expect(
+        parse(bharatConnect).upiVpaNorm,
+        'ece9ae70c53842d58abf92660f4698af@ybl',
+      );
+    });
+
+    // The device also holds 7 rows whose merchant is
+    // `77d1cc47c9de4e9c8e351a8077d60879`, taken from a UMN — a mandate
+    // reference, not a payee handle at all.
+    const eMandate =
+        'E-Mandate!\n'
+        'Rs.118.00 will be deducted on 03/08/26, 00:00:00\n'
+        'For AutoPay  Bharat Connect PostPaid Bill Payment mandate\n'
+        'UMN 77d1cc47c9de4e9c8e351a8077d60879@ybl\n'
+        'Maintain Balance\n'
+        '-HDFC Bank';
+
+    test('a UMN mandate notice is a notice, not a completed debit (guard)', () {
+      final result = parser.parse(
+        sms(sender: 'VM-HDFCBK', body: eMandate),
+        scanBatchId: 'scan-36',
+        bodyHashSalt: 'test-salt',
+      );
+
+      expect(result.txn, isNull);
+      expect(result.notice, isNotNull);
+    });
+
+    test('and it names the payee, not the UMN (guard)', () {
+      // Guard: the notice path already reads `for <payee> mandate` at a
+      // 60-character cap, so this passed before the fix. It is recorded
+      // because the device holds 7 rows that contradict it — those rows are
+      // stale storage from before TASK-32, not a live parser defect. See
+      // TASK-37.
+      final notice = parser
+          .parse(
+            sms(sender: 'VM-HDFCBK', body: eMandate),
+            scanBatchId: 'scan-36',
+            bodyHashSalt: 'test-salt',
+          )
+          .notice!;
+
+      expect(notice.payee, 'bharat connect postpaid bill payment');
+    });
+  });
 }
