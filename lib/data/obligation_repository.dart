@@ -163,6 +163,40 @@ class ObligationRepository {
     return retired;
   }
 
+  /// Stamps `retired_at` on the `sms_mandate:` row for each payee in
+  /// [ownedMerchantNorms]. Returns the number stamped.
+  ///
+  /// A mandate obligation is one bank pre-notification: it proves a date, not a
+  /// cadence. Once history locks a *commitment* for the same payee, that
+  /// commitment owns the future debit and the notice is a second owner for the
+  /// same rupee. `SmsScanOrchestrator` already declines to write one in that
+  /// case, but that guard only covers new notices — a row stored before the
+  /// commitment locked stayed forever, which is TASK-32's recorded finding.
+  ///
+  /// Retires by exact key, never by prefix: the payee has to be the one the
+  /// commitment actually named.
+  Future<int> retireOwnedMandates({
+    required Set<String> ownedMerchantNorms,
+    required DateTime now,
+  }) async {
+    if (ownedMerchantNorms.isEmpty) return 0;
+    var retired = 0;
+    await _db.transaction((txn) async {
+      for (final norm in ownedMerchantNorms) {
+        retired += await txn.update(
+          'obligations',
+          {
+            'retired_at': now.millisecondsSinceEpoch,
+            'updated_at': now.millisecondsSinceEpoch,
+          },
+          where: 'dedupe_key = ? AND retired_at IS NULL',
+          whereArgs: ['sms_mandate:$norm'],
+        );
+      }
+    });
+    return retired;
+  }
+
   Future<ObligationRecord?> byDedupeKey(String dedupeKey) =>
       _byDedupeKey(_db, dedupeKey);
 

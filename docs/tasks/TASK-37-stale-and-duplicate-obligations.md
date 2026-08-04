@@ -111,15 +111,49 @@ Expected: <1>
    `created_at`. A sweep that discarded those would be TASK-02 — the Critical this
    repository already had once — wearing a new hat.
 
+### A second retirement trigger: a commitment owning a mandate's payee
+
+Added after the device's stored rows were read properly. A `sms_mandate:` obligation is one
+bank pre-notification — it proves a date, not a cadence. Once history locks a *commitment*
+for the same payee, that commitment owns the future debit and the notice is a second owner
+for the same rupee.
+
+`SmsScanOrchestrator` **already** declined to write one in that case
+(`ownedByCommitment`), but that guard only ever covered *new* notices; a row stored before
+the commitment locked stayed forever. That is TASK-32's recorded finding, and
+`ObligationRepository.retireOwnedMandates` now closes it by stamping the stored row.
+
+Retired by **exact key** (`sms_mandate:<norm>`), never by prefix — the payee has to be the
+one the commitment actually named.
+
 ### What this does not reach
 
-It fixes **the stale half**, where "this key can never be derived again" is *provable*.
+It fixes **the stale half** (nothing can derive this key) and **the owned-mandate half**
+(a commitment now owns this payee). Both are cases where the verdict is *provable* from
+data already in hand.
 
-It does **not** merge `sms_mandate:google` with `sms_mandate:google asia pacific pte.ltd`.
-Both are live and both re-derivable, so both survive retirement. **The Google triple
-becomes a double, not a single.** Merging them needs merchant-identity resolution — the
-same unsolved problem as `hdfc ltd` / `hdfc bank ltd` (TASK-34) and `Bharat Connec`
-(TASK-39).
+It does **not** merge `sms_mandate:google asia pacific pte.ltd` into the Google commitment.
+Its `merchantNorm` is a different string, so no exact-key rule reaches it. **The Google
+triple becomes a double, not a single.**
+
+Deciding those two names are one payee needs merchant-identity resolution, and reading the
+device's stored rows showed the obvious shortcut is unavailable:
+
+| | |
+|---|---|
+| `category_key` on **all nine** obligations | `other` |
+| `google` due day | 28 |
+| `google asia pacific pte.ltd` due day | 11 |
+| Observed Google debits (ids 711, 752, 791, 827, 877) | the 28th |
+
+TASK-23's existing suppression keys its ambiguity check on **same category**, which here
+would degenerate into "any two `other` obligations with the same amount" — precisely the
+amount-only rule rejected above as capable of silently merging two genuinely different
+₹1,999 commitments. And the differing due days mean the two rows are not even obviously
+the same schedule. So the join has to come from the *name*, and that is the same unsolved
+problem as `hdfc ltd` / `hdfc bank ltd` (TASK-34) and `Bharat Connec` (TASK-39) — a real
+piece of work, not a condition to add here. **Left open deliberately, with the evidence
+recorded so the next attempt starts from data rather than from the label.**
 
 ### Rejected: dedupe the horizon on amount + cadence + category
 

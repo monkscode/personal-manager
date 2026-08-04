@@ -48,12 +48,13 @@ class _StubCandidates implements ObligationCandidateSource {
 ObligationRecord smsRecurringCandidate({
   ObligationSourceType sourceType = ObligationSourceType.smsRecurring,
   String dedupeKey = 'sms_recurring:netflix:monthly',
+  String merchantNorm = 'netflix',
 }) => ObligationRecord(
   sourceType: sourceType,
   sourceId: 'sms:batch',
   dedupeKey: dedupeKey,
-  merchant: 'Netflix',
-  merchantNorm: 'netflix',
+  merchant: merchantNorm,
+  merchantNorm: merchantNorm,
   categoryKey: 'entertainment',
   amountPaise: 64900,
   amountStatus: AmountStatus.known,
@@ -470,6 +471,56 @@ void main() {
 
       expect(result.retiredObligations, 0);
       expect((await obliRepo.allActive()).single.isRetired, isFalse);
+    });
+
+    test('a stored mandate obligation is retired once a commitment owns '
+        'that payee', () async {
+      // TASK-32's finding, now actionable. The orchestrator already declines to
+      // *write* a notice obligation when a commitment owns the payee
+      // (`ownedByCommitment`), but that only guards new writes — a row stored
+      // before the commitment locked stayed forever. On the device that is
+      // `sms_mandate:google` sitting beside the ₹1,999 Google commitment.
+      await obliRepo.upsert(
+        smsRecurringCandidate(dedupeKey: 'sms_mandate:netflix'),
+        now: DateTime(2026, 7, 1),
+      );
+      expect(
+        (await obliRepo.allActive()).single.dedupeKey,
+        'sms_mandate:netflix',
+      );
+
+      final result = await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:netflix:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      expect(result.retiredObligations, 1);
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:netflix',
+      );
+      expect(mandate.isRetired, isTrue);
+    });
+
+    test('a mandate for a payee no commitment owns is left alone', () async {
+      await obliRepo.upsert(
+        smsRecurringCandidate(
+          dedupeKey: 'sms_mandate:spotify',
+          merchantNorm: 'spotify',
+        ),
+        now: DateTime(2026, 7, 1),
+      );
+
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:netflix:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:spotify',
+      );
+      expect(mandate.isRetired, isFalse);
     });
 
     test('deriving the key again brings it back', () async {

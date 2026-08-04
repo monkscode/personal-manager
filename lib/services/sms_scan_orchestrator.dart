@@ -250,6 +250,16 @@ class SmsScanOrchestrator {
       await obliRepo.upsert(obligation, now: timestamp);
     }
 
+    // The same rule, applied to rows already stored. The loop above only
+    // declines to write a *new* notice obligation for an owned payee; one
+    // written before the commitment locked stayed in the forecast beside it
+    // forever (TASK-32's recorded finding). Runs after the notice loop so a
+    // notice re-written this scan is retired only if a commitment owns it.
+    final retiredMandates = await obliRepo.retireOwnedMandates(
+      ownedMerchantNorms: ownedByCommitment,
+      now: timestamp,
+    );
+
     return ScanRunResult(
       status: SmsScanStatus.success,
       scanBatchId: scanBatchId,
@@ -259,7 +269,7 @@ class SmsScanOrchestrator {
       skippedDuplicate: skippedDuplicate,
       collisionSets: collisionSetIds.length,
       obligationCandidates: candidates.length,
-      retiredObligations: retiredObligations,
+      retiredObligations: retiredObligations + retiredMandates,
       refreshedParse: refreshedParse,
       skippedMessages: outcome.skippedCount,
     );
