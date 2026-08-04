@@ -24,6 +24,13 @@ Two consequences:
 Line 65 also passes `DateTime.now()` rather than the injected `now`, unlike line 68 which
 threads it correctly — so this path is **non-deterministic in tests**.
 
+> **Scoped 2026-08-04.** Only the `existingToFlag` loop is still live. The *other* write in
+> this method — the `refreshParse` path the file describes at line 68 — was fixed by
+> TASK-30 and now reads the stored `created_at` back before rewriting. Both halves of the
+> defect were confirmed on the remaining path: the RED test read `created_at` as
+> `2026-08-04 11:44:34.498` (wall-clock, not the injected `now`, not the stored
+> `2026-01-01`) and the row id as `3` where it had been `1`.
+
 ### Fix
 
 For the flag-existing-row path, use a targeted update instead of a full REPLACE insert:
@@ -81,6 +88,23 @@ CREATE INDEX IF NOT EXISTS idx_transactions_account_instrument
 Add them to `indexStatements`. **If TASK-25 is merged**, that is sufficient — `onUpgrade`
 will re-apply them to existing databases. If not, you also need a `migrations[4]` entry.
 
+> **Wrong, corrected 2026-08-04. TASK-25 being merged is *not* sufficient.** `onUpgrade`
+> fires only when the stored version is older than the code's. TASK-25 made it converge on
+> `indexStatements`, but an install already at v3 opened against a build still declaring
+> v3 never calls `onUpgrade` at all — so adding an index to the list without bumping
+> `schemaVersion` reaches fresh installs only. That is precisely the drift TASK-25 exists
+> to prevent, re-introduced by the instruction meant to rely on it. The device database is
+> at v3, so following this literally would have left the phone permanently without both
+> indexes.
+>
+> Done instead: added to `indexStatements` **and** registered as `migrations[4]` with
+> `schemaVersion` bumped to 4. Every future index needs both.
+>
+> A test now guards the direction nothing covered: `schemaVersion` must be at least the
+> highest registered migration key. The existing test only checked the opposite direction
+> (every version ≤ current has a migration), so a migration added without a bump would
+> silently never run.
+
 ---
 
 ## Defect 3 — the "no full-table scan" test does not test for a full-table scan
@@ -111,18 +135,58 @@ expect(plan.first['detail'], isNot(startsWith('SCAN')));
 Apply the same shape to the two queries in Defect 2 once their indexes exist — that turns
 the index work into something a test actually protects.
 
+> **The prescribed assertions would themselves have passed vacuously.** Measured before
+> adding the indexes, the two plans were:
+>
+> | Query | Plan before the fix |
+> |---|---|
+> | `recentlyAutoAdded` | `SEARCH transactions USING INDEX idx_transactions_review_status (review_status=?) \| USE TEMP B-TREE FOR ORDER BY` |
+> | `latestBalanceAnchor` | `SCAN transactions USING INDEX idx_transactions_txn_date` |
+>
+> `contains('USING INDEX')` is true of both — a full scan *through* an index still says
+> "USING INDEX". `isNot(startsWith('SCAN'))` is also true of `recentlyAutoAdded`. So the
+> replacement test would have guarded no more than the one it replaced. Defect 3's own
+> lesson applied to Defect 3's own fix.
+>
+> What actually discriminates: **`recentlyAutoAdded` must show no `TEMP B-TREE`** (the
+> filter was already indexed; the *sort* was the cost) and **`latestBalanceAnchor` must
+> show no `SCAN`**. Both tests also name the specific index, and a third test drops both
+> indexes and asserts the plans degrade — proving the assertions bite.
+
 ---
 
 ## Tests to write first
 
-- [ ] Flagging an existing row **preserves** its `created_at` and its `id`.
-- [ ] Flagging uses the injected `now`, not wall-clock time (assert determinism).
-- [ ] Row ordering is stable after a flag operation.
-- [ ] `EXPLAIN QUERY PLAN` for `recentlyAutoAdded` reports index use, not `SCAN`.
-- [ ] `EXPLAIN QUERY PLAN` for `latestBalanceAnchor` reports index use, not `SCAN`.
-- [ ] The rewritten scan test **fails** when an index is dropped (prove it guards
-      something — this is the whole point of Defect 3).
-- [ ] `ingestParsedTxn` atomicity still holds (regression guard on the good behaviour).
+- [x] Flagging an existing row **preserves** its `created_at` and its `id`.
+      RED on `created_at`: `Expected: 2026-01-01  Actual: 2026-08-04 11:44:34.498`.
+      RED on `id`: `Expected: <1>  Actual: <3>`.
+- [x] ~~Flagging uses the injected `now`, not wall-clock time.~~ Subsumed and **dropped as a
+      separate test**: the fix writes no timestamp on this path at all, so there is no
+      clock left to inject. The `created_at` test above already fails against wall-clock
+      time, and its RED value *is* the wall clock, which is the same evidence.
+- [x] Row ordering is stable after a flag operation. Needed a third row to be a real test:
+      with only the colliding pair the re-issued id still sorts last, so the assertion
+      would have passed either way. Seeding an unrelated row between them makes the
+      flagged row jump behind it. RED: order was `[b, a, c]`, expected `[a, b, c]`.
+- [x] `EXPLAIN QUERY PLAN` for `recentlyAutoAdded` reports index use, not `SCAN`.
+      Rewritten to assert **no `TEMP B-TREE`** — see the correction above. RED:
+      `does not contain 'idx_transactions_auto_added'`.
+- [x] `EXPLAIN QUERY PLAN` for `latestBalanceAnchor` reports index use, not `SCAN`. RED:
+      `Actual: 'SCAN transactions USING INDEX idx_transactions_txn_date'`.
+- [x] The rewritten scan test **fails** when an index is dropped (prove it guards
+      something — this is the whole point of Defect 3). Written as its own test: drop both
+      indexes, assert the plans degrade to `TEMP B-TREE` and `SCAN`.
+- [x] `ingestParsedTxn` atomicity still holds. **Labelled a guard** — the reads and both
+      writes already shared one `_db.transaction`, so it passed before the fix. Written
+      with a wrapper whose insert of one specific `sms_id` throws, asserting the flag is
+      rolled back with it.
+
+One more added:
+
+- [x] Only the review columns of the flagged row change. Asserts the exact set
+      `{review_status, needs_review, review_reason, collision_set_id, coverage_bucket}` by
+      diffing the whole row before and after, so any future widening of the write shows up.
+      RED: `Which: larger than expected`.
 
 ## Verification
 
@@ -133,10 +197,14 @@ flutter test
 
 ## Definition of done
 
-- [ ] Flag path uses a targeted `update`, preserving `created_at` and `id`
-- [ ] Injected `now` threaded through
-- [ ] Both indexes added to `indexStatements` (plus `migrations[4]` if TASK-25 is not merged)
-- [ ] Scan tests assert on `EXPLAIN QUERY PLAN`, and demonstrably fail without the indexes
-- [ ] All seven tests written failing-first, then passing
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Preserve transaction audit columns and index the unbounded queries`
+- [x] Flag path uses a targeted `update`, preserving `created_at` and `id`
+- [x] Injected `now` threaded through — better: the path no longer writes a timestamp
+- [x] Both indexes added to `indexStatements` **and** registered as `migrations[4]` with
+      `schemaVersion` bumped to 4 (the "TASK-25 makes this unnecessary" instruction was
+      wrong — see the correction above)
+- [x] Scan tests assert on `EXPLAIN QUERY PLAN`, and demonstrably fail without the indexes
+- [x] All seven tests written failing-first, then passing — six of the eight failed first;
+      the atomicity test is labelled a guard, and the version-bump test guards a direction
+      nothing covered
+- [x] `flutter analyze` clean, `flutter test` green — **876 passing** (868 before)
+- [x] Suggested commit: `Preserve transaction audit columns and index the unbounded queries`

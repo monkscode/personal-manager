@@ -62,7 +62,7 @@ class TransactionRepository {
       );
 
       for (final flagged in decision.existingToFlag) {
-        await _insertRow(txn, flagged, DateTime.now());
+        await _flagExisting(txn, flagged);
       }
       if (decision.action != IngestionAction.skipDuplicate) {
         // A refresh rewrites a row that already exists, so it must keep the
@@ -99,6 +99,33 @@ class TransactionRepository {
     );
     final value = rows.isEmpty ? null : rows.first['created_at'] as int?;
     return value == null ? null : DateTime.fromMillisecondsSinceEpoch(value);
+  }
+
+  /// Marks an already-stored row as a member of [flagged]'s collision set.
+  ///
+  /// A targeted update rather than a REPLACE insert. `sms_id` is UNIQUE, so
+  /// re-inserting makes SQLite delete and re-insert the row: `created_at` — an
+  /// audit column — is stamped with the rescan's clock, and the `AUTOINCREMENT`
+  /// id is re-issued. Every read in this file orders by `id` as its tiebreak, so
+  /// a re-issued id silently moves the row to the end of its date group. Only
+  /// the review columns differ between a flagged row and its stored self, so
+  /// only those are written (TASK-26).
+  static Future<void> _flagExisting(
+    DatabaseExecutor executor,
+    ParsedTxn flagged,
+  ) async {
+    await executor.update(
+      'transactions',
+      {
+        'review_status': flagged.reviewStatus.storageValue,
+        'needs_review': flagged.needsReview ? 1 : 0,
+        'review_reason': flagged.reviewReason?.storageValue,
+        'collision_set_id': flagged.collisionSetId,
+        'coverage_bucket': flagged.coverageBucket.storageValue,
+      },
+      where: 'sms_id = ?',
+      whereArgs: [flagged.smsId],
+    );
   }
 
   Future<void> _insertRow(

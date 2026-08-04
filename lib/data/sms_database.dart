@@ -7,7 +7,7 @@ class SmsDatabase {
   const SmsDatabase._();
 
   static const databaseName = 'transactions.db';
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
 
   static Future<Database> open() async {
     final path = p.join(await getDatabasesPath(), databaseName);

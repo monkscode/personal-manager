@@ -172,6 +172,17 @@ void main() {
     },
   );
 
+  test('the schema version is at least the highest registered migration', () {
+    // The other direction, and the one that bites silently: a migration
+    // registered without bumping the version never runs, because `onUpgrade`
+    // fires only when the stored version is older than the code's. The install
+    // keeps whatever schema it already had and nothing reports a problem.
+    final highest = SmsStorageSchema.migrations.keys.reduce(
+      (a, b) => a > b ? a : b,
+    );
+    expect(SmsDatabase.schemaVersion, greaterThanOrEqualTo(highest));
+  });
+
   test('upgrades v2 obligations with reserve and risk planning state', () async {
     final dir = await Directory.systemTemp.createTemp('sms_v3_migration_test');
     addTearDown(() => dir.delete(recursive: true));

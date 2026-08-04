@@ -134,6 +134,16 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
     'CREATE INDEX IF NOT EXISTS idx_known_accounts_last4 ON known_accounts(last4);',
     'CREATE INDEX IF NOT EXISTS idx_known_accounts_vpa_norm ON known_accounts(vpa_norm);',
     'CREATE INDEX IF NOT EXISTS idx_forecast_risk_target_month ON forecast_risk_decisions(target_month);',
+    // `recentlyAutoAdded` filters on the majority status and then orders by
+    // `auto_added_at DESC` to return 50 rows; without the second column it
+    // sorted nearly the whole table on every call. SQLite carries the rowid —
+    // here `id` — as the implicit trailing key, which satisfies the
+    // `auto_added_at DESC, id DESC` tiebreak too (TASK-26).
+    'CREATE INDEX IF NOT EXISTS idx_transactions_auto_added ON transactions(review_status, auto_added_at);',
+    // `latestBalanceAnchor` runs on every snapshot load and filtered on three
+    // unindexed columns; it fell back to walking `idx_transactions_txn_date`
+    // end to end whenever the primary account had no recent balance SMS.
+    'CREATE INDEX IF NOT EXISTS idx_transactions_account_instrument ON transactions(account_last4, instrument, txn_date);',
   ];
 
   /// Incremental schema migrations keyed by the version they upgrade *to*, run
@@ -149,6 +159,13 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
   /// **v3** adds reserve progress tracking (`reserve_enabled`,
   /// `reserve_funded_paise`) to obligations and the `forecast_risk_decisions`
   /// table for user-driven confirmations and risk planning.
+  ///
+  /// **v4** indexes the two unbounded `transactions` queries. Adding them to
+  /// [indexStatements] alone would not have been enough: `onUpgrade` runs only
+  /// when the stored version is *older* than the code's, so an install already
+  /// at v3 would never have re-applied the list and only fresh installs would
+  /// have had the indexes — the exact drift TASK-25 exists to prevent. Every
+  /// index added from here on needs a version bump as well as a list entry.
   ///
   /// Every step is idempotent: plain statements all use `IF NOT EXISTS`, and
   /// the two column additions — which SQLite cannot express that way — go
@@ -186,6 +203,14 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
       MigrationStep(createForecastRiskDecisionsTable),
       MigrationStep(
         'CREATE INDEX IF NOT EXISTS idx_forecast_risk_target_month ON forecast_risk_decisions(target_month);',
+      ),
+    ],
+    4: [
+      MigrationStep(
+        'CREATE INDEX IF NOT EXISTS idx_transactions_auto_added ON transactions(review_status, auto_added_at);',
+      ),
+      MigrationStep(
+        'CREATE INDEX IF NOT EXISTS idx_transactions_account_instrument ON transactions(account_last4, instrument, txn_date);',
       ),
     ],
   };

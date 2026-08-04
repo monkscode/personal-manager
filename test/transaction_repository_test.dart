@@ -281,7 +281,355 @@ void main() {
         expect(decision.action, IngestionAction.skipDuplicate);
       });
     });
+
+    // ======================================================================
+    // TASK-26 — flagging an already-stored row must not rewrite it.
+    //
+    // `sms_id` is UNIQUE, so a REPLACE insert makes SQLite delete and
+    // re-insert the row: `created_at` is overwritten and the AUTOINCREMENT id
+    // is re-issued. Every read in this file uses `id` as its ordering
+    // tiebreak.
+    // ======================================================================
+
+    group('flagging a collision member preserves the stored row (TASK-26)', () {
+      Future<(TransactionRepository, Database)> openWithDb() async {
+        final db = await SmsDatabase.openWithFactory(
+          factory: databaseFactoryFfi,
+          path: inMemoryDatabasePath,
+        );
+        addTearDown(db.close);
+        return (TransactionRepository(db), db);
+      }
+
+      Future<Map<String, Object?>> rowFor(Database db, String smsId) async =>
+          (await db.query(
+            'transactions',
+            where: 'sms_id = ?',
+            whereArgs: [smsId],
+          )).single;
+
+      test('keeps the date the flagged message was first seen', () async {
+        final (repository, db) = await openWithDb();
+        await repository.upsertParsedTxn(
+          txn(smsId: 'provider:1', refNumber: null),
+          createdAt: DateTime(2026, 1, 1),
+        );
+
+        await repository.ingestParsedTxn(
+          txn(smsId: 'provider:2', refNumber: null, merchant: null),
+          isFirstScan: false,
+          now: DateTime(2026, 7, 20),
+        );
+
+        final flagged = await rowFor(db, 'provider:1');
+        expect(
+          flagged['review_status'],
+          'needs_review',
+          reason: 'the row must actually have been flagged',
+        );
+        expect(
+          DateTime.fromMillisecondsSinceEpoch(flagged['created_at']! as int),
+          DateTime(2026, 1, 1),
+        );
+      });
+
+      test('keeps the flagged row in its place in the date group', () async {
+        final (repository, db) = await openWithDb();
+        // Two rows on the same date. A re-issued id sends the flagged one to
+        // the end of the group, because `queryByMonth` orders by
+        // `txn_date ASC, id ASC`.
+        await repository.upsertParsedTxn(
+          txn(smsId: 'provider:a', refNumber: null),
+        );
+        await repository.upsertParsedTxn(
+          txn(smsId: 'provider:b', refNumber: null, amountPaise: 777000),
+        );
+        final idBefore = (await rowFor(db, 'provider:a'))['id'];
+
+        await repository.ingestParsedTxn(
+          txn(smsId: 'provider:c', refNumber: null, merchant: null),
+          isFirstScan: false,
+          now: DateTime(2026, 7, 20),
+        );
+
+        expect((await rowFor(db, 'provider:a'))['id'], idBefore);
+        final order = (await repository.queryByMonth(
+          '2026-07',
+        )).map((r) => r.smsId).toList();
+        expect(order, ['provider:a', 'provider:b', 'provider:c']);
+      });
+
+      test('writes only the review columns of the flagged row', () async {
+        final (repository, db) = await openWithDb();
+        await repository.upsertParsedTxn(
+          txn(smsId: 'provider:1', refNumber: null),
+          createdAt: DateTime(2026, 1, 1),
+        );
+        final before = Map<String, Object?>.from(
+          await rowFor(db, 'provider:1'),
+        );
+
+        await repository.ingestParsedTxn(
+          txn(smsId: 'provider:2', refNumber: null, merchant: null),
+          isFirstScan: false,
+          now: DateTime(2026, 7, 20),
+        );
+
+        final after = await rowFor(db, 'provider:1');
+        final changed = after.keys
+            .where((k) => after[k] != before[k])
+            .toSet();
+        expect(changed, {
+          'review_status',
+          'needs_review',
+          'review_reason',
+          'collision_set_id',
+          'coverage_bucket',
+        });
+      });
+
+      // GUARD, not regression coverage: the reads and both writes already share
+      // one `_db.transaction`, so this passed before the fix too. Kept because
+      // the flag/insert pair half-applying would leave a collision set naming a
+      // row that does not exist.
+      test('a failed insert rolls the flag back with it', () async {
+        final realDb = await SmsDatabase.openWithFactory(
+          factory: databaseFactoryFfi,
+          path: inMemoryDatabasePath,
+        );
+        addTearDown(realDb.close);
+        final repository = TransactionRepository(
+          _FailingInsertDatabase(realDb, failForSmsId: 'provider:2'),
+        );
+        await TransactionRepository(realDb).upsertParsedTxn(
+          txn(smsId: 'provider:1', refNumber: null),
+        );
+
+        await expectLater(
+          repository.ingestParsedTxn(
+            txn(smsId: 'provider:2', refNumber: null, merchant: null),
+            isFirstScan: false,
+            now: DateTime(2026, 7, 20),
+          ),
+          throwsA(isA<StateError>()),
+        );
+
+        final rows = await realDb.query('transactions');
+        expect(rows, hasLength(1));
+        expect(rows.single['review_status'], 'auto_added');
+      });
+    });
+
+    // ======================================================================
+    // TASK-26 — the two unbounded queries need supporting indexes.
+    //
+    // Asserted on the query plan, not on the number of rows returned. The
+    // previous "no full-table scan" test counted rows *returned* by queries
+    // written to match nothing, so it stayed near zero whatever the plan was.
+    // ======================================================================
+
+    group('unbounded queries are index-backed (TASK-26)', () {
+      // Mirrors `TransactionRepository.recentlyAutoAdded`. sqflite builds this
+      // SQL internally and does not expose it, so the predicate is repeated
+      // here; each test also runs the repository method over the same data so a
+      // divergence shows up as a result mismatch rather than silently.
+      const recentlyAutoAddedSql =
+          'SELECT * FROM transactions '
+          'WHERE review_status = ? AND auto_added_at IS NOT NULL '
+          'ORDER BY auto_added_at DESC, id DESC LIMIT 50';
+      const latestBalanceAnchorSql =
+          'SELECT * FROM transactions '
+          'WHERE instrument = ? AND balance_paise IS NOT NULL '
+          'AND account_last4 = ? AND review_status != ? '
+          'ORDER BY txn_date DESC, id DESC LIMIT 1';
+
+      Future<String> planFor(
+        Database db,
+        String sql,
+        List<Object?> args,
+      ) async => (await db.rawQuery(
+        'EXPLAIN QUERY PLAN $sql',
+        args,
+      )).map((r) => r['detail']).join(' | ');
+
+      Future<Database> seeded() async {
+        final db = await SmsDatabase.openWithFactory(
+          factory: databaseFactoryFfi,
+          path: inMemoryDatabasePath,
+        );
+        addTearDown(db.close);
+        final repository = TransactionRepository(db);
+        for (var i = 0; i < 60; i++) {
+          await repository.upsertParsedTxn(
+            txn(
+              smsId: 'provider:$i',
+              amountPaise: 100000 + i,
+              refNumber: 'REF$i',
+              balancePaise: 900000 + i,
+              txnDate: DateTime(2026, 7, 9, 10).add(Duration(minutes: i)),
+            ),
+          );
+        }
+        return db;
+      }
+
+      test('recentlyAutoAdded sorts through an index, not a temp B-tree', () async {
+        final db = await seeded();
+
+        final plan = await planFor(db, recentlyAutoAddedSql, [
+          ReviewStatus.autoAdded.storageValue,
+        ]);
+
+        expect(plan, contains('idx_transactions_auto_added'));
+        expect(
+          plan,
+          isNot(contains('TEMP B-TREE')),
+          reason:
+              'auto_added is the majority status, so sorting it to return 50 '
+              'rows costs more with every message ever received',
+        );
+      });
+
+      test('latestBalanceAnchor seeks the account instead of scanning', () async {
+        final db = await seeded();
+
+        final plan = await planFor(db, latestBalanceAnchorSql, [
+          PaymentInstrument.bank.storageValue,
+          '1234',
+          ReviewStatus.dismissed.storageValue,
+        ]);
+
+        expect(plan, contains('idx_transactions_account_instrument'));
+        expect(
+          plan,
+          isNot(contains('SCAN')),
+          reason:
+              'this runs on every snapshot load, and an account with no recent '
+              'balance SMS would walk the whole table',
+        );
+      });
+
+      test('the plan assertions fail once the indexes are dropped', () async {
+        // Defect 3 in full: the test it replaces passed with every index
+        // dropped. This one must not.
+        final db = await seeded();
+        await db.execute('DROP INDEX idx_transactions_auto_added');
+        await db.execute('DROP INDEX idx_transactions_account_instrument');
+
+        expect(
+          await planFor(db, recentlyAutoAddedSql, [
+            ReviewStatus.autoAdded.storageValue,
+          ]),
+          contains('TEMP B-TREE'),
+        );
+        expect(
+          await planFor(db, latestBalanceAnchorSql, [
+            PaymentInstrument.bank.storageValue,
+            '1234',
+            ReviewStatus.dismissed.storageValue,
+          ]),
+          contains('SCAN'),
+        );
+      });
+    });
   });
+}
+
+/// A [Database] wrapper whose insert of one specific `sms_id` throws, used to
+/// prove that a half-completed ingest rolls back.
+class _FailingInsertDatabase implements Database {
+  _FailingInsertDatabase(this._inner, {required this.failForSmsId});
+
+  final Database _inner;
+  final String failForSmsId;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(Transaction txn) action, {
+    bool? exclusive,
+  }) {
+    return _inner.transaction(
+      (txn) => action(_FailingInsertTransaction(txn, failForSmsId)),
+      exclusive: exclusive,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+class _FailingInsertTransaction implements Transaction {
+  _FailingInsertTransaction(this._inner, this._failForSmsId);
+
+  final Transaction _inner;
+  final String _failForSmsId;
+
+  @override
+  Future<int> insert(
+    String table,
+    Map<String, Object?> values, {
+    String? nullColumnHack,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) {
+    if (values['sms_id'] == _failForSmsId) {
+      throw StateError('insert failed for $_failForSmsId');
+    }
+    return _inner.insert(
+      table,
+      values,
+      nullColumnHack: nullColumnHack,
+      conflictAlgorithm: conflictAlgorithm,
+    );
+  }
+
+  @override
+  Future<int> update(
+    String table,
+    Map<String, Object?> values, {
+    String? where,
+    List<Object?>? whereArgs,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) {
+    return _inner.update(
+      table,
+      values,
+      where: where,
+      whereArgs: whereArgs,
+      conflictAlgorithm: conflictAlgorithm,
+    );
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> query(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+  }) {
+    return _inner.query(
+      table,
+      distinct: distinct,
+      columns: columns,
+      where: where,
+      whereArgs: whereArgs,
+      groupBy: groupBy,
+      having: having,
+      orderBy: orderBy,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
 }
 
 /// A [Database] wrapper that counts the number of rows returned by `query`,
