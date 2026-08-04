@@ -9,6 +9,7 @@ import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/sms_scan_orchestrator.dart';
 import 'package:expense_insight/features/app/home_forecast_explorer.dart';
 import 'package:expense_insight/features/app/home_screen.dart';
+import 'package:expense_insight/features/app/why_log_screen.dart';
 import 'package:expense_insight/services/cash_coverage_metrics.dart';
 import 'package:expense_insight/services/reserve_planner.dart';
 import 'package:expense_insight/services/salary_income_detector.dart';
@@ -54,6 +55,7 @@ const _salary = SalaryProfile(
 SmsAnalysisSnapshot _snapshot(
   List<ReconciliationItem> items, {
   BalanceAnchor? anchor,
+  ReservePlan reservePlan = const ReservePlan.empty(),
 }) => SmsAnalysisSnapshot(
   targetMonth: DateTime(2026, 8),
   hasData: true,
@@ -70,7 +72,7 @@ SmsAnalysisSnapshot _snapshot(
   cashDrainRatio: 0,
   currentMonthAtmPaise: 0,
   obligations: const [],
-  reservePlan: const ReservePlan.empty(),
+  reservePlan: reservePlan,
   riskDecisions: const [],
   anchor: anchor,
   anchorFreshness: anchor?.freshnessAsOf(_now),
@@ -126,6 +128,39 @@ Insights _surplus() => Insights.compute(
   snapshot: _snapshot(anchor: _anchor(10000000, DateTime(2026, 8, 1)), [
     _salaryInflow('sal', 8500000, DateTime(2026, 8, 10)),
   ]),
+  now: _now,
+);
+
+/// No bank-balance SMS has ever been seen, so the forecast opens on the
+/// fabricated evidence-free anchor and every month is provisional (TASK-22).
+Insights _noAnchor() => Insights.compute(
+  _state,
+  snapshot: _snapshot([
+    _outflow('rent', 'Rent', 1800000, DateTime(2026, 8, 5)),
+    _salaryInflow('sal', 8500000, DateTime(2026, 8, 10)),
+  ]),
+  now: _now,
+);
+
+/// An obligation large enough to reserve for that the user has not enabled —
+/// the explorer's "Start reserve" affordance.
+Insights _reserveCandidate() => Insights.compute(
+  _state,
+  snapshot: _snapshot(
+    anchor: _anchor(500000, DateTime(2026, 8, 1)),
+    [_salaryInflow('sal', 8500000, DateTime(2026, 8, 10))],
+    reservePlan: ReservePlan(
+      schedules: const [],
+      availableToEnable: [
+        ReserveCandidate(
+          dedupeKey: 'oblig:lic',
+          label: 'LIC premium',
+          dueDate: DateTime(2026, 11, 20),
+          targetPaise: 4700000,
+        ),
+      ],
+    ),
+  ),
   now: _now,
 );
 
@@ -194,16 +229,16 @@ void main() {
   });
 
   group('HomeScreen (live)', () {
-    testWidgets('renders the spend summary and no forecast explorer', (
+    testWidgets('renders the spend summary alongside the forecast explorer', (
       tester,
     ) async {
       await _pumpHome(tester, _shortfall());
       expect(find.text('Spent this month'), findsOneWidget);
-      // The forecast explorer and its sections were removed from Home.
-      expect(find.byType(HomeForecastExplorer), findsNothing);
-      expect(find.text('Your plan now'), findsNothing);
-      expect(find.textContaining('See why'), findsNothing);
-      expect(find.text('Unconfirmed risk'), findsNothing);
+      // The explorer is the forecast surface on the live path (TASK-34); the
+      // spend summary reports actuals beside it.
+      expect(find.byType(HomeForecastExplorer), findsOneWidget);
+      expect(find.text('Your plan now'), findsOneWidget);
+      expect(find.textContaining('See why'), findsOneWidget);
     });
 
     testWidgets('does not render the month breakdown section', (tester) async {
@@ -258,6 +293,150 @@ void main() {
       await _pumpHome(tester, _shortfall());
       expect(find.byType(ListView), findsWidgets);
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  // ==========================================================================
+  // TASK-34 — the forecast surface must be reachable, not merely correct.
+  //
+  // Every one of these asserts that something the forecast layer *computes*
+  // reaches a pixel on the live SMS path. Rendering a screen directly proves it
+  // draws; only Home proves anything can open it.
+  // ==========================================================================
+
+  group('the forecast surface is reachable on the live path (TASK-34)', () {
+    testWidgets('live Home builds the forecast explorer', (tester) async {
+      await _pumpHome(tester, _shortfall());
+
+      expect(find.byType(HomeForecastExplorer), findsOneWidget);
+    });
+
+    // GUARD, not regression coverage: this already passed before the explorer
+    // was wired up. The headline reaches a pixel through `alerts.first.text`
+    // (real_insights.dart:809), rendered at home_screen.dart:246 outside the
+    // branch — which TASK-34's "only site" table missed. Kept so the one
+    // surviving route to the headline cannot be removed unnoticed.
+    testWidgets('live Home renders the forecast headline exactly once', (
+      tester,
+    ) async {
+      final i = _shortfall();
+      expect(i.forecastHeadline, isNotEmpty);
+
+      await _pumpHome(tester, i);
+      await tester.dragUntilVisible(
+        find.text(i.forecastHeadline),
+        find.byType(ListView).first,
+        const Offset(0, -300),
+      );
+
+      expect(find.text(i.forecastHeadline), findsOneWidget);
+    });
+
+    testWidgets('live Home names the balance the forecast opens on', (
+      tester,
+    ) async {
+      final i = _shortfall();
+      expect(i.anchorAsOfLabel, isNotEmpty);
+
+      await _pumpHome(tester, i);
+
+      expect(find.textContaining(i.anchorAsOfLabel), findsOneWidget);
+    });
+
+    testWidgets('live Home renders the committed, expected and free strip', (
+      tester,
+    ) async {
+      final i = _shortfall();
+
+      await _pumpHome(tester, i);
+
+      expect(find.text(i.salaryCommitted), findsWidgets);
+      expect(find.text(i.salaryExpected), findsWidgets);
+      expect(find.text(i.salaryFree), findsWidgets);
+    });
+
+    // The headline alert already carries the word (TASK-22 prefixes it), so
+    // this asserts the marker sits on the forecast surface itself — beside the
+    // number it qualifies — rather than only in a notification strip.
+    testWidgets('an evidence-free anchor marks the forecast surface itself', (
+      tester,
+    ) async {
+      final i = _noAnchor();
+      expect(i.anchorProvisional, isTrue);
+
+      await _pumpHome(tester, i);
+
+      expect(
+        find.descendant(
+          of: find.byType(HomeForecastExplorer),
+          matching: find.textContaining('Provisional'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets("See why opens this month's coverage lines from Home", (
+      tester,
+    ) async {
+      final i = _shortfall();
+      expect(i.coverageLines, isNotEmpty);
+
+      await _pumpHome(tester, i);
+      final seeWhy = find.textContaining('See why');
+      await tester.ensureVisible(seeWhy);
+      await tester.pumpAndSettle();
+      await tester.tap(seeWhy);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WhyLogScreen), findsOneWidget);
+      expect(find.text(i.coverageLines.first.label), findsOneWidget);
+    });
+
+    testWidgets(
+      "a future month's coverage line is reachable from Home (TASK-21)",
+      (tester) async {
+        final i = _shortfall();
+        // Next month carries its own omission line, and `Insights.coverageLines`
+        // holds the target month's alone — so only a per-month surface can show
+        // it. Both months label the omission identically, so the why-log's own
+        // month title is what proves the future month opened.
+        final nextPlan = i.forecastExplorer!.planAt(1);
+        expect(nextPlan.coverageLines, isNotEmpty);
+
+        await _pumpHome(tester, i);
+        final nextMonth = find.text('Next month');
+        await tester.ensureVisible(nextMonth);
+        await tester.pumpAndSettle();
+        await tester.tap(nextMonth);
+        await tester.pumpAndSettle();
+        final seeWhy = find.textContaining('See why');
+        await tester.ensureVisible(seeWhy);
+        await tester.pumpAndSettle();
+        await tester.tap(seeWhy);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(WhyLogScreen), findsOneWidget);
+        expect(
+          find.text('Why ${i.nextMonthLabel} looks like this'),
+          findsOneWidget,
+        );
+        expect(find.text(nextPlan.coverageLines.first.label), findsWidgets);
+      },
+    );
+
+    testWidgets('a reserve action from Home reaches the persistence layer', (
+      tester,
+    ) async {
+      await _pumpHome(tester, _reserveCandidate());
+      final start = find.text('Start reserve');
+      await tester.ensureVisible(start);
+      await tester.pumpAndSettle();
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+
+      // No database is provided in a widget test, so a wired callback surfaces
+      // the store's own failure. An unwired one would say nothing at all.
+      expect(find.textContaining('Could not update reserve'), findsOneWidget);
     });
   });
 }

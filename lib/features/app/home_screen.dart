@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/format.dart';
 import '../../core/theme.dart';
@@ -8,9 +9,11 @@ import '../../data/insights.dart';
 import '../../data/scan_controller.dart';
 import '../../data/sms_models.dart';
 import '../../data/transactions_notifier.dart';
+import '../../services/forecast_explorer.dart';
 import '../../services/sms_scan_orchestrator.dart';
 import '../../widgets/ui.dart';
 import 'about_sheet.dart';
+import 'home_forecast_explorer.dart';
 import 'scan_review_page.dart';
 import 'why_log_screen.dart';
 
@@ -151,22 +154,21 @@ class HomeScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 20),
-          // Live-mode: embedded forecast explorer replaces old recommendation,
-          // hero, and balance-check surfaces; sample/manual path unchanged.
+          // Live-mode: the embedded forecast explorer *is* the forecast surface
+          // — the headline number, the anchor it opens on, the salary strip and
+          // the only route to each month's why-log. It replaces the old
+          // recommendation, hero and balance-check surfaces; the sample/manual
+          // path below is unchanged (TASK-34).
           if (i.forecastExplorer != null) ...[
             _spendSummaryCard(context, i, ctrl),
+            const SizedBox(height: 20),
+            _forecastExplorer(context, ref, i, i.forecastExplorer!),
             const SizedBox(height: 20),
             if (i.recentTx.isNotEmpty) ...[
               _recentTransactions(context, i, ctrl),
               const SizedBox(height: 20),
             ],
           ] else ...[
-            // Live-mode forecast recommendation (dated headline + salary strip +
-            // anchor provenance + freshness + See why).
-            if (liveForecast) ...[
-              _recommendationCard(context, i),
-              const SizedBox(height: 20),
-            ],
             // Hero card
             Surface(
               radius: 22,
@@ -443,159 +445,57 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _recommendationCard(BuildContext context, Insights i) {
-    final p = context.palette;
-    Widget stripCell(String label, String value, Color valueColor) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: jakarta(
-            size: 11,
-            weight: FontWeight.w600,
-            color: p.textTertiary,
+  /// The live forecast surface: 12 months of required-in-bank, the balance the
+  /// plan opens on, and a per-month route into the why-log.
+  ///
+  /// The why-log is where "no silent exclusion" is honoured, so every month
+  /// needs its own way in — coverage lines are computed per horizon month
+  /// (`forecast_ledger_engine.dart`'s `horizonCoverageLines`), while
+  /// `Insights.coverageLines` carries the target month's alone. Only
+  /// `ForecastMonthPlan.coverageLines` can name an omission in month 7.
+  Widget _forecastExplorer(
+    BuildContext context,
+    WidgetRef ref,
+    Insights i,
+    ForecastExplorer explorer,
+  ) {
+    return HomeForecastExplorer(
+      explorer: explorer,
+      embedded: true,
+      anchorLabel: i.anchorAsOfLabel,
+      committedLabel: i.salaryCommitted,
+      expectedLabel: i.salaryExpected,
+      freeLabel: i.salaryFree,
+      onUpdateReserve:
+          ({
+            required String dedupeKey,
+            required bool enabled,
+            required int fundedPaise,
+          }) => ref
+              .read(transactionsNotifierProvider.notifier)
+              .updateReserveProgress(
+                dedupeKey: dedupeKey,
+                enabled: enabled,
+                fundedPaise: fundedPaise,
+              ),
+      onSaveRiskDecision: (decision) => ref
+          .read(transactionsNotifierProvider.notifier)
+          .saveRiskDecision(decision),
+      onSeeWhy: (plan, offset) => Navigator.of(context).push(
+        MaterialPageRoute(
+          // The target month has been through reconciliation, so its full line
+          // set — paid, unpaid, already in the anchor — is the honest answer,
+          // together with the lumps beyond it. A future month has no actuals to
+          // reconcile against; its hard lines are the whole story.
+          builder: (_) => WhyLogScreen(
+            lines: offset == 0 ? i.forecastLines : plan.hardLines,
+            forwardEarmarks: offset == 0 ? i.forwardEarmarks : const [],
+            coverageLines: plan.coverageLines,
+            reserveSchedules: plan.reserveSchedules,
+            riskLines: plan.riskLines,
+            monthLabel: DateFormat('MMMM').format(plan.monthStart),
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: mono(size: 15, weight: FontWeight.w800, color: valueColor),
-        ),
-      ],
-    );
-    final divider = Container(width: 1, height: 30, color: p.border);
-    return Surface(
-      radius: 22,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded, size: 16, color: AppColors.teal),
-              const SizedBox(width: 8),
-              Text(
-                'Your forecast',
-                style: jakarta(
-                  size: 12,
-                  weight: FontWeight.w600,
-                  color: p.textTertiary,
-                ),
-              ),
-              const Spacer(),
-              _freshnessChip(context, i),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            i.forecastHeadline,
-            style: jakarta(
-              size: 18,
-              weight: FontWeight.w800,
-              height: 1.4,
-              color: p.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: stripCell('Committed', i.salaryCommitted, p.textPrimary),
-              ),
-              divider,
-              Expanded(
-                child: stripCell('Expected', i.salaryExpected, AppColors.green),
-              ),
-              divider,
-              Expanded(child: stripCell('Free', i.salaryFree, AppColors.teal)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(height: 1, color: p.border),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(
-                Icons.account_balance_wallet_outlined,
-                size: 14,
-                color: p.textTertiary,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  i.anchorAsOfLabel,
-                  style: jakarta(
-                    size: 12,
-                    weight: FontWeight.w500,
-                    color: p.textTertiary,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => WhyLogScreen(
-                      lines: i.forecastLines,
-                      forwardEarmarks: i.forwardEarmarks,
-                      coverageLines: i.coverageLines,
-                      monthLabel: i.breakdownMonthLabel,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'See why',
-                      style: jakarta(
-                        size: 12,
-                        weight: FontWeight.w700,
-                        color: AppColors.teal,
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: 16,
-                      color: AppColors.teal,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _freshnessChip(BuildContext context, Insights i) {
-    final provisional = i.anchorProvisional;
-    final color = provisional ? AppColors.amber : AppColors.green;
-    final label = provisional
-        ? (i.anchorConfirmLabel.isEmpty
-              ? 'Confirm balance'
-              : i.anchorConfirmLabel)
-        : 'Up to date';
-    final icon = provisional
-        ? Icons.error_outline_rounded
-        : Icons.check_circle_outline_rounded;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: jakarta(size: 11, weight: FontWeight.w700, color: color),
-          ),
-        ],
       ),
     );
   }

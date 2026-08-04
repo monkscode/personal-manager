@@ -22,10 +22,26 @@ class HomeForecastExplorer extends StatefulWidget {
     required this.onSeeWhy,
     this.initialOffset = 0,
     this.embedded = false,
+    this.anchorLabel = '',
+    this.committedLabel = '',
+    this.expectedLabel = '',
+    this.freeLabel = '',
   });
 
   final ForecastExplorer explorer;
   final int initialOffset;
+
+  /// Provenance of the balance the whole forecast opens on, e.g.
+  /// `as of 1 Aug · 1234`. Empty hides the line. A plan the user cannot trace
+  /// to a reading is not explainable, so this belongs beside the number
+  /// (TASK-34).
+  final String anchorLabel;
+
+  /// This month's salary split — already committed, still expected, and free
+  /// to spend. Empty hides the strip.
+  final String committedLabel;
+  final String expectedLabel;
+  final String freeLabel;
 
   /// Persist a reserve schedule change. The parent reloads the snapshot after
   /// this future completes.
@@ -190,6 +206,10 @@ class _HomeForecastExplorerState extends State<HomeForecastExplorer> {
           keepAvailableUntil: action.keepAvailableUntil,
           reserveContributionPaise: action.reserveContributionPaise,
           isProvisional: action.isProvisional,
+          anchorLabel: widget.anchorLabel,
+          committedLabel: widget.committedLabel,
+          expectedLabel: widget.expectedLabel,
+          freeLabel: widget.freeLabel,
         ),
         const SizedBox(height: 16),
 
@@ -307,17 +327,47 @@ class _ActionHeader extends StatelessWidget {
     required this.keepAvailableUntil,
     required this.reserveContributionPaise,
     required this.isProvisional,
+    this.anchorLabel = '',
+    this.committedLabel = '',
+    this.expectedLabel = '',
+    this.freeLabel = '',
   });
 
   final int requiredPaise;
   final DateTime keepAvailableUntil;
   final int reserveContributionPaise;
   final bool isProvisional;
+  final String anchorLabel;
+  final String committedLabel;
+  final String expectedLabel;
+  final String freeLabel;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final dateLabel = DateFormat('d MMM').format(keepAvailableUntil);
+    final hasStrip =
+        committedLabel.isNotEmpty ||
+        expectedLabel.isNotEmpty ||
+        freeLabel.isNotEmpty;
+    Widget stripCell(String label, String value, Color valueColor) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: jakarta(
+            size: 11,
+            weight: FontWeight.w600,
+            color: p.textTertiary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: mono(size: 15, weight: FontWeight.w800, color: valueColor),
+        ),
+      ],
+    );
     return Surface(
       radius: 16,
       padding: const EdgeInsets.all(16),
@@ -350,6 +400,47 @@ class _ActionHeader extends StatelessWidget {
               color: p.textSecondary,
             ),
           ),
+          if (anchorLabel.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  Icons.account_balance_wallet_outlined,
+                  size: 14,
+                  color: p.textTertiary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    anchorLabel,
+                    style: jakarta(
+                      size: 12,
+                      weight: FontWeight.w500,
+                      color: p.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (hasStrip) ...[
+            const SizedBox(height: 14),
+            Container(height: 1, color: p.border),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: stripCell('Committed', committedLabel, p.textPrimary),
+                ),
+                Container(width: 1, height: 30, color: p.border),
+                Expanded(
+                  child: stripCell('Expected', expectedLabel, AppColors.green),
+                ),
+                Container(width: 1, height: 30, color: p.border),
+                Expanded(child: stripCell('Free', freeLabel, AppColors.teal)),
+              ],
+            ),
+          ],
           if (reserveContributionPaise > 0) ...[
             const SizedBox(height: 8),
             Text(

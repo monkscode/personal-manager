@@ -35,6 +35,18 @@ violated at the UI layer the whole time while every model-layer test passed. **C
 fix is reachable by a user, not merely correct** — a passing test that renders a screen
 directly proves the screen works, not that anything can open it.
 
+**TASK-34 was fixed on 2026-08-04 by wiring up `HomeForecastExplorer`**, and two of its own
+premises did not survive: the headline and the provisional marker were already reaching the
+user through `alerts.first.text`, which is rendered outside the branch. Writing the
+"must fail now" test and watching it *pass* is what caught it — the same discipline that
+found the real defect. The choice of surface was decided by one fact rather than taste:
+coverage lines are computed per horizon month, but `Insights.coverageLines` carries the
+target month's alone, so only a per-month surface can name an omission in month 7. On the
+device, September's why-log now shows a ₹3,09,274 omission and a ₹61,415 duplicate
+suppression that the recommendation card could never have displayed. Making the surface
+reachable immediately exposed four further defects nobody could see before — recorded at
+the end of TASK-34.
+
 **A task file's own premises are evidence, not fact.** TASK-31, TASK-32 and TASK-33 each
 turned out to contain a premise that did not survive being checked against the source or
 the device — including, in TASK-33, all three of the mechanism, the trigger and the measured
