@@ -77,6 +77,7 @@ void main() {
             ownerKey: 'risk1',
             status: ForecastLineStatus.review,
             confidence: 0.4,
+            direction: LedgerDirection.outflow,
           ),
         ],
       );
@@ -107,6 +108,95 @@ void main() {
       expect(augustPlan.riskBufferPaise, 240000);
       expect(augustPlan.reserveContributionPaise, 750000);
       expect(augustPlan.requiredInBankPaise, isNot(240000 + 750000));
+    });
+
+    group('TASK-35 — the risk buffer totals outflows only', () {
+      final july = DateTime(2026, 7, 1);
+      final august = DateTime(2026, 8, 1);
+
+      ForecastMonthPlan augustWith(List<ForecastLine> riskLines) {
+        final outlook = ForecastOutlook(
+          targetMonth: july,
+          anchor: _anchor(10000000, july),
+          openingBalancePaise: 10000000,
+          closingBalancePaise: 10000000,
+          minimumBalancePaise: 10000000,
+          minimumBalanceDate: july,
+          shortfallPaise: 0,
+          headline: 'OK',
+          isProvisional: false,
+          anchorConfirmLabel: '',
+          salaryMissing: false,
+          isSeasonalBufferShortfall: false,
+          salary: const ForecastSalaryStrip(
+            committedPaise: 0,
+            expectedSalaryPaise: 0,
+            freePaise: 10000000,
+          ),
+          lines: const [],
+          coverageLines: const [],
+          forwardEarmarks: const [],
+          assignments: const [],
+          months: [
+            _monthResult(july, 10000000, []),
+            _monthResult(august, 10000000, []),
+            ..._emptyMonths(10, DateTime(2026, 9, 1)),
+          ],
+          riskLines: riskLines,
+        );
+        return buildForecastExplorer(
+          outlook: outlook,
+          reservePlan: const ReservePlan.empty(),
+          now: DateTime(2026, 7, 22),
+        ).planAt(1);
+      }
+
+      ForecastLine risk(String label, int paise, LedgerDirection direction) =>
+          ForecastLine(
+            label: label,
+            amountPaise: paise,
+            source: ForecastEventSource.salary,
+            date: august,
+            ownerKey: 'risk:$label',
+            status: ForecastLineStatus.review,
+            confidence: 0.4,
+            direction: direction,
+          );
+
+      test('an uncertain credit is left out of the total', () {
+        final plan = augustWith([
+          risk('Weak bill', 240000, LedgerDirection.outflow),
+          risk('Salary (expected)', 15155600, LedgerDirection.inflow),
+        ]);
+
+        expect(plan.riskBufferPaise, 240000);
+      });
+
+      test('but it is still listed, so nothing is silently excluded '
+          '(guard)', () {
+        // Guard, not regression coverage: this passed before the fix too,
+        // because the defect was in the fold and never in the list. It is
+        // here so a future "just drop inflows" shortcut cannot pass silently.
+        final plan = augustWith([
+          risk('Weak bill', 240000, LedgerDirection.outflow),
+          risk('Salary (expected)', 15155600, LedgerDirection.inflow),
+        ]);
+
+        expect(plan.riskLines, hasLength(2));
+        expect(
+          plan.riskLines.map((line) => line.label),
+          containsAll(<String>['Weak bill', 'Salary (expected)']),
+        );
+      });
+
+      test('a buffer of only credits is zero, not their sum', () {
+        final plan = augustWith([
+          risk('Salary (expected)', 15155600, LedgerDirection.inflow),
+          risk('Refund', 50000, LedgerDirection.inflow),
+        ]);
+
+        expect(plan.riskBufferPaise, 0);
+      });
     });
 
     test('produces exactly 12 plans', () {
@@ -278,6 +368,7 @@ void main() {
             ownerKey: 'hard1',
             status: ForecastLineStatus.unpaid,
             confidence: 0.9,
+            direction: LedgerDirection.outflow,
           ),
         ],
         coverageLines: const [],
@@ -297,6 +388,7 @@ void main() {
             ownerKey: 'risk1',
             status: ForecastLineStatus.review,
             confidence: 0.4,
+            direction: LedgerDirection.outflow,
           ),
         ],
       );
@@ -373,6 +465,7 @@ void main() {
             ownerKey: 'aug1',
             status: ForecastLineStatus.unpaid,
             confidence: 0.9,
+            direction: LedgerDirection.outflow,
           ),
           ForecastLine(
             label: 'Sep expense',
@@ -382,6 +475,7 @@ void main() {
             ownerKey: 'sep1',
             status: ForecastLineStatus.unpaid,
             confidence: 0.9,
+            direction: LedgerDirection.outflow,
           ),
         ],
         coverageLines: const [],
@@ -578,6 +672,7 @@ void main() {
           ownerKey: 'opening',
           status: ForecastLineStatus.opening,
           confidence: 0.2, // Low opening confidence
+          direction: null, // a balance, not a flow
         );
 
         // High confidence event (0.9)
@@ -601,6 +696,7 @@ void main() {
           ownerKey: 'risk1',
           status: ForecastLineStatus.review,
           confidence: 0.3,
+          direction: LedgerDirection.outflow,
         );
 
         final monthResult = ForecastMonthResult(
@@ -876,6 +972,7 @@ void main() {
           ownerKey: 'seasonal:dining',
           status: ForecastLineStatus.review,
           confidence: 0.4,
+          direction: LedgerDirection.outflow,
         );
         final outlook = ForecastOutlook(
           targetMonth: july,
@@ -934,6 +1031,7 @@ void main() {
         ownerKey: 'gmailBill:elec',
         status: ForecastLineStatus.overdue,
         confidence: 0.95,
+        direction: LedgerDirection.outflow,
         note: 'From BESCOM email',
       );
       final hardEvent = ForecastEvent(
@@ -1009,6 +1107,7 @@ void main() {
         ownerKey: 'recurring:oldsip',
         status: ForecastLineStatus.alreadyInAnchor,
         confidence: 1.0,
+        direction: LedgerDirection.outflow,
       );
       final outlook = ForecastOutlook(
         targetMonth: july,
@@ -1143,6 +1242,7 @@ void main() {
         ownerKey: 'recurring:rent',
         status: ForecastLineStatus.unpaid,
         confidence: 0.9,
+        direction: LedgerDirection.outflow,
       );
       final outlook = ForecastOutlook(
         targetMonth: july,

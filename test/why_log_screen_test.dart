@@ -13,6 +13,7 @@ ForecastLine _line({
   DateTime? date,
   double confidence = 0.9,
   String? ownerKey,
+  LedgerDirection direction = LedgerDirection.outflow,
 }) => ForecastLine(
   label: label,
   amountPaise: amountPaise,
@@ -20,6 +21,7 @@ ForecastLine _line({
   status: status,
   date: date,
   confidence: confidence,
+  direction: direction,
   ownerKey: ownerKey ?? label.toLowerCase(),
 );
 

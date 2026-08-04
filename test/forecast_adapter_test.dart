@@ -7,6 +7,7 @@ import 'package:expense_insight/data/sms_analysis_snapshot.dart';
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/cash_coverage_metrics.dart';
 import 'package:expense_insight/services/forecast_adapter.dart';
+import 'package:expense_insight/services/forecast_explorer.dart';
 import 'package:expense_insight/services/recurring_debit_detector.dart';
 import 'package:expense_insight/services/reserve_planner.dart';
 import 'package:expense_insight/services/salary_income_detector.dart';
@@ -1908,6 +1909,53 @@ void _task23() {
       expect(outlook.shortfallPaise, 1500000);
       expect(outlook.isSeasonalBufferShortfall, isFalse);
       expect(outlook.headline, contains('You need'));
+    });
+  });
+
+  group('TASK-35 — an uncertain inflow is not money that might go out', () {
+    // A `detectedVariable` salary projects at confidence 0.7, below
+    // kReserveHardConfidence (0.8), so `_isHard` routes it to the risk lines.
+    // On the device this is a ₹1,51,556 salary *credit* presented under
+    // "Unconfirmed risk" — money the user might have to find.
+    const variableSalary = SalaryProfile(
+      confidence: SalaryConfidence.detectedVariable,
+      basePaise: 15155600,
+      expectedDay: 1,
+      effectiveMonthSatisfied: true,
+    );
+
+    ForecastMonthPlan septemberPlan() {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(500000, DateTime(2026, 8, 1)),
+          items: const [],
+          salary: variableSalary,
+        ),
+      );
+      return buildForecastExplorer(
+        outlook: outlook,
+        reservePlan: const ReservePlan.empty(),
+        now: _now,
+      ).planAt(1);
+    }
+
+    test('the projected salary really is partitioned as a risk line '
+        '(guard)', () {
+      // Guard on the fixture, not on the fix — it passed before the fix too.
+      // If this stops holding, the regression test below is no longer
+      // exercising the defect.
+      final salaryRisk = septemberPlan().riskLines.where(
+        (line) => line.ownerKey == 'salary:projected',
+      );
+
+      expect(salaryRisk, hasLength(1));
+      expect(salaryRisk.first.amountPaise, 15155600);
+    });
+
+    test('riskBufferPaise excludes it because it is an inflow', () {
+      // The buffer answers "how much might I have to pay that is not yet
+      // confirmed?". A credit cannot belong to that total in any amount.
+      expect(septemberPlan().riskBufferPaise, 0);
     });
   });
 }

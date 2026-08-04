@@ -371,6 +371,7 @@ class ForecastReconciliationEngine {
           ownerKey: item.ownerKey,
           status: ForecastLineStatus.alreadyInAnchor,
           confidence: item.confidence,
+          direction: item.direction,
         ),
       );
       return;
@@ -417,6 +418,7 @@ class ForecastReconciliationEngine {
         ownerKey: item.ownerKey,
         status: _statusForDatedItem(item, now),
         confidence: item.confidence,
+        direction: item.direction,
         isUserConfirmed: item.isUserConfirmed,
         obligationDedupeKey: item.obligationDedupeKey,
       ),
@@ -508,6 +510,7 @@ class ForecastReconciliationEngine {
           ownerKey: item.ownerKey,
           status: status,
           confidence: item.confidence,
+          direction: item.direction,
         ),
       );
     }

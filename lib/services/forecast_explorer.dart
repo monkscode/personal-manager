@@ -139,11 +139,12 @@ ForecastExplorer buildForecastExplorer({
     // Reserve contribution total for this month
     final reserveContribution = reservePlan.contributionInMonth(monthStart);
 
-    // Risk buffer: sum of risk line amounts in this month
-    final riskBuffer = monthRiskLines.fold<int>(
-      0,
-      (sum, line) => sum + line.amountPaise,
-    );
+    // Risk buffer: money that might have to go OUT and is not yet confirmed.
+    // Outflows only — an uncertain credit is still a credit, and folding it in
+    // here presented a salary as money the user might have to find.
+    final riskBuffer = monthRiskLines
+        .where((line) => line.direction == LedgerDirection.outflow)
+        .fold<int>(0, (sum, line) => sum + line.amountPaise);
 
     // Committed outflow: sum of hard outflow events
     final committedOutflow = monthResult.events
@@ -335,6 +336,7 @@ List<ForecastLine> _hardLinesForMonth(
           ownerKey: event.ownerKey,
           status: ForecastLineStatus.projected,
           confidence: event.confidence,
+          direction: event.direction,
           isUserConfirmed: event.isUserConfirmed,
           obligationDedupeKey: event.obligationDedupeKey,
         ),

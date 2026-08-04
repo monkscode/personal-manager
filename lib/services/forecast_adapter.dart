@@ -185,6 +185,7 @@ class ForecastAdapter {
             ownerKey: event.ownerKey,
             status: ForecastLineStatus.review,
             confidence: event.confidence,
+            direction: event.direction,
             isUserConfirmed: event.isUserConfirmed,
             obligationDedupeKey: event.obligationDedupeKey,
           ),

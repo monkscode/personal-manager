@@ -27,6 +27,7 @@ ForecastLine _hardLine(
   DateTime month, {
   String? ownerKey,
   double confidence = 0.9,
+  LedgerDirection direction = LedgerDirection.outflow,
 }) => ForecastLine(
   label: label,
   amountPaise: paise,
@@ -35,6 +36,7 @@ ForecastLine _hardLine(
   ownerKey: ownerKey ?? 'owner:$label',
   status: ForecastLineStatus.unpaid,
   confidence: confidence,
+  direction: direction,
   obligationDedupeKey: 'dedupe:$label',
 );
 
@@ -44,6 +46,7 @@ ForecastLine _riskLine(
   DateTime month, {
   String? ownerKey,
   double confidence = 0.4,
+  LedgerDirection direction = LedgerDirection.outflow,
 }) => ForecastLine(
   label: label,
   amountPaise: paise,
@@ -52,6 +55,7 @@ ForecastLine _riskLine(
   ownerKey: ownerKey ?? 'risk:$label',
   status: ForecastLineStatus.review,
   confidence: confidence,
+  direction: direction,
 );
 
 ReserveSchedule _schedule(

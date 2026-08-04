@@ -194,6 +194,7 @@ class ForecastLine {
     required this.ownerKey,
     required this.status,
     required this.confidence,
+    required this.direction,
     this.date,
     this.note,
     this.isUserConfirmed = false,
@@ -208,6 +209,16 @@ class ForecastLine {
   final ForecastLineStatus status;
   final double confidence;
   final String? note;
+
+  /// Which way the money moves, copied from the event or reconciliation item
+  /// this line describes.
+  ///
+  /// Required but nullable, so every construction site has to decide rather
+  /// than inherit a default. `null` means the line is not a flow at all — the
+  /// opening-balance line is the only such case. Consumers that total money
+  /// moving one way must filter on this; summing lines blind to direction
+  /// presents a credit as a debit.
+  final LedgerDirection? direction;
 
   /// Whether the user has explicitly confirmed this line.
   final bool isUserConfirmed;

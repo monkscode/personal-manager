@@ -135,6 +135,8 @@ class ForecastLedgerEngine {
         ownerKey: 'anchor:${anchor.accountLast4 ?? 'primary'}',
         status: ForecastLineStatus.opening,
         confidence: openingConfidence,
+        // A balance, not a flow — the only line with no direction.
+        direction: null,
       ),
       for (final event in alreadyInAnchor)
         ForecastLine(
@@ -145,6 +147,7 @@ class ForecastLedgerEngine {
           ownerKey: event.ownerKey,
           status: ForecastLineStatus.alreadyInAnchor,
           confidence: event.confidence,
+          direction: event.direction,
           note: 'Already reflected in the balance anchor.',
         ),
     ];
@@ -163,6 +166,7 @@ class ForecastLedgerEngine {
           ownerKey: event.ownerKey,
           status: ForecastLineStatus.projected,
           confidence: event.confidence,
+          direction: event.direction,
         ),
       );
       if (balance < minimumBalance) {
