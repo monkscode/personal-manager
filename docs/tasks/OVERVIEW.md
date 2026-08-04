@@ -146,6 +146,21 @@ earlier fixes exist.
 | [TASK-26](TASK-26-ingest-and-indexes.md) | REPLACE resets `created_at`; missing indexes; fake scan test | Important ×3 |
 | [TASK-27](TASK-27-persistence-minors.md) | Persistence minors (7 items) | Minor |
 
+**Phase 4 closed 2026-08-04.** Its recurring lesson is narrower than Phase 3's and worth
+carrying: **a task file's prescribed fix can carry the same defect the task is about.**
+TASK-26 told the next agent that TASK-25's index convergence made a version bump
+unnecessary — but `onUpgrade` fires only when the stored version changes, so following it
+would have shipped an index that reached fresh installs only, which is exactly the drift
+TASK-25 exists to prevent, on the device that motivated the work. Its prescribed
+`EXPLAIN QUERY PLAN` assertion (`contains('USING INDEX')`) would likewise have passed
+before the fix on both queries, because a full scan *through* an index still says
+"USING INDEX" — the fake-test defect reproduced inside its own remedy. Run the prescribed
+assertion against the unfixed code and watch it fail before trusting it.
+
+The schema version is now **4**. Every future index needs both an `indexStatements` entry
+and a version bump; a test now asserts `schemaVersion` is at least the highest registered
+migration, which is the direction nothing covered.
+
 ---
 
 ## Context every agent needs

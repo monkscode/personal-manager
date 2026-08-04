@@ -209,3 +209,42 @@ flutter test
 **Twelve tests added, nine of which failed first.** The three guards are named where they
 appear: the repeat-of-a-complete-account no-op (M3), the coverage-bucket-after-dismiss
 assertion (M5), and the never-stored-decision-has-no-timestamp case (M2).
+
+---
+
+## Phase 4 device verification, 2026-08-04
+
+Samsung SM-G781B, `adb install -r` (data preserved), app launched to trigger the open.
+No rescan: this phase's only stored-state change is the v3 → v4 migration, and an
+index-only migration must move zero rows — which is the thing worth proving.
+
+| | Before | After |
+|---|---|---|
+| `PRAGMA user_version` | 3 | **4** |
+| `transactions` rows | 2,061 | 2,061 |
+| `MAX(id)` / `MIN(id)` | 2716 / 14 | 2716 / 14 |
+| `auto_added` / `confirmed` / `needs_review` / `dismissed` | 1759 / 187 / 109 / 6 | 1759 / 187 / 109 / 6 |
+| `obligations` / `forecast_risk_decisions` / `known_accounts` | 9 / 3 / 0 | 9 / 3 / 0 |
+| `idx_*` indexes | 11 | **13** |
+
+Reconciles exactly: the migration added `idx_transactions_auto_added` and
+`idx_transactions_account_instrument` and rewrote nothing. `MAX(id)` unchanged confirms no
+row was re-issued.
+
+**TASK-26's indexes measured against 2,061 real rows**, which is the point of bumping the
+version rather than relying on the fresh-install path:
+
+| Query | Before | After |
+|---|---|---|
+| `recentlyAutoAdded` | `SEARCH … USING INDEX idx_transactions_review_status (review_status=?)` **+ `USE TEMP B-TREE FOR ORDER BY`** | `SEARCH … USING INDEX idx_transactions_auto_added (review_status=? AND auto_added_at>?)` |
+| `latestBalanceAnchor` | **`SCAN`** `transactions USING INDEX idx_transactions_txn_date` | `SEARCH … USING INDEX idx_transactions_account_instrument (account_last4=? AND instrument=?)` |
+
+**TASK-25's column reorder confirmed against a real migrated install.** The device's
+`obligations` ends `… created_at, updated_at, reserve_enabled, reserve_funded_paise` —
+exactly the order the fresh-install DDL now declares. The reorder moves new installs onto
+what this device already had, rather than the reverse.
+
+One thing this device shows that the code review could not: it already carried **all 11**
+pre-v4 indexes, including both `idx_obligations_dedupe_key` and
+`idx_forecast_risk_target_month`. It is the union of the two paths — created fresh at v2,
+then migrated to v3 — so TASK-25's drift, though real in the code, had not bitten here.
