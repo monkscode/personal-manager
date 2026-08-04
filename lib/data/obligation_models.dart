@@ -89,6 +89,7 @@ class ObligationRecord {
     this.upiVpaNorm,
     this.reserveEnabled = false,
     this.reserveFundedPaise = 0,
+    this.retiredAt,
   }) : assert(amountPaise == null || amountPaise >= 0),
        assert(reserveFundedPaise >= 0),
        assert(confidence >= 0 && confidence <= 1);
@@ -122,6 +123,18 @@ class ObligationRecord {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// When a scan established that nothing can derive this row's `dedupeKey`
+  /// any more, or null while it is still derivable.
+  ///
+  /// The key embeds the merchant, so a parser fix makes the next scan derive a
+  /// *different* key and orphans this row permanently. Retired rows keep their
+  /// `reviewStatus` and are not projected into the forecast; an upsert on the
+  /// same key clears the stamp, so a commitment that pauses and resumes comes
+  /// back rather than being lost.
+  final DateTime? retiredAt;
+
+  bool get isRetired => retiredAt != null;
+
   ObligationRecord copyWith({
     int? id,
     ObligationSourceType? sourceType,
@@ -151,6 +164,10 @@ class ObligationRecord {
     int? reserveFundedPaise,
     DateTime? createdAt,
     DateTime? updatedAt,
+    // Deliberately absent: `retiredAt`. `copyWith` resolves every argument with
+    // `?? this.x` and so cannot carry a null across, which means it could set a
+    // retirement but never clear one. Clearing happens in the repository's
+    // merge, which constructs explicitly for exactly this reason.
   }) {
     return ObligationRecord(
       id: id ?? this.id,
@@ -182,6 +199,7 @@ class ObligationRecord {
       reserveFundedPaise: reserveFundedPaise ?? this.reserveFundedPaise,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      retiredAt: retiredAt,
     );
   }
 }

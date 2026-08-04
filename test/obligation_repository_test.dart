@@ -531,4 +531,136 @@ void main() {
       expect(await repository.allActive(), isEmpty);
     });
   });
+
+  group('TASK-37 — retiring a key nothing can derive', () {
+    Future<ObligationRepository> seeded(List<String> keys) async {
+      final repository = await openRepository();
+      for (final key in keys) {
+        await repository.upsert(obligation(dedupeKey: key));
+      }
+      return repository;
+    }
+
+    ObligationRecord byKey(List<ObligationRecord> all, String key) =>
+        all.firstWhere((o) => o.dedupeKey == key);
+
+    test('stamps a stored key the scan did not derive', () async {
+      final repository = await seeded([
+        'sms_recurring:google:monthly',
+        'sms_recurring:xfkxfma537eoyvuzwkvss3vbvbr1oxoo:monthly',
+      ]);
+
+      final count = await repository.retireUnderivable(
+        keyPrefixes: const {'sms_recurring:'},
+        derivedKeys: const {'sms_recurring:google:monthly'},
+        now: DateTime(2026, 8, 4),
+      );
+
+      expect(count, 1);
+      final all = await repository.allActive();
+      expect(
+        byKey(all, 'sms_recurring:xfkxfma537eoyvuzwkvss3vbvbr1oxoo:monthly')
+            .retiredAt,
+        DateTime(2026, 8, 4),
+      );
+      expect(byKey(all, 'sms_recurring:google:monthly').isRetired, isFalse);
+    });
+
+    test('never touches a key outside the swept prefixes', () async {
+      // `sms_mandate:` is minted by a different source that did not just run.
+      final repository = await seeded([
+        'sms_mandate:phonepe',
+        'gmail:lic:2026-08',
+      ]);
+
+      final count = await repository.retireUnderivable(
+        keyPrefixes: const {'sms_recurring:'},
+        derivedKeys: const <String>{},
+        now: DateTime(2026, 8, 4),
+      );
+
+      expect(count, 0);
+      expect(
+        (await repository.allActive()).every((o) => !o.isRetired),
+        isTrue,
+      );
+    });
+
+    test('an empty prefix set retires nothing at all', () async {
+      // The default for any source that does not enumerate a key-space. Without
+      // this a scan wired to NoObligationCandidates would retire everything.
+      final repository = await seeded(['sms_recurring:google:monthly']);
+
+      final count = await repository.retireUnderivable(
+        keyPrefixes: const <String>{},
+        derivedKeys: const <String>{},
+        now: DateTime(2026, 8, 4),
+      );
+
+      expect(count, 0);
+      expect((await repository.allActive()).single.isRetired, isFalse);
+    });
+
+    test('keeps the review status and the row id', () async {
+      // A sweep that discarded either would be TASK-02 wearing a new hat.
+      final repository = await seeded([]);
+      await repository.upsert(
+        obligation(
+          dedupeKey: 'sms_recurring:stale:monthly',
+          reviewStatus: ObligationReviewStatus.confirmed,
+        ),
+      );
+      final before = (await repository.allActive()).single;
+
+      await repository.retireUnderivable(
+        keyPrefixes: const {'sms_recurring:'},
+        derivedKeys: const <String>{},
+        now: DateTime(2026, 8, 4),
+      );
+
+      final after = (await repository.allActive()).single;
+      expect(after.id, before.id);
+      expect(after.reviewStatus, ObligationReviewStatus.confirmed);
+      expect(after.createdAt, before.createdAt);
+      expect(after.isRetired, isTrue);
+    });
+
+    test('an upsert on the same key clears the stamp', () async {
+      // A commitment that pauses for a cycle and resumes must come back.
+      final repository = await seeded(['sms_recurring:google:monthly']);
+      await repository.retireUnderivable(
+        keyPrefixes: const {'sms_recurring:'},
+        derivedKeys: const <String>{},
+        now: DateTime(2026, 8, 4),
+      );
+      expect((await repository.allActive()).single.isRetired, isTrue);
+
+      await repository.upsert(
+        obligation(dedupeKey: 'sms_recurring:google:monthly'),
+      );
+
+      expect((await repository.allActive()).single.isRetired, isFalse);
+    });
+
+    test('a second sweep keeps the original timestamp', () async {
+      final repository = await seeded(['sms_recurring:google:monthly']);
+      await repository.retireUnderivable(
+        keyPrefixes: const {'sms_recurring:'},
+        derivedKeys: const <String>{},
+        now: DateTime(2026, 8, 4),
+      );
+
+      final count = await repository.retireUnderivable(
+        keyPrefixes: const {'sms_recurring:'},
+        derivedKeys: const <String>{},
+        now: DateTime(2026, 9, 1),
+      );
+
+      expect(count, 0);
+      expect(
+        (await repository.allActive()).single.retiredAt,
+        DateTime(2026, 8, 4),
+      );
+    });
+  });
 }

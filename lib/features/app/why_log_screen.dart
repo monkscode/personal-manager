@@ -512,6 +512,7 @@ class WhyLogScreen extends StatelessWidget {
     // included'), which is the title directly above it. This slot is the
     // *reason*, like every other entry in this map.
     CoverageReason.discretionaryNotModelled => 'Not modelled for this month',
+    CoverageReason.retiredObligation => 'No longer in your messages',
   };
 
   String _actionLabel(CoverageAction a) => switch (a) {

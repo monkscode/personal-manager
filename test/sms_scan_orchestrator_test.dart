@@ -22,11 +22,16 @@ RawSms bankSms({
 
 /// Fake detector standing in for the Phase D recurring-debit detector.
 class _StubCandidates implements ObligationCandidateSource {
-  _StubCandidates(this.records);
+  _StubCandidates(this.records, {this.sweptKeyPrefixes = const <String>{}});
 
   final List<ObligationRecord> records;
   List<ParsedTxn>? seenPersisted;
   String? seenScanBatchId;
+
+  /// Defaults to sweeping nothing, so existing tests keep their old behaviour
+  /// and a retirement sweep only happens where a test opts into one.
+  @override
+  final Set<String> sweptKeyPrefixes;
 
   @override
   Future<List<ObligationRecord>> derive({
@@ -408,6 +413,83 @@ void main() {
         ),
         throwsArgumentError,
       );
+    });
+  });
+
+  group('TASK-37 — a scan retires the keys it can no longer derive', () {
+    Future<ScanRunResult> runWith(_StubCandidates source) => orchestrator(
+      candidateSource: source,
+    ).run(
+      outcome: SmsScanOutcome.success(const []),
+      txRepo: txRepo,
+      obliRepo: obliRepo,
+      isFirstScan: false,
+      bodyHashSalt: 'salt',
+      now: DateTime(2026, 8, 4),
+    );
+
+    test('a stored key the source stopped deriving is retired', () async {
+      // Scan 1 derives the key; scan 2 derives a different one, as it would
+      // after a parser fix changed what the merchant reads as.
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:stale:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final result = await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:fresh:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      expect(result.retiredObligations, 1);
+      final all = await obliRepo.allActive();
+      expect(
+        all.firstWhere((o) => o.dedupeKey == 'sms_recurring:stale:monthly')
+            .isRetired,
+        isTrue,
+      );
+      expect(
+        all.firstWhere((o) => o.dedupeKey == 'sms_recurring:fresh:monthly')
+            .isRetired,
+        isFalse,
+      );
+    });
+
+    test('a source that sweeps nothing retires nothing', () async {
+      // The default. Without it, one scan through NoObligationCandidates would
+      // retire every obligation in the database.
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:stale:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final result = await runWith(_StubCandidates(const []));
+
+      expect(result.retiredObligations, 0);
+      expect((await obliRepo.allActive()).single.isRetired, isFalse);
+    });
+
+    test('deriving the key again brings it back', () async {
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:paused:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+      await runWith(
+        _StubCandidates(const [], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+      expect((await obliRepo.allActive()).single.isRetired, isTrue);
+
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(dedupeKey: 'sms_recurring:paused:monthly'),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      expect((await obliRepo.allActive()).single.isRetired, isFalse);
     });
   });
 }

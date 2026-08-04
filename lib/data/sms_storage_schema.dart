@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS obligations (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   reserve_enabled INTEGER NOT NULL DEFAULT 0,
-  reserve_funded_paise INTEGER NOT NULL DEFAULT 0
+  reserve_funded_paise INTEGER NOT NULL DEFAULT 0,
+  retired_at INTEGER
 );
 ''';
 
@@ -160,6 +161,13 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
   /// `reserve_funded_paise`) to obligations and the `forecast_risk_decisions`
   /// table for user-driven confirmations and risk planning.
   ///
+  /// **v5** adds `retired_at` to obligations. A dedupe key embeds the merchant,
+  /// so a parser fix makes the next scan derive a *different* key and strands
+  /// the old row — nothing will ever derive it again, and it projected into the
+  /// forecast forever. Retiring stamps the row instead of deleting it, because
+  /// the row carries the user's `review_status` and a scan that destroys that is
+  /// TASK-02.
+  ///
   /// **v4** indexes the two unbounded `transactions` queries. Adding them to
   /// [indexStatements] alone would not have been enough: `onUpgrade` runs only
   /// when the stored version is *older* than the code's, so an install already
@@ -211,6 +219,13 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
       ),
       MigrationStep(
         'CREATE INDEX IF NOT EXISTS idx_transactions_account_instrument ON transactions(account_last4, instrument, txn_date);',
+      ),
+    ],
+    5: [
+      MigrationStep.addColumn(
+        table: 'obligations',
+        column: 'retired_at',
+        sql: 'ALTER TABLE obligations ADD COLUMN retired_at INTEGER;',
       ),
     ],
   };

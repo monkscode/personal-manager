@@ -196,7 +196,10 @@ class ForecastAdapter {
       monthCount: kForecastHorizonMonths,
       anchor: anchor,
       events: hardEvents,
-      coverageLines: reconciliation.coverageLines,
+      coverageLines: [
+        ...reconciliation.coverageLines,
+        ..._retiredCoverage(snapshot.obligations),
+      ],
       horizonCoverageLines: _mergeHorizonCoverage(
         _discretionaryCoverage(snapshot, targetMonth, hardEvents),
         horizon.ambiguity,
@@ -424,6 +427,27 @@ class ForecastAdapter {
     return (events: events, ambiguity: ambiguity);
   }
 
+  /// One line per obligation a scan has retired, so a commitment dropping out
+  /// of the forecast is visible rather than silent.
+  ///
+  /// Dismissed rows are excluded: the user already said they did not want it,
+  /// and re-surfacing it as something needing attention would undo that.
+  static List<ForecastCoverageLine> _retiredCoverage(
+    List<ObligationRecord> obligations,
+  ) => [
+    for (final obl in obligations)
+      if (obl.isRetired &&
+          obl.reviewStatus != ObligationReviewStatus.dismissed)
+        ForecastCoverageLine(
+          label: '${obl.merchant} is no longer detected',
+          reason: CoverageReason.retiredObligation,
+          action: CoverageAction.review,
+          confidence: obl.confidence,
+          amountPaise: obl.amountPaise,
+          ownerKey: 'retired:${obl.dedupeKey}',
+        ),
+  ];
+
   static Map<int, List<ForecastCoverageLine>> _mergeHorizonCoverage(
     Map<int, List<ForecastCoverageLine>> a,
     Map<int, List<ForecastCoverageLine>> b,
@@ -538,6 +562,11 @@ class ForecastAdapter {
     for (final obl in obligations) {
       // Must be confirmed and active.
       if (obl.reviewStatus == ObligationReviewStatus.dismissed) continue;
+      // Retired: a scan established that nothing derives this key any more, so
+      // projecting it would double-count against the row that replaced it. It
+      // is named in a coverage line rather than dropped in silence — see
+      // `_retiredCoverage` (TASK-37).
+      if (obl.isRetired) continue;
       if (obl.paymentAccountScope == AccountScope.secondary) continue;
 
       // Must have a known positive amount.

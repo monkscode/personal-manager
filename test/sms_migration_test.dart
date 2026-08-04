@@ -218,6 +218,42 @@ void main() {
     expect(tables, hasLength(1));
   });
 
+  test('upgrades v2 obligations to a retirable v5 row (TASK-37)', () async {
+    // The stored row must survive the column arriving, and must arrive *not*
+    // retired — a migration that defaulted `retired_at` to a timestamp would
+    // silently drop every obligation out of the forecast at once.
+    final dir = await Directory.systemTemp.createTemp('sms_v5_migration_test');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = p.join(dir.path, 'transactions.db');
+    final v2 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: (db, version) async {
+          await db.execute(SmsStorageSchema.createTransactionsTable);
+          await db.execute(_createV2ObligationsTable);
+          await db.execute(SmsStorageSchema.createMetaTable);
+          await db.execute(SmsStorageSchema.createKnownAccountsTable);
+        },
+      ),
+    );
+    await v2.insert('obligations', _seedV2Obligation);
+    await v2.close();
+
+    final upgraded = await SmsDatabase.openWithFactory(
+      factory: databaseFactoryFfi,
+      path: path,
+    );
+    addTearDown(upgraded.close);
+
+    final columns = await upgraded.rawQuery('PRAGMA table_info(obligations)');
+    expect(columns.map((row) => row['name']), contains('retired_at'));
+
+    final row = (await upgraded.query('obligations')).single;
+    expect(row['merchant'], 'LIC');
+    expect(row['retired_at'], isNull);
+  });
+
   // ==========================================================================
   // TASK-25 — a fresh install and a migrated one must be the same database.
   //

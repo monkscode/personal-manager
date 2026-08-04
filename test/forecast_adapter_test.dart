@@ -1924,7 +1924,9 @@ void _task23() {
       required DateTime dueDate,
       ObligationReviewStatus reviewStatus = ObligationReviewStatus.needsReview,
       double confidence = 0.7,
+      DateTime? retiredAt,
     }) => ObligationRecord(
+      retiredAt: retiredAt,
       sourceType: ObligationSourceType.smsRecurring,
       dedupeKey: dedupeKey,
       merchant: merchant,
@@ -1993,18 +1995,55 @@ void _task23() {
       expect(septemberLinesFor([theGoogleThree[1]]), 1);
     });
 
-    test('three stored obligations yield THREE September lines — '
-        'documents the open defect, not the desired behaviour', () {
-      // One real ₹1,999 Google subscription; three stored obligations with
-      // three different dedupe keys, so `projectedKeys` cannot collapse them.
-      // A straight breach of "one owner per rupee", measured on the device.
+    // The stranded copy is #1, the `xfkxfma5…` key whose transactions now parse
+    // to `google`. Retire it and the remaining two are the live `sms_mandate:`
+    // pair, which this task deliberately does not merge.
+    final withRetired = [
+      smsObligation(
+        dedupeKey: 'sms_recurring:xfkxfma537eoyvuzwkvss3vbvbr1oxoo:monthly',
+        merchant: 'xfkxfma537eoyvuzwkvss3vbvbr1oxoo',
+        dueDate: DateTime(2026, 8, 28),
+        reviewStatus: ObligationReviewStatus.confirmed,
+        retiredAt: DateTime(2026, 8, 4),
+      ),
+      theGoogleThree[1],
+      theGoogleThree[2],
+    ];
+
+    test('retiring the stranded one takes it out of the forecast', () {
+      expect(septemberLinesFor(withRetired), 2);
+    });
+
+    test('and names it, so the drop is not silent', () {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+          items: const [],
+          obligations: withRetired,
+        ),
+      );
+
+      final retiredLines = outlook.months.first.coverageLines.where(
+        (line) => line.reason == CoverageReason.retiredObligation,
+      );
+      expect(retiredLines, hasLength(1));
+      expect(retiredLines.first.amountPaise, 199900);
+    });
+
+    test('three live keys still yield three lines — dedupe is by key, and '
+        'retirement is what resolves the device case', () {
+      // Kept, with its framing corrected now that retirement has landed.
+      // `projectedKeys` collapses on dedupeKey + month, so three *distinct*
+      // keys are three events by construction — and that is right for three
+      // genuinely different commitments. What made the device wrong was that
+      // one of the three was unre-derivable, not that the dedupe was too weak,
+      // which is why the fix is retirement rather than a looser match.
       //
-      // This asserts the CURRENT number deliberately. Retiring the stale
-      // obligation needs a `retired_at` column so a user's review decision is
-      // preserved rather than deleted (TASK-02), which is a schema migration
-      // and is specified but not implemented — see TASK-37. When it lands,
-      // this test SHOULD fail; change the 3 to a 1 and move it out of this
-      // group.
+      // The remaining pair above — `sms_mandate:google` and
+      // `sms_mandate:google asia pacific pte.ltd` — are both live and both
+      // re-derivable, so they survive retirement and are still a real
+      // duplicate. Merging them needs merchant-identity resolution and is NOT
+      // fixed by this task.
       expect(septemberLinesFor(theGoogleThree), 3);
     });
   });

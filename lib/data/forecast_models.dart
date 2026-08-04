@@ -72,6 +72,14 @@ enum CoverageReason {
   /// hard event. Without this line a horizon month models rent and EMIs against
   /// full salary and reads as confidently in surplus (TASK-21).
   discretionaryNotModelled,
+
+  /// A stored obligation whose dedupe key no scan can derive any more, so it is
+  /// no longer projected. Usually harmless — a parser fix re-derived the same
+  /// commitment under a corrected key and the live row carries the rupee — but
+  /// it can also be a commitment that genuinely stopped, and the two are
+  /// indistinguishable from here. Named so a commitment leaving the forecast is
+  /// never silent (TASK-37).
+  retiredObligation,
 }
 
 enum CoverageAction {

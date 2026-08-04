@@ -25,6 +25,7 @@ class ScanRunResult {
     required this.obligationCandidates,
     this.refreshedParse = 0,
     this.skippedMessages = 0,
+    this.retiredObligations = 0,
   });
 
   factory ScanRunResult.noOp(SmsScanStatus status) => ScanRunResult(
@@ -59,6 +60,11 @@ class ScanRunResult {
   /// result as a full picture (TASK-33).
   final int skippedMessages;
 
+  /// Obligations stamped `retired_at` by this run because nothing can derive
+  /// their dedupe key any more. Nothing was deleted; the rows keep their review
+  /// status and reappear if a later scan derives the key again (TASK-37).
+  final int retiredObligations;
+
   bool get isSuccess => status == SmsScanStatus.success;
 
   /// Whether this run actually covered the whole inbox. A scan that could not
@@ -76,6 +82,18 @@ abstract class ObligationCandidateSource {
     required String scanBatchId,
     required DateTime now,
   });
+
+  /// Dedupe-key prefixes this source enumerates *exhaustively* on every
+  /// [derive], and therefore authorises the orchestrator to retire within.
+  ///
+  /// Declaring a prefix is a promise: any stored key under it that [derive] did
+  /// not return cannot be derived again, so it will be stamped `retired_at`.
+  /// Return an empty set — the safe answer — unless that promise holds.
+  ///
+  /// Deliberately abstract rather than defaulted. A retirement sweep is
+  /// destructive enough that every source should have to state its answer, and
+  /// `implements` makes the compiler ask.
+  Set<String> get sweptKeyPrefixes;
 }
 
 /// Default [ObligationCandidateSource] that produces no candidates.
@@ -88,6 +106,11 @@ class NoObligationCandidates implements ObligationCandidateSource {
     required String scanBatchId,
     required DateTime now,
   }) async => const <ObligationRecord>[];
+
+  /// Enumerates nothing, so it may retire nothing. Without this a scan wired
+  /// to the default source would retire every obligation in the database.
+  @override
+  Set<String> get sweptKeyPrefixes => const <String>{};
 }
 
 /// Trigger-agnostic `parse → policy → persist → obligation-candidate` pipeline
@@ -205,6 +228,17 @@ class SmsScanOrchestrator {
       await obliRepo.upsert(candidate, now: timestamp);
     }
 
+    // Retire the keys this source can no longer derive. A dedupe key embeds the
+    // merchant, so a parser fix makes the next scan derive a different key and
+    // strands the old row — it projected into the forecast forever, beside the
+    // row that replaced it. Runs after the upserts so a key that is both
+    // re-derived and stored is written before it is considered (TASK-37).
+    final retiredObligations = await obliRepo.retireUnderivable(
+      keyPrefixes: candidateSource.sweptKeyPrefixes,
+      derivedKeys: {for (final c in candidates) c.dedupeKey},
+      now: timestamp,
+    );
+
     // One owner per rupee: when history has already locked a commitment for
     // this payee, that commitment owns the future debit and the notice must not
     // raise a second obligation beside it. The rupee is still attributed — just
@@ -225,6 +259,7 @@ class SmsScanOrchestrator {
       skippedDuplicate: skippedDuplicate,
       collisionSets: collisionSetIds.length,
       obligationCandidates: candidates.length,
+      retiredObligations: retiredObligations,
       refreshedParse: refreshedParse,
       skippedMessages: outcome.skippedCount,
     );

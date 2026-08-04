@@ -100,6 +100,12 @@ class ObligationRepository {
     payeeType: incoming.payeeType,
     confidence: incoming.confidence,
     updatedAt: incoming.updatedAt,
+    // Derived, and therefore cleared: being upserted at all means a source just
+    // re-derived this key, so whatever retired it no longer holds. A commitment
+    // that pauses for a cycle and resumes comes back instead of staying dead.
+    // This is why `_merge` constructs explicitly rather than using `copyWith` —
+    // `copyWith` cannot carry a null across.
+    retiredAt: incoming.retiredAt,
   );
 
   Future<List<ObligationRecord>> allActive() async {
@@ -110,6 +116,51 @@ class ObligationRepository {
       orderBy: 'merchant_norm ASC, id ASC',
     );
     return rows.map(_fromRow).toList(growable: false);
+  }
+
+  /// Stamps `retired_at` on every row whose `dedupeKey` starts with one of
+  /// [keyPrefixes] and is absent from [derivedKeys]. Returns the number stamped.
+  ///
+  /// The contract this rests on: the caller has just enumerated the *whole*
+  /// key-space behind those prefixes, so a stored key that did not come back
+  /// cannot be derived any more. Only a source that guarantees that may pass a
+  /// prefix — see `ObligationCandidateSource.sweptKeyPrefixes`, which is
+  /// deliberately empty for sources that enumerate nothing.
+  ///
+  /// Nothing is deleted. The row keeps its `review_status`, its reserve
+  /// progress and its id, because a scan that discards the user's obligation
+  /// decisions is TASK-02 — the Critical this repository already had once.
+  /// Rows already retired are left alone so the original timestamp survives.
+  Future<int> retireUnderivable({
+    required Set<String> keyPrefixes,
+    required Set<String> derivedKeys,
+    required DateTime now,
+  }) async {
+    if (keyPrefixes.isEmpty) return 0;
+    var retired = 0;
+    await _db.transaction((txn) async {
+      final rows = await txn.query(
+        'obligations',
+        columns: ['id', 'dedupe_key'],
+        where: 'retired_at IS NULL',
+      );
+      for (final row in rows) {
+        final key = row['dedupe_key']! as String;
+        if (!keyPrefixes.any(key.startsWith)) continue;
+        if (derivedKeys.contains(key)) continue;
+        await txn.update(
+          'obligations',
+          {
+            'retired_at': now.millisecondsSinceEpoch,
+            'updated_at': now.millisecondsSinceEpoch,
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        retired++;
+      }
+    });
+    return retired;
   }
 
   Future<ObligationRecord?> byDedupeKey(String dedupeKey) =>
@@ -257,6 +308,7 @@ class ObligationRepository {
       'reserve_funded_paise': obligation.reserveFundedPaise,
       'created_at': createdAt.millisecondsSinceEpoch,
       'updated_at': updatedAt.millisecondsSinceEpoch,
+      'retired_at': obligation.retiredAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -298,6 +350,7 @@ class ObligationRepository {
       reserveFundedPaise: row['reserve_funded_paise']! as int,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at']! as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at']! as int),
+      retiredAt: _date(row['retired_at'] as int?),
     );
   }
 

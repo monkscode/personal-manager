@@ -25,6 +25,19 @@ class RecurringObligationCandidates implements ObligationCandidateSource {
   final RecurringDebitDetector detector;
   final int lookbackMonths;
 
+  /// `derive` runs the detector over the entire lookback window and emits one
+  /// obligation per locked commitment, so the `sms_recurring:` space is fully
+  /// enumerated on every scan and a stored key that did not come back is
+  /// unre-derivable.
+  ///
+  /// Scoped to that one prefix on purpose. `sms_mandate:` keys are minted by
+  /// [MandateNoticeObligations] from notices in the message stream, which this
+  /// source does not read and therefore cannot vouch for; sweeping them here
+  /// would retire live obligations on the first scan that saw no notice.
+  /// A `configuredPlanKey` is likewise outside the prefix and never swept.
+  @override
+  Set<String> get sweptKeyPrefixes => const {'sms_recurring:'};
+
   @override
   Future<List<ObligationRecord>> derive({
     required List<ParsedTxn> persisted,
