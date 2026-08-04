@@ -47,6 +47,15 @@ class SmsDatabase {
       for (var version = oldVersion + 1; version <= newVersion; version++) {
         await SmsStorageSchema.applyMigration(db, version);
       }
+      // Then converge on the declared index set. Without this an upgraded
+      // database could only ever have the indexes its original `onCreate` gave
+      // it plus whatever a migration happened to add, so a missing index could
+      // never heal — including `idx_obligations_dedupe_key`, the only
+      // database-level guard behind `ObligationRepository`'s read-then-write.
+      // Every statement is `IF NOT EXISTS`, so this is idempotent (TASK-25).
+      for (final statement in SmsStorageSchema.indexStatements) {
+        await db.execute(statement);
+      }
     },
     onDowngrade: refuseDowngrade,
   );

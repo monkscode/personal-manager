@@ -41,6 +41,24 @@ can never self-heal — including `idx_obligations_dedupe_key`
 `idx_transactions_txn_month`, and after upgrading to v3 that database **still has no
 unique index on `obligations.dedupe_key`** — and the test does not notice.
 
+> **Scoped 2026-08-04.** That demonstration is about the *fixture*, and the file reads as
+> though it also describes real v1 installs. It cannot: `sms_storage_schema.dart` has only
+> ever existed at v3 in this repo (`04bef7a`, then `02e330a`), so what a real v1 `onCreate`
+> applied is unknowable from here — v1 and v2 are reconstructions. The structural claim is
+> untouched by that and is the reason the fix is right: `onUpgrade` never applied
+> `indexStatements`, so **any** index added to that list rather than to a migration reaches
+> fresh installs only, forever. Confirmed against the source.
+>
+> **The prescribed fix was checked, not just the defect.** Re-running
+> `CREATE UNIQUE INDEX ... ON obligations(dedupe_key)` over existing rows throws if
+> duplicates are present, which would brick the app at open — worse than the drift it
+> fixes. It cannot arise here: `ObligationRepository._toRow` writes `id`
+> (`obligation_repository.dart:232`) and `_merge` preserves `existing.id` (`:74`), so the
+> `ConflictAlgorithm.replace` insert replaces by primary key and cannot leave two rows
+> sharing a dedupe key even on a database that never had the index. The exposure is
+> theoretical, and the loud failure it would produce matches how TASK-03 chose to handle
+> a rollback.
+
 ### Fix (closes both halves)
 
 1. Add `idx_forecast_risk_target_month` to `indexStatements`.
@@ -122,12 +140,37 @@ Normalise whitespace before comparing, since the two paths format DDL differentl
 
 ## Tests to write first
 
-- [ ] **The drift test above.** Expect it to fail on both the missing index and the column
-      order — that is the point.
-- [ ] v1 → v3 produces a database with a unique index on `obligations.dedupe_key`.
-- [ ] A database artificially missing an index self-heals on the next open.
-- [ ] The frozen v1 transactions DDL differs from the current constant (a guard that the
-      fixture really is frozen).
+- [x] **The drift test above.** Expect it to fail on both the missing index and the column
+      order — that is the point. Written for v1→v3 and v2→v3. RED on both: the migrated
+      `sqlite_master` set was missing seven indexes the fresh one had, and its `obligations`
+      DDL put `reserve_enabled` after `updated_at` while the fresh one put it before
+      `created_at`.
+- [x] v1 → v3 produces a database with a unique index on `obligations.dedupe_key`.
+      RED: the migrated index set was
+      `[sqlite_autoindex_transactions_1, sqlite_autoindex_meta_1, idx_transactions_ref,
+      idx_known_accounts_last4, idx_known_accounts_vpa_norm,
+      sqlite_autoindex_forecast_risk_decisions_1, idx_forecast_risk_target_month]` —
+      no `idx_obligations_dedupe_key`.
+- [x] A database artificially missing an index self-heals on the next open. Folded into the
+      test above rather than duplicated: a v1 fixture that creates *no* indexes at all is
+      the same assertion in its strongest form.
+- [x] ~~The frozen v1 transactions DDL differs from the current constant.~~
+      **Unimplementable as stated, and dropped.** No migration has ever altered
+      `transactions`, so a correctly frozen v1 constant is byte-identical to the current one
+      *today* — asserting they differ would fail immediately. Dart cannot assert at runtime
+      that a fixture does not *reference* a constant when the strings are equal. Freezing
+      the literal plus the drift test is what actually closes the hole: add a column to
+      `transactions` without a migration and the fresh database gains it while the migrated
+      one does not, so the drift test fails. That is the protection Defect 3 asked for.
+
+Two more added, each failing first:
+
+- [x] Every index created by a migration also appears in `indexStatements` — a pure-Dart
+      check needing no database, which catches Defect 1 directly. RED:
+      `Expected: empty  Actual: Set:['idx_forecast_risk_target_month']`.
+- [x] The reserve columns land at the same *ordinal position* on both paths, asserted as an
+      ordered list rather than a set, because the positional table rebuild is the actual
+      hazard. RED: `at location [24] is 'created_at' instead of 'reserve_enabled'`.
 
 ## Verification
 
@@ -138,10 +181,27 @@ flutter test
 
 ## Definition of done
 
-- [ ] `idx_forecast_risk_target_month` added to `indexStatements`
-- [ ] `onUpgrade` re-applies all `indexStatements` after migrating
-- [ ] Reserve columns moved to the end of the obligations DDL
-- [ ] v1 and v2 transactions DDL frozen as literal test constants
-- [ ] The fresh-vs-migrated `sqlite_master` equality test exists and passes
-- [ ] `flutter analyze` clean, `flutter test` green
-- [ ] Suggested commit: `Make fresh and migrated schemas identical and prove it with a drift test`
+- [x] `idx_forecast_risk_target_month` added to `indexStatements`
+- [x] `onUpgrade` re-applies all `indexStatements` after migrating
+- [x] Reserve columns moved to the end of the obligations DDL
+- [x] v1 and v2 transactions DDL frozen as literal test constants
+- [x] The fresh-vs-migrated `sqlite_master` equality test exists and passes
+- [x] `flutter analyze` clean, `flutter test` green — **868 passing** (863 before)
+- [x] Suggested commit: `Make fresh and migrated schemas identical and prove it with a drift test`
+
+## Notes for the next person
+
+- **SQLite persists `--` comments written inside a `CREATE TABLE` into `sqlite_master`.**
+  The explanation for the column reordering was first written inside the DDL, and the drift
+  test failed on it: the fresh schema text carried the comment and the migrated one did not.
+  It now lives in a Dart doc comment above the constant. Anything explaining a table belongs
+  outside the SQL string, or it becomes part of the stored schema and of every comparison
+  against it.
+- **Existing installs are unaffected by the column reorder.** Changing the DDL cannot move
+  columns in a database that already exists; it only changes what *new* fresh installs
+  create. The reorder moves fresh installs onto the order migrated installs — including the
+  device — already have, so the two converge rather than diverge.
+- The drift test normalises by removing whitespace entirely rather than collapsing it.
+  `ALTER TABLE ADD COLUMN` splices the new column into the stored statement inline, so the
+  two paths differ in spacing around commas and the closing paren. SQLite also strips
+  `IF NOT EXISTS` when storing DDL, which is why both sides read `CREATE TABLE obligations`.

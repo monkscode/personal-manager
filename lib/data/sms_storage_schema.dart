@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 ''';
 
+  /// The v3 `obligations` table.
+  ///
+  /// `reserve_enabled` and `reserve_funded_paise` are declared **last** so a
+  /// fresh install matches a migrated one. `ALTER TABLE ADD COLUMN` can only
+  /// append, so declaring them before `created_at` gave the two paths different
+  /// physical column orders — invisible through sqflite's name-keyed maps, but
+  /// the standard SQLite table rebuild (`INSERT INTO new SELECT * FROM old`) is
+  /// positional and would have written `created_at` into `reserve_enabled` with
+  /// no error (TASK-25).
+  ///
+  /// Keep explanation out of the SQL itself: SQLite persists `--` comments
+  /// inside a `CREATE TABLE` into `sqlite_master`, so they become part of the
+  /// stored schema and of anything that compares it.
   static const createObligationsTable = '''
 CREATE TABLE IF NOT EXISTS obligations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,10 +79,10 @@ CREATE TABLE IF NOT EXISTS obligations (
   user_cadence_status TEXT NOT NULL,
   confidence REAL NOT NULL,
   review_status TEXT NOT NULL,
-  reserve_enabled INTEGER NOT NULL DEFAULT 0,
-  reserve_funded_paise INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  reserve_enabled INTEGER NOT NULL DEFAULT 0,
+  reserve_funded_paise INTEGER NOT NULL DEFAULT 0
 );
 ''';
 
@@ -120,6 +133,7 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_obligations_dedupe_key ON obligations(dedupe_key);',
     'CREATE INDEX IF NOT EXISTS idx_known_accounts_last4 ON known_accounts(last4);',
     'CREATE INDEX IF NOT EXISTS idx_known_accounts_vpa_norm ON known_accounts(vpa_norm);',
+    'CREATE INDEX IF NOT EXISTS idx_forecast_risk_target_month ON forecast_risk_decisions(target_month);',
   ];
 
   /// Incremental schema migrations keyed by the version they upgrade *to*, run

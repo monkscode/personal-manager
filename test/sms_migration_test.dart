@@ -31,6 +31,39 @@ const Map<String, Object?> _seedRow = {
   'created_at': 1751000000000,
 };
 
+/// The name an index-creating statement declares, or null for anything else.
+String? _indexName(String sql) =>
+    RegExp(
+      r'CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)',
+      caseSensitive: false,
+    ).firstMatch(sql)?.group(1);
+
+/// Every table, index and trigger in [db], with its DDL whitespace collapsed.
+///
+/// The two creation paths format their DDL differently — `ALTER TABLE ADD
+/// COLUMN` splices the new column into the stored statement inline — so raw
+/// text comparison would report differences that are not schema differences.
+/// Removing whitespace entirely still distinguishes column names, types, order
+/// and constraints, which is everything that matters here.
+Future<Set<String>> _schemaObjects(DatabaseExecutor db) async {
+  final rows = await db.rawQuery(
+    "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+  );
+  return rows
+      .map(
+        (r) =>
+            '${r['type']}:${r['name']}:'
+            '${(r['sql'] as String? ?? '').replaceAll(RegExp(r'\s+'), '')}',
+      )
+      .toSet();
+}
+
+/// Column names of [table] in physical order.
+Future<List<Object?>> _columnOrder(DatabaseExecutor db, String table) async =>
+    (await db.rawQuery(
+      'PRAGMA table_info($table)',
+    )).map((row) => row['name']).toList();
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -174,6 +207,170 @@ void main() {
     expect(tables, hasLength(1));
   });
 
+  // ==========================================================================
+  // TASK-25 — a fresh install and a migrated one must be the same database.
+  //
+  // Nothing compared the two paths before, which is exactly why they drifted:
+  // an index reached only migrated installs, and two columns landed in a
+  // different physical order on each path.
+  // ==========================================================================
+
+  group('fresh and migrated schemas do not drift (TASK-25)', () {
+    test('every index a migration creates is also in indexStatements', () {
+      final declared = SmsStorageSchema.indexStatements
+          .map(_indexName)
+          .whereType<String>()
+          .toSet();
+      final fromMigrations = SmsStorageSchema.migrations.values
+          .expand((steps) => steps)
+          .map((step) => _indexName(step.sql))
+          .whereType<String>()
+          .toSet();
+
+      expect(
+        fromMigrations.difference(declared),
+        isEmpty,
+        reason:
+            'an index created only by a migration never reaches a fresh install',
+      );
+    });
+
+    test('a fresh install and a v1 to v3 migration have the same schema', () async {
+      final fresh = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(fresh.close);
+
+      final dir = await Directory.systemTemp.createTemp('sms_drift_v1_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+      final v1 = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, version) async {
+            await db.execute(_createV1TransactionsTable);
+            await db.execute(_createV1ObligationsTable);
+            await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_transactions_txn_month ON transactions(txn_month);',
+            );
+          },
+        ),
+      );
+      await v1.close();
+      final migrated = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(migrated.close);
+
+      expect(await _schemaObjects(migrated), await _schemaObjects(fresh));
+    });
+
+    test('a fresh install and a v2 to v3 migration have the same schema', () async {
+      final fresh = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(fresh.close);
+
+      final dir = await Directory.systemTemp.createTemp('sms_drift_v2_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+      final v2 = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onCreate: (db, version) async {
+            await db.execute(_createV2TransactionsTable);
+            await db.execute(_createV2ObligationsTable);
+            await db.execute(SmsStorageSchema.createMetaTable);
+            await db.execute(SmsStorageSchema.createKnownAccountsTable);
+          },
+        ),
+      );
+      await v2.close();
+      final migrated = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(migrated.close);
+
+      expect(await _schemaObjects(migrated), await _schemaObjects(fresh));
+    });
+
+    test('an upgrade restores the unique index guarding obligations', () async {
+      // `ObligationRepository.upsert` is a read-then-write; this index is the
+      // only thing at the database level that stops two rows sharing a
+      // dedupe key. A v1 install that never had it could not previously get
+      // it back, because onUpgrade only ran migrations.
+      final dir = await Directory.systemTemp.createTemp('sms_selfheal_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+      final v1 = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, version) async {
+            await db.execute(_createV1TransactionsTable);
+            await db.execute(_createV1ObligationsTable);
+          },
+        ),
+      );
+      await v1.close();
+
+      final upgraded = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(upgraded.close);
+
+      final indexes = (await upgraded.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'index';",
+      )).map((r) => r['name']).toSet();
+      expect(indexes, contains('idx_obligations_dedupe_key'));
+    });
+
+    test('the reserve columns land in the same position on both paths', () async {
+      final fresh = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(fresh.close);
+
+      final dir = await Directory.systemTemp.createTemp('sms_colorder_test');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'transactions.db');
+      final v2 = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onCreate: (db, version) async {
+            await db.execute(_createV2TransactionsTable);
+            await db.execute(_createV2ObligationsTable);
+            await db.execute(SmsStorageSchema.createMetaTable);
+            await db.execute(SmsStorageSchema.createKnownAccountsTable);
+          },
+        ),
+      );
+      await v2.close();
+      final migrated = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(migrated.close);
+
+      // Ordered, not a Set: `INSERT INTO new SELECT * FROM old` — the standard
+      // SQLite table rebuild — is positional, so a mismatch here would write
+      // created_at into reserve_enabled with no error.
+      expect(
+        await _columnOrder(migrated, 'obligations'),
+        await _columnOrder(fresh, 'obligations'),
+      );
+    });
+  });
+
   group('rollback hardening', () {
     Future<int> reserveColumnCount(Database db) async {
       final columns = await db.rawQuery('PRAGMA table_info(obligations)');
@@ -291,6 +488,56 @@ void main() {
     });
   });
 }
+
+/// v1 `transactions` table, frozen as a literal.
+///
+/// Deliberately **not** `SmsStorageSchema.createTransactionsTable`. Seeding an
+/// "old" fixture from the live constant makes every future column appear in the
+/// old database too, so a migration test would pass vacuously while real v1
+/// installs broke. It is byte-identical to the current DDL today only because
+/// no migration has ever altered `transactions`; the fresh-vs-migrated drift
+/// test is what fails the moment that stops being true without a migration.
+const _createV1TransactionsTable = '''
+CREATE TABLE IF NOT EXISTS transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sms_id TEXT NOT NULL UNIQUE,
+  sender TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  instrument TEXT NOT NULL,
+  type TEXT NOT NULL,
+  amount_paise INTEGER NOT NULL,
+  txn_date INTEGER NOT NULL,
+  txn_local_date TEXT NOT NULL,
+  txn_month TEXT NOT NULL,
+  effective_month TEXT,
+  account_last4 TEXT,
+  merchant TEXT,
+  upi_vpa_norm TEXT,
+  payee_type TEXT NOT NULL,
+  category_key TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  needs_review INTEGER NOT NULL,
+  review_status TEXT NOT NULL,
+  review_reason TEXT,
+  auto_added_at INTEGER,
+  scan_batch_id TEXT NOT NULL,
+  collision_set_id TEXT,
+  source TEXT NOT NULL,
+  ref_number TEXT,
+  balance_paise INTEGER,
+  owner_key TEXT,
+  coverage_bucket TEXT NOT NULL,
+  raw_body_redacted TEXT NOT NULL,
+  body_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  CHECK ((review_status = 'needs_review' AND needs_review = 1) OR (review_status != 'needs_review' AND needs_review = 0))
+);
+''';
+
+/// v2 `transactions` table. v2 added the `idx_transactions_ref` index but no
+/// column, so the DDL is unchanged from v1. Frozen separately for the same
+/// reason as [_createV1TransactionsTable].
+const _createV2TransactionsTable = _createV1TransactionsTable;
 
 /// v1 obligations table (before reserve columns and before meta/known_accounts).
 const _createV1ObligationsTable = '''
