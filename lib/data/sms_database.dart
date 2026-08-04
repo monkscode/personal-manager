@@ -14,14 +14,38 @@ class SmsDatabase {
     return databaseFactory.openDatabase(path, options: openOptions);
   }
 
+  /// Opens against an injected [factory]. Used by tests, which all pass
+  /// `inMemoryDatabasePath`.
+  ///
+  /// `singleInstance` is off here. sqflite defaults it to true and caches by
+  /// path, so two handles opened on `:memory:` would be the *same* database —
+  /// a test that opened a second one to check isolation would pass for the
+  /// wrong reason, and closing either would close both (TASK-27 M4).
   static Future<Database> openWithFactory({
     required DatabaseFactory factory,
     required String path,
   }) {
-    return factory.openDatabase(path, options: openOptions);
+    final base = openOptions;
+    return factory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: base.version,
+        onCreate: base.onCreate,
+        onUpgrade: base.onUpgrade,
+        onDowngrade: base.onDowngrade,
+        singleInstance: false,
+      ),
+    );
   }
 
   /// The open configuration shared by [open] and [openWithFactory].
+  ///
+  /// There is deliberately no `onConfigure` enabling `PRAGMA foreign_keys`.
+  /// This schema declares no foreign keys at all — every cross-table link
+  /// (`dedupe_key`, `owner_key`, `sms_id`) is a logical key resolved in Dart,
+  /// not a `REFERENCES` clause — so the pragma would have nothing to enforce.
+  /// **If a real foreign key is ever added, enable it in the same change**, or
+  /// SQLite will accept violating writes silently (TASK-27 M6).
   ///
   /// [OpenDatabaseOptions.onDowngrade] must never be left null. This code calls
   /// `databaseFactory.openDatabase` directly, which bypasses the

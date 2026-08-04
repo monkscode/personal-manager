@@ -37,5 +37,26 @@ void main() {
       expect(indexNames, contains('idx_transactions_scan_batch_id'));
       expect(indexNames, contains('idx_obligations_dedupe_key'));
     });
+
+    // TASK-27 M4 — sqflite's `singleInstance` defaults to true, so two handles
+    // opened on the same path are the same database. Every test in this repo
+    // uses `:memory:`, so any test opening a second handle would silently share
+    // state with the first and pass for the wrong reason.
+    test('two in-memory handles are independent databases', () async {
+      final first = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(first.close);
+      final second = await SmsDatabase.openWithFactory(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(second.close);
+
+      await first.insert('meta', {'key': 'probe', 'value': 'first'});
+
+      expect(await second.query('meta'), isEmpty);
+    });
   });
 }

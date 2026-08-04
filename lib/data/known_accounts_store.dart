@@ -70,8 +70,15 @@ class KnownAccountsStore {
   }
 
   /// Adds an own account, keyed by [last4] and/or [vpaNorm] (at least one is
-  /// required). Idempotent: an entry whose last4 or VPA already exists is not
-  /// duplicated. [origin] must be one of [kKnownAccountOrigins].
+  /// required). Idempotent: an account whose identifiers are all already
+  /// recorded is not duplicated. [origin] must be one of
+  /// [kKnownAccountOrigins].
+  ///
+  /// When only *some* of the identifiers are known, the missing ones are merged
+  /// into the matching row rather than dropped. The match is an `OR`, so adding
+  /// an account with both a last4 and a VPA used to match on the last4 alone and
+  /// return, and the VPA was never stored — after which the classifier read the
+  /// user's own transfers to that VPA as spend (TASK-27 M3).
   Future<void> addOwnAccount({
     String? last4,
     String? vpaNorm,
@@ -88,20 +95,55 @@ class KnownAccountsStore {
       throw ArgumentError('An own account needs a last4 or a VPA');
     }
 
+    final newLast4 = (last4 != null && last4.isNotEmpty) ? last4 : null;
+    final newVpa = (normalizedVpa != null && normalizedVpa.isNotEmpty)
+        ? normalizedVpa
+        : null;
+
     await _db.transaction((txn) async {
       final existing = await txn.query(
         'known_accounts',
         where: _matchWhere(last4, normalizedVpa),
         whereArgs: _matchArgs(last4, normalizedVpa),
-        limit: 1,
       );
-      if (existing.isNotEmpty) return;
+
+      // Every identifier this call carries that some matched row already holds.
+      final last4Known =
+          newLast4 == null || existing.any((r) => r['last4'] == newLast4);
+      final vpaKnown =
+          newVpa == null || existing.any((r) => r['vpa_norm'] == newVpa);
+      if (last4Known && vpaKnown) return;
+
+      // A matched row can absorb the missing identifier only if its own column
+      // is empty. One that already names a different account keeps it, and the
+      // new identifier gets its own row — overwriting would lose the first,
+      // returning early would lose the second.
+      Map<String, Object?>? absorber;
+      for (final row in existing) {
+        final canTakeLast4 = last4Known || row['last4'] == null;
+        final canTakeVpa = vpaKnown || row['vpa_norm'] == null;
+        if (canTakeLast4 && canTakeVpa) {
+          absorber = row;
+          break;
+        }
+      }
+
+      if (absorber != null) {
+        await txn.update(
+          'known_accounts',
+          {
+            'last4': absorber['last4'] ?? newLast4,
+            'vpa_norm': absorber['vpa_norm'] ?? newVpa,
+          },
+          where: 'id = ?',
+          whereArgs: [absorber['id']],
+        );
+        return;
+      }
 
       await txn.insert('known_accounts', {
-        'last4': (last4 != null && last4.isNotEmpty) ? last4 : null,
-        'vpa_norm': (normalizedVpa != null && normalizedVpa.isNotEmpty)
-            ? normalizedVpa
-            : null,
+        'last4': newLast4,
+        'vpa_norm': newVpa,
         'label': label,
         'origin': origin,
         'created_at': (now ?? DateTime.now()).millisecondsSinceEpoch,

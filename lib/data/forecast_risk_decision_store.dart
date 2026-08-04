@@ -71,6 +71,9 @@ class ForecastRiskDecisionStore {
           : DateTime.fromMillisecondsSinceEpoch(
               row['due_date_override']! as int,
             ),
+      updatedAt: row['updated_at'] == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(row['updated_at']! as int),
     );
   }
 }

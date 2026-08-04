@@ -146,4 +146,65 @@ void main() {
     expect(confirmed.single.needsReview, isFalse);
     expect(confirmed.single.coverageBucket, CoverageBucket.datedEvent);
   });
+
+  // ==========================================================================
+  // TASK-27 M5 — `review_reason` was written on every call, so omitting the
+  // argument wiped it. Updating only the coverage bucket was impossible.
+  // ==========================================================================
+
+  group('updateReviewStatus writes only what it is given (TASK-27 M5)', () {
+    test('omitting the reason leaves the stored one alone', () async {
+      await repo.upsertParsedTxn(
+        row(
+          smsId: 'a',
+          scanBatchId: 'b1',
+          date: DateTime(2026, 7, 5),
+          reviewReason: ReviewReason.dedupCollision,
+        ),
+      );
+
+      await repo.updateReviewStatus(
+        'a',
+        ReviewStatus.needsReview,
+        coverageBucket: CoverageBucket.reviewPending,
+      );
+
+      final rows = await repo.queryByReviewStatus(ReviewStatus.needsReview);
+      expect(rows.single.reviewReason, ReviewReason.dedupCollision);
+    });
+
+    test('passing a null reason clears it', () async {
+      await repo.upsertParsedTxn(
+        row(
+          smsId: 'a',
+          scanBatchId: 'b1',
+          date: DateTime(2026, 7, 5),
+          reviewReason: ReviewReason.dedupCollision,
+        ),
+      );
+
+      await repo.updateReviewStatus(
+        'a',
+        ReviewStatus.confirmed,
+        reviewReason: null,
+      );
+
+      final rows = await repo.queryByReviewStatus(ReviewStatus.confirmed);
+      expect(rows.single.reviewReason, isNull);
+    });
+
+    // GUARD: already true, and nothing asserted it. A dismiss that silently
+    // reclassified the row's coverage bucket would move it between forecast
+    // buckets without anyone asking.
+    test('dismissing leaves the coverage bucket where it was', () async {
+      await repo.upsertParsedTxn(
+        row(smsId: 'a', scanBatchId: 'b1', date: DateTime(2026, 7, 5)),
+      );
+
+      await repo.updateReviewStatus('a', ReviewStatus.dismissed);
+
+      final rows = await repo.queryByReviewStatus(ReviewStatus.dismissed);
+      expect(rows.single.coverageBucket, CoverageBucket.reviewPending);
+    });
+  });
 }

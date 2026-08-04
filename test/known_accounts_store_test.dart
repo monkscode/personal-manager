@@ -108,4 +108,115 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  // ==========================================================================
+  // TASK-27 M3 — adding an account with two identifiers must record both.
+  //
+  // The match clause is an OR, so a row already holding the last4 matched and
+  // the call returned early. The VPA was never stored, and the classifier then
+  // read self-transfers to it as spend.
+  // ==========================================================================
+
+  group('an account carrying two identifiers records both (TASK-27 M3)', () {
+    test('a VPA added beside a known last4 is not dropped', () async {
+      await store.addOwnAccount(
+        last4: '1234',
+        label: 'Salary A/c',
+        origin: 'salary_anchor',
+      );
+
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'me@ybl',
+        label: 'Salary A/c',
+        origin: 'user_marked',
+      );
+
+      final known = await store.load();
+      expect(known.isOwn(last4: '1234'), isTrue);
+      expect(known.isOwn(vpaNorm: 'me@ybl'), isTrue);
+    });
+
+    test('a last4 added beside a known VPA is not dropped', () async {
+      await store.addOwnAccount(
+        vpaNorm: 'me@ybl',
+        label: 'My UPI',
+        origin: 'user_marked',
+      );
+
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'me@ybl',
+        label: 'My UPI',
+        origin: 'user_marked',
+      );
+
+      final known = await store.load();
+      expect(known.isOwn(vpaNorm: 'me@ybl'), isTrue);
+      expect(known.isOwn(last4: '1234'), isTrue);
+    });
+
+    test('merging fills the gap rather than adding a second row', () async {
+      await store.addOwnAccount(
+        last4: '1234',
+        label: 'Salary A/c',
+        origin: 'salary_anchor',
+      );
+
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'me@ybl',
+        label: 'Salary A/c',
+        origin: 'user_marked',
+      );
+
+      final known = await store.load();
+      expect(known.accounts, hasLength(1));
+      expect(known.accounts.single.last4, '1234');
+      expect(known.accounts.single.vpaNorm, 'me@ybl');
+    });
+
+    test('a repeat of an already-complete account changes nothing', () async {
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'me@ybl',
+        label: 'Salary A/c',
+        origin: 'salary_anchor',
+      );
+
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'me@ybl',
+        label: 'Renamed',
+        origin: 'user_marked',
+      );
+
+      final known = await store.load();
+      expect(known.accounts, hasLength(1));
+      expect(known.accounts.single.label, 'Salary A/c');
+    });
+
+    test('a VPA belonging to a different account still gets recorded', () async {
+      // The matched row already names another VPA, so the new one cannot be
+      // merged into it. Overwriting would lose the first; returning early
+      // would lose the second.
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'first@ybl',
+        label: 'Salary A/c',
+        origin: 'salary_anchor',
+      );
+
+      await store.addOwnAccount(
+        last4: '1234',
+        vpaNorm: 'second@ybl',
+        label: 'Same bank, other handle',
+        origin: 'user_marked',
+      );
+
+      final known = await store.load();
+      expect(known.isOwn(vpaNorm: 'first@ybl'), isTrue);
+      expect(known.isOwn(vpaNorm: 'second@ybl'), isTrue);
+    });
+  });
 }

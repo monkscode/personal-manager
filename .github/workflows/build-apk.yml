@@ -30,6 +30,13 @@ jobs:
 
       - run: flutter pub get
       - run: flutter analyze
+
+      # The persistence tests run real SQLite through sqflite_common_ffi, which
+      # resolves libsqlite3.so.0 at runtime via dart:ffi. It is present on
+      # ubuntu-latest today, but a base-image change would surface as
+      # "Invalid argument(s): Failed to load dynamic library" from inside a test
+      # rather than as a clear setup failure. Install it explicitly.
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-0
       - run: flutter test
 
       # Release + per-ABI splits keep the APK small (~10-15 MB for arm64 vs a

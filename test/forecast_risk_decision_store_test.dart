@@ -126,5 +126,56 @@ void main() {
         throwsA(isA<ArgumentError>()),
       );
     });
+
+    // ========================================================================
+    // TASK-27 M2 — `updated_at` was written on every upsert and never read.
+    // A user's risk decision is the kind of record whose age matters.
+    // ========================================================================
+
+    test('a stored decision reports when it was last written', () async {
+      final store = await openStore();
+      const decision = ForecastRiskDecision(
+        ownerKey: 'seasonal:groceries',
+        targetMonth: '2026-09',
+        status: ForecastRiskDecisionStatus.confirmed,
+      );
+
+      await store.upsert(decision, now: DateTime(2026, 7, 22, 9, 30));
+
+      expect(await store.all(), [
+        isA<ForecastRiskDecision>().having(
+          (d) => d.updatedAt,
+          'updatedAt',
+          DateTime(2026, 7, 22, 9, 30),
+        ),
+      ]);
+    });
+
+    test('re-deciding moves the timestamp forward', () async {
+      final store = await openStore();
+      const decision = ForecastRiskDecision(
+        ownerKey: 'seasonal:groceries',
+        targetMonth: '2026-09',
+        status: ForecastRiskDecisionStatus.confirmed,
+      );
+
+      await store.upsert(decision, now: DateTime(2026, 7, 22));
+      await store.upsert(
+        decision.copyWith(status: ForecastRiskDecisionStatus.dismissed),
+        now: DateTime(2026, 7, 25),
+      );
+
+      expect((await store.all()).single.updatedAt, DateTime(2026, 7, 25));
+    });
+
+    test('a decision that has never been stored has no timestamp', () async {
+      const decision = ForecastRiskDecision(
+        ownerKey: 'seasonal:groceries',
+        targetMonth: '2026-09',
+        status: ForecastRiskDecisionStatus.confirmed,
+      );
+
+      expect(decision.updatedAt, isNull);
+    });
   });
 }

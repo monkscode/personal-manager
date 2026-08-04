@@ -54,7 +54,14 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
     final repo = _repo;
     if (repo != null) {
       for (final txn in confirmed) {
-        await repo.updateReviewStatus(txn.smsId, ReviewStatus.confirmed);
+        // The reason the row needed review no longer applies once the user has
+        // confirmed it. Passed explicitly, because omitting it now preserves
+        // the stored reason (TASK-27 M5).
+        await repo.updateReviewStatus(
+          txn.smsId,
+          ReviewStatus.confirmed,
+          reviewReason: null,
+        );
       }
       await ref.read(transactionsNotifierProvider.notifier).reload();
     }
@@ -65,7 +72,11 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
   Future<void> _dismiss(ParsedTxn txn) async {
     final repo = _repo;
     if (repo != null) {
-      await repo.updateReviewStatus(txn.smsId, ReviewStatus.dismissed);
+      await repo.updateReviewStatus(
+        txn.smsId,
+        ReviewStatus.dismissed,
+        reviewReason: null,
+      );
       await ref.read(transactionsNotifierProvider.notifier).reload();
     }
     await _load();

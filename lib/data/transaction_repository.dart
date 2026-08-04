@@ -209,21 +209,38 @@ class TransactionRepository {
     return rows.map(_fromRow).toList(growable: false);
   }
 
+  /// Sentinel for "the caller said nothing about `review_reason`".
+  ///
+  /// A plain `ReviewReason?` cannot tell *omitted* from *set to null*, so
+  /// omitting the argument used to wipe the stored reason — which made
+  /// "update only the coverage bucket" impossible (TASK-27 M5).
+  static const Object _reviewReasonUnchanged = Object();
+
   /// Updates a row's [ReviewStatus] (confirm/dismiss/re-review) by `sms_id`,
   /// keeping `needs_review` consistent. Dismissed rows remain queryable for
   /// audit but are excluded from forecasts by the reading queries. Returns the
   /// number of rows updated.
+  ///
+  /// [reviewReason] is a three-state argument: omit it to leave the stored
+  /// reason alone, pass `null` to clear it, or pass a value to replace it.
   Future<int> updateReviewStatus(
     String smsId,
     ReviewStatus status, {
-    ReviewReason? reviewReason,
+    Object? reviewReason = _reviewReasonUnchanged,
     CoverageBucket? coverageBucket,
   }) async {
+    assert(
+      identical(reviewReason, _reviewReasonUnchanged) ||
+          reviewReason is ReviewReason?,
+      'reviewReason must be a ReviewReason, null, or omitted',
+    );
     final values = <String, Object?>{
       'review_status': status.storageValue,
       'needs_review': status == ReviewStatus.needsReview ? 1 : 0,
-      'review_reason': reviewReason?.storageValue,
     };
+    if (!identical(reviewReason, _reviewReasonUnchanged)) {
+      values['review_reason'] = (reviewReason as ReviewReason?)?.storageValue;
+    }
     if (coverageBucket != null) {
       values['coverage_bucket'] = coverageBucket.storageValue;
     }

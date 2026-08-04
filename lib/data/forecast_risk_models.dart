@@ -26,6 +26,7 @@ class ForecastRiskDecision {
     required this.status,
     this.amountOverridePaise,
     this.dueDateOverride,
+    this.updatedAt,
   });
 
   final String ownerKey;
@@ -34,12 +35,19 @@ class ForecastRiskDecision {
   final int? amountOverridePaise;
   final DateTime? dueDateOverride;
 
+  /// When this decision was last written, or null for one that has never been
+  /// stored. The store has always recorded it; nothing read it back, so the
+  /// age of a decision the user made was unavailable to everything above the
+  /// database (TASK-27 M2).
+  final DateTime? updatedAt;
+
   ForecastRiskDecision copyWith({
     String? ownerKey,
     String? targetMonth,
     ForecastRiskDecisionStatus? status,
     int? amountOverridePaise,
     DateTime? dueDateOverride,
+    DateTime? updatedAt,
   }) {
     return ForecastRiskDecision(
       ownerKey: ownerKey ?? this.ownerKey,
@@ -47,6 +55,7 @@ class ForecastRiskDecision {
       status: status ?? this.status,
       amountOverridePaise: amountOverridePaise ?? this.amountOverridePaise,
       dueDateOverride: dueDateOverride ?? this.dueDateOverride,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }
