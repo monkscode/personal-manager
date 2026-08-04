@@ -1912,6 +1912,105 @@ void _task23() {
     });
   });
 
+  group('TASK-37 — one commitment, three stored obligations', () {
+    // The device's three ₹1,999 obligations, verbatim (2026-08-04). All are
+    // ObligationSourceType.smsRecurring; they differ only in dedupe key.
+    //   #1 sms_recurring:xfkxfma537eoyvuzwkvss3vbvbr1oxoo:monthly  confirmed
+    //   #6 sms_mandate:google                                      needs_review
+    //   #7 sms_mandate:google asia pacific pte.ltd                 needs_review
+    // #1's merchant is a stale VPA local part: its five transactions already
+    // parse to `google`, so no scan can ever re-derive that key.
+    ObligationRecord smsObligation({
+      required String dedupeKey,
+      required String merchant,
+      required DateTime dueDate,
+      ObligationReviewStatus reviewStatus = ObligationReviewStatus.needsReview,
+      double confidence = 0.7,
+    }) => ObligationRecord(
+      sourceType: ObligationSourceType.smsRecurring,
+      dedupeKey: dedupeKey,
+      merchant: merchant,
+      merchantNorm: merchant.toLowerCase(),
+      categoryKey: 'subscriptions',
+      amountPaise: 199900,
+      amountStatus: AmountStatus.known,
+      recurrence: ReconciliationRecurrence.monthly,
+      dueDate: dueDate,
+      dueDay: dueDate.day,
+      paymentAccountScope: AccountScope.primary,
+      paymentStatus: ReconciliationPaymentStatus.unpaid,
+      nextExpectedSource: NextExpectedSource.lockedCadence,
+      payeeType: PayeeType.merchant,
+      userCadenceStatus: UserCadenceStatus.algorithmDetected,
+      confidence: confidence,
+      reviewStatus: reviewStatus,
+      createdAt: DateTime(2026, 8, 2),
+      updatedAt: DateTime(2026, 8, 2),
+    );
+
+    final theGoogleThree = [
+      smsObligation(
+        dedupeKey: 'sms_recurring:xfkxfma537eoyvuzwkvss3vbvbr1oxoo:monthly',
+        merchant: 'xfkxfma537eoyvuzwkvss3vbvbr1oxoo',
+        dueDate: DateTime(2026, 8, 28),
+        reviewStatus: ObligationReviewStatus.confirmed,
+      ),
+      smsObligation(
+        dedupeKey: 'sms_mandate:google',
+        merchant: 'google',
+        dueDate: DateTime(2026, 4, 27),
+      ),
+      smsObligation(
+        dedupeKey: 'sms_mandate:google asia pacific pte.ltd',
+        merchant: 'google asia pacific pte.ltd',
+        dueDate: DateTime(2026, 7, 10),
+      ),
+    ];
+
+    // Count every September line carrying ₹1,999, across BOTH partitions.
+    // `months[].events` holds hard events only, so a needs_review obligation
+    // at 0.7 confidence is invisible there — it is in `riskLines`. The user
+    // sees both, so a duplicate that straddles the two still double-counts.
+    int septemberLinesFor(List<ObligationRecord> obligations) {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+          items: const [],
+          obligations: obligations,
+        ),
+      );
+      bool isSeptember(DateTime? d) =>
+          d != null && d.year == 2026 && d.month == 9;
+
+      final hard = outlook.months[1].events
+          .where((e) => e.amountPaise == 199900 && isSeptember(e.date))
+          .length;
+      final risk = outlook.riskLines
+          .where((l) => l.amountPaise == 199900 && isSeptember(l.date))
+          .length;
+      return hard + risk;
+    }
+
+    test('one stored obligation yields one September line (guard)', () {
+      expect(septemberLinesFor([theGoogleThree[1]]), 1);
+    });
+
+    test('three stored obligations yield THREE September lines — '
+        'documents the open defect, not the desired behaviour', () {
+      // One real ₹1,999 Google subscription; three stored obligations with
+      // three different dedupe keys, so `projectedKeys` cannot collapse them.
+      // A straight breach of "one owner per rupee", measured on the device.
+      //
+      // This asserts the CURRENT number deliberately. Retiring the stale
+      // obligation needs a `retired_at` column so a user's review decision is
+      // preserved rather than deleted (TASK-02), which is a schema migration
+      // and is specified but not implemented — see TASK-37. When it lands,
+      // this test SHOULD fail; change the 3 to a 1 and move it out of this
+      // group.
+      expect(septemberLinesFor(theGoogleThree), 3);
+    });
+  });
+
   group('TASK-35 — an uncertain inflow is not money that might go out', () {
     // A `detectedVariable` salary projects at confidence 0.7, below
     // kReserveHardConfidence (0.8), so `_isHard` routes it to the risk lines.
