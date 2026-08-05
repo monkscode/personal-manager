@@ -125,7 +125,74 @@ export is present. `.private/` is gitignored: this repository is public.
 - [x] Every stored column is classified in `SmsPrivacy`.
 - [x] `flutter analyze` clean; `flutter test` 979 passing, 1 skipped (the prediction).
 - [x] Offline prediction run against the device: both identity gates pass.
-- [ ] Device verification — the two `9999999999` rows clear on the next scan.
+- [x] Device verification — the two `9999999999` rows cleared on the next scan.
+
+---
+
+## Device verification — 2026-08-06
+
+Built, installed over the existing app, database pulled before and after. The install alone
+wrote nothing (same size, same mtime). **The scan changed exactly two rows and nothing
+else:**
+
+| | Before | After |
+|---|---|---|
+| rows | 2065 | 2065 |
+| `merchant IS NULL` | 269 | **271** |
+| confirmed / dismissed / needs_review / auto_added | 187 / 6 / 109 / 1763 | **identical** |
+| obligations live / all | 7 / 10 | identical |
+| risk decisions | 3 | identical |
+| `SUM(amount_paise)` | 2955201368 | **identical** |
+| schema version | 5 | 5 |
+
+A full column diff across both snapshots returns exactly two rows:
+
+```
+provider:12045  9999999999 -> NULL   confirmed  -> confirmed   ₹1,999 unchanged
+provider:10654  9999999999 -> NULL   auto_added -> auto_added   ₹45,000 unchanged
+```
+
+Zero rows gained or lost, zero `created_at` values restamped (TASK-26's guard), zero
+obligations changed in `merchant`, `dedupe_key` or `retired_at`.
+
+`provider:12045` was **confirmed**, and it still is — the reparse rewrote a derived column
+without touching the user's decision, which is TASK-02's whole subject.
+
+**Whole-history probe through the app's own search: `9999999999` → "No matching
+transactions".** Home is unchanged (`₹1,14,879 · 11 payments tracked`,
+`Need for September ₹4,08,217`), as it must be for a change that touches two labels and no
+amounts. Transaction names render as TASK-45 recorded them — `Card Purchase`,
+`Hdfc Bank Ltd`, `Lg Electronics App`, `Gwaliasweetspvtltd`. No Flutter, Dart or SQLite
+error in logcat across the whole session.
+
+All pulled database copies and screenshots deleted.
+
+### One row the boundary cannot reach, as designed
+
+`provider:1119` still stores `mob/ccpmt/8mcqqe000000/000000`. The offline prediction said
+the *sweep* would trim it, and the sweep was the migration that was dropped. A boundary
+rule only cleans a row something rewrites, and that row's SMS (2020-12-18) is no longer in
+the inbox for a scan to revisit. **This is the difference between the migration and the
+boundary, showing up exactly where it should.** Same for the two `cash-atm/*` and two
+`neft/mb/*` rows from 2020–21.
+
+If those five ever need cleaning, that is the argument for reviving the v6 migration — and
+it is an argument from five rows, not from TASK-45's 236.
+
+### The plan's cold-start correction is wrong
+
+`OVERVIEW.md` records: *"a cold start DOES run a scan. TASK-41's verification wrote two rows
+with no pull-to-refresh; the only difference was `am force-stop` before `am start`."*
+
+It does not. `am force-stop` + `am start` was run here and the database was untouched after
+two minutes of polling. **The only scan trigger in the app is pull-to-refresh** —
+`home_screen.dart:43` and `:347` both call `_refreshFromSms`, which is the sole caller of
+`ScanController.scan()`, which is the sole scan entry point. TASK-41 saw two rows appear and
+attributed them to the launch.
+
+Practical consequence for anyone verifying on device: **cold-starting is not enough, and a
+database unchanged after a launch is not evidence that a change writes nothing.** Pull to
+refresh, then compare.
 
 ---
 

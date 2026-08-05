@@ -284,6 +284,14 @@ collision sets are for (TASK-09).
 verification wrote two rows with no pull-to-refresh; the only difference from the previous
 session was `am force-stop` before `am start`. Capture counts before and after any launch.
 
+> **This correction is itself wrong — disproven 2026-08-06 in TASK-46.** `am force-stop` +
+> `am start` was run and the database was untouched after two minutes of polling. The
+> **only** scan trigger in the app is pull-to-refresh: `home_screen.dart:43` and `:347`
+> both call `_refreshFromSms`, the sole caller of `ScanController.scan()`, the sole scan
+> entry point. TASK-41 saw two rows appear and attributed them to the launch. **A database
+> unchanged after a cold start is not evidence that a change writes nothing** — pull to
+> refresh, then compare.
+
 **TASK-40's premises all survived contact with the source and the device** — the first task
 file in six phases where that is true, and worth recording precisely because the standing
 lesson is the opposite. Both doors were exactly as described: `dismissed` hits a `continue`
@@ -559,6 +567,20 @@ is how TASK-45's offline pass caught a real regression, so it gets its own task.
 
 Obligations were **measured, not rewritten**: zero of the 7 live rows carry a digit run or
 a VPA, so the `dedupe_key` hazard TASK-37 and TASK-42 both paid for never had to be taken.
+
+**Device-verified 2026-08-06.** The scan changed **exactly two rows and nothing else**:
+both `9999999999` merchants to NULL, with all 187 confirmed decisions, all 6 dismissals,
+the row count, the obligations and `SUM(amount_paise)` byte-for-byte identical, and no
+`created_at` restamped. The confirmed row stayed confirmed — a reparse rewrote a derived
+column without touching the user's decision, which is TASK-02's whole subject. Searching
+the full history for `9999999999` returns "No matching transactions".
+
+**And the install disproved this file's own cold-start correction** — see the callout in
+Phase 6. Cold-starting does not scan; only pull-to-refresh does. Five rows from 2020–21
+(`mob/ccpmt/…`, two `cash-atm/…`, two `neft/mb/…`) keep their references because a boundary
+rule only cleans what something rewrites and their SMS have aged out of the inbox. **That
+is the migration-versus-boundary difference showing up exactly where it should**, and if
+those five ever need cleaning it is an argument from five rows, not from TASK-45's 236.
 
 ---
 
