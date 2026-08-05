@@ -189,9 +189,17 @@ void main() {
     // A stored decision whose ownerKey no longer exists renders nothing — the
     // user's confirmation silently disappears. This is the number that decides
     // whether the null rule is safe.
+    //
+    // Only `commitment:<merchantNorm>` keys can move: the other ownerKey shapes
+    // the adapter emits — `salary:projected`, `seasonal:…`, and the
+    // `<owner>:obl:<dedupeKey>` family — are built from obligations, which this
+    // migration does not touch. So a decision keyed on one of those is not
+    // "orphaned" by anything measured here, and counting it as such would
+    // overstate the risk. Restrict the comparison to the keys at stake.
     final decisionKeys = {for (final d in riskDecisions) d.ownerKey};
-    final orphanedNow = decisionKeys.difference(ownerBefore);
-    final orphanedAfter = decisionKeys.difference(ownerAfter);
+    final atStake = decisionKeys.where((k) => k.startsWith('commitment:')).toSet();
+    final orphanedNow = atStake.difference(ownerBefore);
+    final orphanedAfter = atStake.difference(ownerAfter);
     final newlyOrphaned = orphanedAfter.difference(orphanedNow);
 
     // ---- report -------------------------------------------------------------
@@ -205,6 +213,7 @@ void main() {
       ..writeln('  disappeared              ${commitsBefore.difference(commitsAfter)}')
       ..writeln('  newly minted             ${commitsAfter.difference(commitsBefore)}')
       ..writeln('stored risk decisions      ${decisionKeys.length}')
+      ..writeln('  keyed on a commitment    ${atStake.length}  (only these can move)')
       ..writeln('  already orphaned         ${orphanedNow.length}')
       ..writeln('  NEWLY orphaned by v6     ${newlyOrphaned.length}  $newlyOrphaned')
       ..writeln('\n--- every changed merchant ---');
