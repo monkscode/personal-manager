@@ -1,4 +1,5 @@
 import '../data/sms_models.dart';
+import 'payee_text.dart';
 
 /// Normalizes an Indian DLT SMS sender into its bank header segment.
 ///
@@ -149,10 +150,15 @@ class MerchantDisplay {
     if (raw == null) return null;
     var s = raw.trim();
     if (s.isEmpty) return null;
-    // Drop redaction placeholders.
-    if (RegExp(r'^\[(amount|account|vpa)\]$', caseSensitive: false).hasMatch(s)) {
-      return null;
-    }
+    // TASK-45. This read runs on the *redacted* body, so the same rule the
+    // parser applies to raw digits applies here to the tokens standing where
+    // those digits were. The previous check named three of the five
+    // placeholders and matched only when one was the whole capture, so
+    // `[number]` reached the user as a payee name on 95 device rows and an
+    // embedded token on 253 more.
+    final sanitized = PayeeText.sanitize(s);
+    if (sanitized == null) return null;
+    s = sanitized;
     // Strip a leading aggregator prefix like "RAZ*", "BBPS*", "PAYU*", "PYTM*".
     s = s.replaceFirst(
       RegExp(r'^[A-Za-z]{2,6}\*', caseSensitive: false),
@@ -215,6 +221,16 @@ class MerchantDisplay {
     final mapped = banks[header];
     if (mapped != null) return mapped;
     if (header.isEmpty) return 'Bank';
+    // Older DLT senders carry no separators (`VMAXISBK`), so
+    // `normalizeSenderHeader` has nothing to split on and the operator code
+    // stays glued to the bank's. Retry without it — the same reading
+    // `SmsLiveNormalizer._institution` already applies. TASK-45 made this
+    // visible: refusing a junk payee routes far more rows to this fallback,
+    // and `Vmaxisbk` is not a bank name.
+    if (header.length > 2) {
+      final withoutOperator = banks[header.substring(2)];
+      if (withoutOperator != null) return withoutOperator;
+    }
     return _titleCase(header);
   }
 

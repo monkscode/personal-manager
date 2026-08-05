@@ -1,6 +1,7 @@
 import '../core/clamped_date.dart';
 import '../core/money.dart';
 import '../data/sms_models.dart';
+import 'payee_text.dart';
 import 'sms_ingestion_policy.dart';
 import 'sms_privacy.dart';
 
@@ -337,6 +338,12 @@ class SmsTransactionParser {
   /// Collapses whitespace and strips the boilerplate that brackets a payee in
   /// these formats — a leading `AutoPay`, a trailing `no.`/`a/c`. A bare run of
   /// digits is a reference, never a name.
+  ///
+  /// Every capture in this parser funnels through here, which is why TASK-45's
+  /// rule lives at this line and not in each pattern's terminator list. The
+  /// terminators were all firing correctly and still returning the dispute
+  /// footer, the user's own card, or a rail reference — a capture can stop in
+  /// the right place and not be a payee.
   String? _tidyPayee(String? raw) {
     if (raw == null) return null;
     final tidied = raw
@@ -346,7 +353,9 @@ class SmsTransactionParser {
         .replaceFirst(RegExp(r'\s+(?:no|a/c|ac)\.?$'), '')
         .trim();
     if (tidied.length < 2 || _bareDigits.hasMatch(tidied)) return null;
-    return tidied;
+    final payee = PayeeText.sanitize(tidied);
+    if (payee == null || payee.length < 2) return null;
+    return payee;
   }
 
   ParsedTxn? _parseActual(

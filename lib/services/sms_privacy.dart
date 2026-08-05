@@ -61,6 +61,17 @@ class SmsPrivacy {
     r'\b[A-Za-z0-9._-]+@[A-Za-z][A-Za-z0-9._-]+\b',
   );
 
+  /// Every token [redactBody] can leave in a body.
+  ///
+  /// The single definition, so a reader of a redacted body cannot consult a
+  /// stale subset. `MerchantDisplay` restated three of the five and rendered
+  /// the other two to the user as payee names (TASK-45); adding a token to
+  /// [redactBody] without adding it here is what that defect was.
+  static final RegExp placeholderPattern = RegExp(
+    r'\[(?:ref|vpa|account|amount|number)\]',
+    caseSensitive: false,
+  );
+
   static String redactBody(String body) {
     return body
         .replaceAll(_reference, '[ref]')

@@ -225,4 +225,82 @@ void main() {
       expect(MerchantDisplay.labelForCategory('other'), 'Other');
     });
   });
+
+  // TASK-45. The resolver reads the *redacted* body, so its vocabulary is the
+  // redactor's five tokens rather than raw digits. Same rule as the parser's
+  // `_tidyPayee`, stated against the other vocabulary.
+  group('TASK-45 — a redaction placeholder is not a payee name', () {
+    test('a placeholder standing alone is refused', () {
+      final d = resolver.resolve(
+        txn(
+          sender: 'VM-ICICIT-S',
+          merchant: 'card purchase',
+          body: '[amount] spent on ICICI Bank Card [account] on 05-Aug-26 at '
+              '[number]. Avl Lmt: [amount]',
+        ),
+      );
+
+      expect(d.name, isNot(contains('[')));
+    });
+
+    test('a placeholder embedded in a longer capture is refused', () {
+      final d = resolver.resolve(
+        txn(
+          sender: 'VM-ICICIT-S',
+          merchant: 'card purchase',
+          body: '[amount] spent on ICICI Bank Card [account] on 05-Aug-26. '
+              'To dispute, call [number] or SMS BLOCK [number] to [number]',
+        ),
+      );
+
+      expect(d.name, isNot(contains('[')));
+    });
+
+    test('every token the redactor emits is refused', () {
+      for (final token in ['[amount]', '[account]', '[vpa]', '[ref]', '[number]']) {
+        final d = resolver.resolve(
+          txn(
+            sender: 'VM-AXISBK-S',
+            body: 'payment to $token done',
+          ),
+        );
+
+        expect(
+          d.name,
+          isNot(contains('[')),
+          reason: '$token reached the user as a payee name',
+        );
+      }
+    });
+
+    // Verbatim from the device. The body names the merchant outright
+    // (`Info:Amazon.in - Bil`) and the resolver rendered `[number]`, because
+    // the `to [number]` in the dispute footer is what it captured.
+    test('a dispute footer never outranks the body', () {
+      final d = resolver.resolve(
+        txn(
+          sender: 'VM-ICICIT-S',
+          merchant: 'card purchase',
+          body: '[amount] debited on Credit Card [account] on 01-Feb-21.'
+              'Info:Amazon.in - Bil.Avbl Lmt:[amount].Call [number] for '
+              'dispute or SMS BLOCK [number] to [number]',
+        ),
+      );
+
+      expect(d.name, isNot(contains('[')));
+    });
+
+    // Guard: a real payee alongside a placeholder keeps the real part.
+    test('a real payee beside a reference keeps the payee', () {
+      final d = resolver.resolve(
+        txn(
+          sender: 'VM-AXISBK-S',
+          body: '[amount] debited at ECS/RAZORPAY SOFTW/[number]. Avl Bal [amount]',
+        ),
+      );
+
+      expect(d.name.toLowerCase(), contains('razorpay'));
+      expect(d.name, isNot(contains('[')));
+    });
+  });
 }

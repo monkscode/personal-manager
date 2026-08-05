@@ -424,6 +424,7 @@ task the plan named next.
 | Task | Title | Severity | State |
 |---|---|---|---|
 | [TASK-44](TASK-44-announcement-booked-as-money.md) | Two bank announcements are still booked as real money (10 rows, ₹2,26,911.10) | Critical | **Done** |
+| [TASK-45](TASK-45-payee-capture-boundary.md) | A payee capture has terminators but no idea what a payee is (348 rows) | Important | **Done** |
 
 **The plan's stated next task was wrong for the third phase running, and once again the
 correction came from a query rather than from reading the source.** TASK-42 handed off
@@ -483,6 +484,34 @@ TASK-41 already excludes reconciled unchanged.
    over `raw_body_redacted`, whose tokens stand where the digits were, but that was not
    confirmed and must be checked before anything is built on it. This is the fifth phase
    running in which installing the build found something reading the source did not.
+
+   **Checked, and the suspect was wrong — see [TASK-45](TASK-45-payee-capture-boundary.md).**
+   The reparse is not involved and no stored row is wrong for this symptom: the name is
+   computed at render time, and `MerchantDisplay` consults a body-derived merchant *before*
+   the stored column, so `card purchase` never had to be wrong. Gating the item on a check
+   is what stopped a plausible mechanism being built on.
+
+**TASK-45's lesson is that a capture can stop in exactly the right place and still not be a
+payee.** Every terminator in the parser was firing correctly. What was missing was any
+notion of what a payee *is*, so the captures returned the dispute footer, the user's own
+credit card, and a rail reference — and `_tidyPayee`, the one place a captured string
+*becomes* a payee, asked only whether it was entirely digits.
+
+Checking the fallback is what turned a labelling defect into a privacy one. Refusing a
+body-derived name falls through to the stored `merchant`, and that column holds what the
+redactor removed from the body: on one row `raw_body_redacted` reads `Credit Card [account]`
+while `merchant` reads `…credit card xx7117`. **236 rows carry a non-public identifier that
+way.** TASK-04 applied the floor to bodies; nobody classified a derived column as a body.
+
+It also corrected its own first measurement, which is worth carrying: the first pass counted
+**393** rows, but **157 of those held nothing but a public bank helpline** (`18605005555`).
+**Strip the known-public values before counting a leak** — otherwise the severity is inflated
+by two thirds.
+
+And the offline prediction earned its place twice, catching two defects no amount of reading
+would have: a blunt `\d{4,}` mangled the real UPI handle `priyalpatel1910`, and collapsing
+separators inside the new shared rule broke `MerchantDisplay`'s existing `RAZ*` prefix strip.
+**A shared rule must not do a job its callers are still doing.**
 
 ---
 

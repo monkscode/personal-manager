@@ -1116,4 +1116,132 @@ void main() {
       expect(notice.payee, 'bharat connect postpaid bill payment');
     });
   });
+
+  // TASK-45. Four capture shapes, each taken verbatim (redacted) from the
+  // device, each returning something that is not a payee. All four funnel
+  // through `_tidyPayee`, which is where the rule belongs.
+  group('TASK-45 — a payee capture stops at the payee', () {
+    ParsedTxn parse(String sender, String body) => parser.parseOne(
+      sms(sender: sender, body: body),
+      scanBatchId: 'scan-45',
+      bodyHashSalt: 'test-salt',
+    )!;
+
+    // A — ICICI writes the whole message on one line, so a capture bounded
+    // only by the line end swallows the footer. 77 device rows store a
+    // merchant longer than 40 characters this way.
+    test('an ICICI single-line UPI body stops at the sentence end', () {
+      final txn = parse(
+        'VM-ICICIB',
+        'Hello! Your A/c no. XX1234 has been debited by Rs 500.00 on 16Nov18. '
+            'The A/c balance is Rs 10,000.00.Info: UPI/P2A/016501509718/'
+            'AKSHAT AMRISHBHAI D. Call 18605005555 (if in India) if you have '
+            'not done this transaction.',
+      );
+
+      expect(txn.merchant, 'akshat amrishbhai d');
+    });
+
+    // B — a payment towards the user's own card has no external payee. The
+    // terminator fires correctly and the capture is still wrong.
+    test('a payment towards your own credit card names no payee', () {
+      final txn = parse(
+        'VM-ICICIB',
+        'Dear Customer, Payment of Rs 5,000.00 has been received towards your '
+            'ICICI Bank Credit Card XX7117 on 17-JUN-24 through UPI. Thank you.',
+      );
+
+      expect(txn.merchant, isNot(contains('7117')));
+      expect(txn.merchant, anyOf(isNull, isNot(contains('credit card'))));
+    });
+
+    test('the Axis wording of the same confirmation also names no payee', () {
+      final txn = parse(
+        'VM-AXISBK',
+        'Dear Customer, payment of Rs 2,000.00 towards your Axis Bank Credit '
+            'Card XXXX7114 has been received on 09-NOV-23. Thank You.',
+      );
+
+      expect(txn.merchant, isNot(contains('7114')));
+      expect(txn.merchant, isNot(contains('has been received')));
+    });
+
+    // C — the rail prefix and the transaction reference are not the payee.
+    test('an ECS rail string keeps the biller and drops the reference', () {
+      final txn = parse(
+        'VM-AXISBK',
+        'Rs 1,200.00 debited from A/c no. XX7103 on 28-10-21 14:15:16 IST at '
+            'ECS/RAZORPAY SOFTW/111120218042703. Avl Bal- Rs 5,000.00. '
+            'Call 18001030 if not done by you - Axis Bank',
+      );
+
+      expect(txn.merchant, isNot(contains('111120218042703')));
+      expect(txn.merchant, contains('razorpay'));
+    });
+
+    // D — the counterparty's account number is an identifier, not a name.
+    test('a bare counterparty account number is not a payee', () {
+      final txn = parse(
+        'VM-HDFCBK',
+        'HDFC Bank:Rs 300.00 debited from a/c XX1234 on 07/04/26 to a/c '
+            'XXXX7103 (UPI Ref No. 123456789012). Not you? Call on 18004190 '
+            'to report',
+      );
+
+      expect(txn.merchant, isNot(contains('7103')));
+    });
+
+    // The privacy floor, stated as one assertion over all four bodies: a
+    // digit the redactor removes from the body may not survive in `merchant`.
+    test('no stored merchant carries a masked tail or a long digit run', () {
+      final bodies = <String, String>{
+        'VM-ICICIB':
+            'Dear Customer, Payment of Rs 5,000.00 has been received towards '
+            'your ICICI Bank Credit Card XX7117 on 17-JUN-24 through UPI.',
+        'VM-AXISBK':
+            'Rs 1,200.00 debited from A/c no. XX7103 on 28-10-21 14:15:16 IST '
+            'at ECS/RAZORPAY SOFTW/111120218042703. Avl Bal- Rs 5,000.00.',
+        'VM-HDFCBK':
+            'HDFC Bank:Rs 300.00 debited from a/c XX1234 on 07/04/26 to a/c '
+            'XXXX7103 (UPI Ref No. 123456789012). Not you? Call on 18004190',
+      };
+
+      for (final entry in bodies.entries) {
+        final merchant = parse(entry.key, entry.value).merchant;
+        if (merchant == null) continue;
+        expect(
+          merchant,
+          isNot(matches(RegExp(r'\d{4,}'))),
+          reason: 'long digit run survived into merchant: "$merchant"',
+        );
+        expect(
+          merchant,
+          isNot(matches(RegExp(r'[*x]{1,4}\d{3,}', caseSensitive: false))),
+          reason: 'masked tail survived into merchant: "$merchant"',
+        );
+      }
+    });
+
+    // Guards. These payees must survive the new rule unchanged — the fixture
+    // proves itself, per Phase 5's lesson.
+    test('the Axis multiline rail payee is unchanged', () {
+      final txn = parse(
+        'VM-AXISBK',
+        'Rs 245.00 debited\nA/c no. XX1234\n01-12-25, 10:57:27\n'
+            'UPI/P2M/549148394747/ACME DIGITAL PRIVAT\nAxis Bank',
+      );
+
+      expect(txn.merchant, 'acme digital privat');
+    });
+
+    test('a plain UPI payee is unchanged', () {
+      final txn = parse(
+        'VM-HDFCBK',
+        'HDFC Bank: Rs. 450.00 debited via UPI to swiggy@okhdfcbank. '
+            'UPI Ref 123456789012.',
+      );
+
+      expect(txn.merchant, 'swiggy');
+    });
+  });
 }
