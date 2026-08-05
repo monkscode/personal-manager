@@ -28,7 +28,10 @@ class SmsLiveNormalizer {
   /// on rows that are about to be dropped.
   List<ParsedTxn> normalize(List<ParsedTxn> txns) {
     final deduped = dedup(txns);
-    return [for (final t in deduped) enrich(t)];
+    // Enrich before marking: the re-delivery rule joins on the payee name, and
+    // enrichment is what fills a payee the on-device parser left blank.
+    final enriched = [for (final t in deduped) enrich(t)];
+    return markSupersededRedeliveries(enriched);
   }
 
   /// The two passes in order: drop re-deliveries of one message, then flag
@@ -42,6 +45,123 @@ class SmsLiveNormalizer {
   /// spend from the forecast.
   List<ParsedTxn> dedup(List<ParsedTxn> txns) =>
       flagCollisions(collapseRedeliveries(txns));
+
+  /// Mark the later of two alerts that report **one** bank debit, so the rupee
+  /// is counted once (TASK-43).
+  ///
+  /// [collapseRedeliveries] handles the case where the *same message* arrives
+  /// twice. This handles the harder one: two different messages, from two
+  /// systems inside one bank, about one event — on the device, an HDFC Ltd
+  /// home-loan EMI collected by ACH, announced both as
+  /// `UPDATE: … ACH D- HDFC BANK LTD-…` (payee `hdfc bank ltd`) and as
+  /// `PAYMENT ALERT! … towards HDFC LTD UMRN: …` (payee `hdfc ltd`). Nothing
+  /// in either redacted body names the other, so no shared token can join them.
+  ///
+  /// The join is therefore the payee name — which [_hasDistinguishingSignal]
+  /// reads the other way round, treating two spellings as proof of two
+  /// payments. A name join is only safe with independent evidence beside it
+  /// (TASK-42), so it is the *last* clause here: amount, direction, day,
+  /// account, reference, balance and issuing bank must already agree, and
+  /// neither body may identify its own event.
+  ///
+  /// The issuing-bank clause is what keeps TASK-42's counterexample safe.
+  /// `google` and `google asia pacific pte.ltd` are token-subset related and
+  /// are two genuinely different subscriptions; they are billed by different
+  /// banks, and two alerts about one event come from one bank.
+  ///
+  /// The loser is **marked, not dropped**: `active` in `SmsAnalysisSnapshot`
+  /// stops counting it and a `duplicateSuppressed` coverage line names it, so a
+  /// suppressed duplicate never looks like money that vanished.
+  List<ParsedTxn> markSupersededRedeliveries(List<ParsedTxn> txns) {
+    final order = [...txns]..sort((a, b) {
+      final byDate = a.txnDate.compareTo(b.txnDate);
+      if (byDate != 0) return byDate;
+      return a.smsId.compareTo(b.smsId);
+    });
+    // Earliest (date, smsId) wins, the same ordering collapseRedeliveries uses.
+    final supersededBy = <String, String>{};
+    for (var i = 0; i < order.length; i++) {
+      final winner = order[i];
+      if (supersededBy.containsKey(winner.smsId)) continue;
+      for (var j = i + 1; j < order.length; j++) {
+        final loser = order[j];
+        if (supersededBy.containsKey(loser.smsId)) continue;
+        if (_isRedelivery(winner, loser)) {
+          supersededBy[loser.smsId] = winner.smsId;
+        }
+      }
+    }
+    if (supersededBy.isEmpty) return txns;
+    return [
+      for (final t in txns)
+        if (supersededBy.containsKey(t.smsId))
+          t.copyWith(supersededBySmsId: supersededBy[t.smsId])
+        else
+          t,
+    ];
+  }
+
+  bool _isRedelivery(ParsedTxn a, ParsedTxn b) {
+    if (a.amountPaise != b.amountPaise) return false;
+    if (a.direction != b.direction) return false;
+    if (a.txnLocalDate != b.txnLocalDate) return false;
+    // Absent is not different. An alert that drops the a/c tail (or the
+    // running balance) contradicts nothing — the same reading
+    // `_strongReferenceDuplicate` already applies to the account.
+    if (_conflicts(_blankToNull(a.accountLast4), _blankToNull(b.accountLast4))) {
+      return false;
+    }
+    if (_conflicts(_blankToNull(a.refNumber), _blankToNull(b.refNumber))) {
+      return false;
+    }
+    // Two debits cannot leave the same account at the same balance, so a
+    // balance that differs is proof of two payments — this is what keeps the
+    // five same-day `indian clearing corp` SIP debits apart.
+    if (_conflicts(a.balancePaise, b.balancePaise)) return false;
+    // A row that pins down its own event has already met any twin in
+    // collapseRedeliveries, so a survivor names a different event.
+    if (_sameEventKey(a) != null || _sameEventKey(b) != null) return false;
+    if (_institution(a.sender) != _institution(b.sender)) return false;
+    return _namesOnePayee(a.merchant, b.merchant);
+  }
+
+  bool _conflicts(Object? a, Object? b) => a != null && b != null && a != b;
+
+  String? _blankToNull(String? value) {
+    final trimmed = value?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+  }
+
+  /// Whether two *different* payee strings are two spellings of one payee.
+  ///
+  /// Equal strings are deliberately excluded: identically-worded alerts are the
+  /// shape of a genuine repeat (sequential ATM withdrawals, a SIP debited twice
+  /// in a day), and the design already refuses to collapse those.
+  bool _namesOnePayee(String? left, String? right) {
+    final a = left?.trim().toLowerCase() ?? '';
+    final b = right?.trim().toLowerCase() ?? '';
+    if (a.isEmpty || b.isEmpty || a == b) return false;
+    final tokensA = _payeeTokens(a);
+    final tokensB = _payeeTokens(b);
+    if (tokensA.isEmpty || tokensB.isEmpty) return false;
+    return tokensA.containsAll(tokensB) || tokensB.containsAll(tokensA);
+  }
+
+  static final RegExp _tokenSplit = RegExp(r'[^a-z0-9]+');
+
+  Set<String> _payeeTokens(String value) =>
+      value.split(_tokenSplit).where((t) => t.isNotEmpty).toSet();
+
+  /// The bank behind a DLT sender header: `VM-HDFCBK-S` and `JD-HDFCBK-S` are
+  /// both `HDFCBK`. Older headers carry no separators (`VMHDFCBN`), so the
+  /// two-character operator prefix is dropped instead. An imperfect reading
+  /// only ever fails to match, which is the safe direction.
+  String _institution(String sender) {
+    final upper = sender.toUpperCase().trim();
+    final parts = upper.split('-').where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 2) return parts[1];
+    return upper.length > 2 ? upper.substring(2) : upper;
+  }
 
   /// Drop rows that are one bank event delivered more than once — the classic
   /// case where an alert arrives under several DLT sender headers.

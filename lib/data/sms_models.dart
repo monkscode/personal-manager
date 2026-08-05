@@ -298,6 +298,7 @@ class ParsedTxn {
     this.refNumber,
     this.balancePaise,
     this.ownerKey,
+    this.supersededBySmsId,
   }) : txnLocalDate = _localDate(txnDate),
        txnMonth = _localMonth(txnDate);
 
@@ -325,6 +326,16 @@ class ParsedTxn {
   final String? refNumber;
   final int? balancePaise;
   final String? ownerKey;
+
+  /// The `smsId` of the alert that already carries this rupee, when this row is
+  /// a second bank alert for one debit (TASK-43).
+  ///
+  /// Derived at read time by `SmsLiveNormalizer` and **never persisted**: it is
+  /// a property of the set a row sits in, not of the row, so recomputing it on
+  /// every read is what keeps it true after a rescan adds a sibling. The row
+  /// itself is kept and marked rather than dropped — a deleted duplicate is
+  /// indistinguishable from money that vanished.
+  final String? supersededBySmsId;
   final CoverageBucket coverageBucket;
   final String rawBodyRedacted;
   final String bodyHash;
@@ -404,6 +415,9 @@ class ParsedTxn {
     String? merchant,
     String? categoryKey,
     String? upiVpaNorm,
+    String? accountLast4,
+    int? balancePaise,
+    String? supersededBySmsId,
   }) {
     return ParsedTxn(
       smsId: smsId,
@@ -423,15 +437,16 @@ class ParsedTxn {
       bodyHash: bodyHash,
       scanBatchId: scanBatchId,
       effectiveMonth: effectiveMonth,
-      accountLast4: accountLast4,
+      accountLast4: accountLast4 ?? this.accountLast4,
       merchant: merchant ?? this.merchant,
       upiVpaNorm: upiVpaNorm ?? this.upiVpaNorm,
       reviewReason: reviewReason ?? this.reviewReason,
       autoAddedAt: autoAddedAt ?? this.autoAddedAt,
       collisionSetId: collisionSetId ?? this.collisionSetId,
       refNumber: refNumber,
-      balancePaise: balancePaise,
+      balancePaise: balancePaise ?? this.balancePaise,
       ownerKey: ownerKey,
+      supersededBySmsId: supersededBySmsId ?? this.supersededBySmsId,
     );
   }
 

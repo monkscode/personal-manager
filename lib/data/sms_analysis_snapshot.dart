@@ -59,6 +59,7 @@ class SmsAnalysisSnapshot {
     required this.riskDecisions,
     this.horizonSeasonal = const [],
     this.allTxns = const [],
+    this.supersededRedeliveries = const [],
     this.anchor,
     this.anchorFreshness,
     this.primaryAccountLast4,
@@ -86,6 +87,12 @@ class SmsAnalysisSnapshot {
   );
 
   final DateTime targetMonth;
+
+  /// Rows in [targetMonth] that a second alert for the same debit already
+  /// carries, and which [reduce] therefore left out of the working set
+  /// (TASK-43). Kept so the omission can be *named* rather than silently
+  /// dropped — a suppressed duplicate must never look like money that vanished.
+  final List<ParsedTxn> supersededRedeliveries;
 
   /// Whether any SMS-derived transaction or obligation exists. Drives live mode.
   final bool hasData;
@@ -161,12 +168,26 @@ class SmsAnalysisSnapshot {
     // and therefore reconciliation, the forecast events and the drivers list
     // built from them — still counted it. Filtering the working set is what
     // makes the exclusion hold for read paths added later too (TASK-41).
+    // A second bank alert for a debit another row already carries is excluded
+    // on the same argument: one owner per rupee, and the exclusion belongs
+    // where the set is defined so every later read path inherits it (TASK-43).
     final active = [
       for (final txn in history)
-        if (txn.reviewStatus != ReviewStatus.dismissed && !txn.isFutureDebitNotice)
+        if (txn.reviewStatus != ReviewStatus.dismissed &&
+            !txn.isFutureDebitNotice &&
+            txn.supersededBySmsId == null)
           txn,
     ];
     final targetMonth = DateTime(now.year, now.month);
+    // Kept so the omission can be named. Only the target month's are carried:
+    // the coverage lines that consume them are month-scoped.
+    final supersededRedeliveries = [
+      for (final txn in history)
+        if (txn.reviewStatus != ReviewStatus.dismissed &&
+            txn.supersededBySmsId != null &&
+            txn.txnMonth == _monthKey(targetMonth))
+          txn,
+    ];
     final credits = [
       for (final txn in active)
         if (txn.direction == TransactionDirection.credit) txn,
@@ -269,6 +290,7 @@ class SmsAnalysisSnapshot {
       cards: List.unmodifiable(cards),
       currentMonthTxns: List.unmodifiable(currentMonthTxns),
       allTxns: List.unmodifiable(allTxns),
+      supersededRedeliveries: List.unmodifiable(supersededRedeliveries),
       yearOverYear: Map.unmodifiable(_yearOverYear(active, now)),
       cashLevel: cash.level(window),
       cashDrainRatio: cash.cashDrainRatio(window),
@@ -283,6 +305,10 @@ class SmsAnalysisSnapshot {
   }
 
   // ---- reduction helpers --------------------------------------------------
+
+  static String _monthKey(DateTime month) =>
+      '${month.year.toString().padLeft(4, '0')}-'
+      '${month.month.toString().padLeft(2, '0')}';
 
   static String? _mostRecentBalanceAccount(List<ParsedTxn> active) {
     ParsedTxn? newest;

@@ -237,6 +237,7 @@ Opened 2026-08-05 from the four items carried out of Phase 5.
 | [TASK-40](TASK-40-risk-decision-one-way-door.md) | A confirmed or dismissed risk decision cannot be undone | Critical | **Done** |
 | [TASK-41](TASK-41-notice-leak-into-working-set.md) | A future-debit notice reaches every read path added after TASK-32 | Critical | **Done** |
 | [TASK-42](TASK-42-mandate-owned-by-announced-debit.md) | A mandate notice and the commitment it announces are two owners for one rupee | Important | **Done** |
+| [TASK-43](TASK-43-one-debit-two-bank-alerts.md) | One ACH debit, two bank alerts, counted twice (₹61,415) | Critical | **Done** |
 
 **TASK-41 came from the user, not from the plan** — *"two entries for ₹118 on 3 Aug, I only
 spent it once; it wasn't showing two days ago."* Both halves were exact, and the second half
@@ -347,13 +348,66 @@ one payee (keying by payee *and* day-of-month is the obvious next move, complica
 day drifting 29/30). Item 4 is **narrowed, not closed**: two of the three stuck decisions are
 now user-clearable, the third is inert.
 
-**New, measured, unfixed — and the real merchant-identity problem.** The ₹61,415 HDFC EMI
-landed mid-session and August's Drivers now show `hdfc bank ltd ₹61,415` beside
-`hdfc ltd ₹61,415`, putting "Required in bank" ₹61,415 too high.
-`ReconciliationMatcher._obligationMatchKey` builds its match key from `merchantNorm`, so an
-actual never folds into the obligation it just paid when the two spell the payee differently.
-Unlike the obligation pairs above, this one *is* a name problem — one token apart, same
-lender, no announced-debit evidence to substitute. It is the next task.
+**TASK-43 corrected the plan's stated next task for the second phase running, and the
+correction came from reading the database rather than the source.** The handoff described
+August's two ₹61,415 rows as an obligation and the actual that paid it, failing to fold on a
+merchant-string comparison. All three parts were wrong:
+
+- **Both rows are actual debits** — two SMS for one HDFC ACH mandate execution, the
+  account-debit alert (`UPDATE: … ACH D- HDFC BANK LTD-…`, payee `hdfc bank ltd`) and the
+  mandate confirmation (`PAYMENT ALERT! … towards HDFC LTD UMRN: …`, payee `hdfc ltd`).
+  Both past tense, so TASK-41's notice filter correctly leaves both alone. It reconciles
+  exactly: 13 August debit rows − the ₹118 notice = 12 rows summing ₹1,76,293.97, against
+  "₹1,76,294 · 12 payments tracked" and 12 driver rows. **Every driver row was an actual.**
+- **`_obligationMatchKey` is not the gate.** It feeds `distinctKeys`, which decides whether
+  several already-matched owners are one obligation. Reaching an owner at all is `_matches`.
+- **`_matches` never reaches the merchant comparison here.** `_withinWindow` is a same-*month*
+  test, not a day window, and that obligation's stored `due_date` is **2026-09-05** —
+  confirmed on the device, which files it under "Coming up later · Due September". It was
+  never part of August's number.
+
+**The lesson is that the shape of a defect is a measurement, not a reading.** Two prior
+sessions recorded this as obligation-vs-actual identity resolution; one query against
+`transactions` settled it in a minute. Count the rows the surface claims to be showing —
+"12 payments tracked" beside 12 driver rows is what proved no obligation was present.
+
+The fix is a re-delivery rule beside the existing collision gates, not a widening of them:
+same amount, direction and day; account, reference and balance agreeing *when both are
+present*; neither body self-identifying; **same issuing bank**; and the payees two spellings
+of one name. The name join is the last clause, with six independent agreements in front of
+it — TASK-42's rule that a name join needs evidence beside it. Clause 7 is what keeps
+TASK-42's own counterexample safe: `google` and `google asia pacific pte.ltd` are
+token-subset related and genuinely different, but they are billed by different banks, and two
+alerts about one event come from one bank.
+
+**Predicting the sweep offline before installing is what made the change safe to ship.** The
+real rule was run over all 2,064 exported rows first: **exactly 6 suppressions, every one the
+HDFC EMI**, zero collateral. The two clusters this plan records as genuine are held apart by
+discriminators that already existed and were verified rather than assumed — the five ₹10,000
+`indian clearing corp` by *differing balances* (two debits cannot leave the same balance), the
+four ₹20,000 `science city-ii` by *clock times in the body*. The 66 pre-existing collision
+sets are untouched.
+
+**Retire, never delete — now at the row level too.** The loser is marked with an in-memory
+`ParsedTxn.supersededBySmsId`, computed at read time and never persisted (no schema bump), and
+excluded at `active` in `SmsAnalysisSnapshot.reduce` — the one place the working set is
+defined, per TASK-41. A `CoverageReason.duplicateSuppressed` line names it in the why-log,
+which is what keeps a suppressed duplicate from looking like money that vanished. Device:
+`Free` moved from **₹-22,830 to +₹38,585**, 12 payments to 11, and the database was
+**byte-identical before and after** — the fix writes nothing.
+
+**Still open after TASK-43:** three months (2025-11, 2026-01, 2026-06) still double-count the
+EMI, because the mandate alert arrived a day after the debit alert and the rule requires the
+same calendar day. Historical only; it does not affect the current headline. Widening to
+±1 day was deliberately **not** done — same-day is doing most of the safety work, and a
+wider window is unmeasured.
+
+**New, measured, unfixed.** The ₹61,415 HDFC EMI landed mid-session and August's Drivers now
+show `hdfc bank ltd ₹61,415` beside `hdfc ltd ₹61,415`, putting "Required in bank" ₹61,415
+too high. **The mechanism recorded here was wrong in all three of its parts and is corrected
+in [TASK-43](TASK-43-one-debit-two-bank-alerts.md)** — see the Phase-6 entry below. Both rows
+are *actual debits*; neither is the obligation; `_obligationMatchKey` is not the gate; and
+`_matches` never reaches the merchant comparison for this pair at all.
 
 ---
 

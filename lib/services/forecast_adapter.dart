@@ -7,6 +7,7 @@ import '../data/forecast_models.dart';
 import '../data/forecast_risk_models.dart';
 import '../data/obligation_models.dart';
 import '../data/sms_analysis_snapshot.dart';
+import '../data/sms_models.dart';
 import 'anchor_selector.dart';
 import 'forecast_ledger_engine.dart';
 import 'forecast_reconciliation_engine.dart';
@@ -229,6 +230,7 @@ class ForecastAdapter {
       coverageLines: [
         ...reconciliation.coverageLines,
         ..._retiredCoverage(snapshot.obligations),
+        ...supersededCoverageLines(snapshot),
       ],
       horizonCoverageLines: _mergeHorizonCoverage(
         _discretionaryCoverage(snapshot, targetMonth, hardEvents),
@@ -1072,4 +1074,35 @@ class _SuppressionVerdict {
 
   final bool suppressed;
   final ForecastCoverageLine? line;
+}
+
+/// Names every rupee the working set left out because a second bank alert for
+/// the same debit already carries it (TASK-43).
+///
+/// The suppression is correct but it is still an omission, and the spec's
+/// no-silent-exclusion rule applies to it exactly as `duplicateSuppressed`'s
+/// own definition says: the amount is accounted for by the winner, but it must
+/// be named, or a dropped duplicate is indistinguishable from money that
+/// vanished.
+List<ForecastCoverageLine> supersededCoverageLines(
+  SmsAnalysisSnapshot snapshot,
+) => [
+  for (final txn in snapshot.supersededRedeliveries)
+    ForecastCoverageLine(
+      label: '${_supersededLabel(txn)} — second bank alert for one debit',
+      amountPaise: txn.amountPaise,
+      reason: CoverageReason.duplicateSuppressed,
+      action: CoverageAction.none,
+      // The join is strong but not proof: the bodies never name each other.
+      confidence: 0.7,
+      ownerKey: 'superseded:${txn.smsId}',
+    ),
+];
+
+String _supersededLabel(ParsedTxn txn) {
+  final merchant = txn.merchant?.trim();
+  if (merchant != null && merchant.isNotEmpty) return merchant;
+  return txn.upiVpaNorm?.trim().isNotEmpty ?? false
+      ? txn.upiVpaNorm!.trim()
+      : txn.sender;
 }
