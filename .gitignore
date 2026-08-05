@@ -61,3 +61,6 @@ docs/superpowers/
 
 # Local-only dependency overrides
 pubspec_overrides.yaml
+
+# Device database exports for offline prediction. Never commit: real SMS data.
+.private/
