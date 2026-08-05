@@ -172,7 +172,7 @@ verification at the end of every phase.
 | [TASK-35](TASK-35-risk-buffer-sums-inflows.md) | "Unconfirmed risk" totals an uncertain salary as money going out | Critical | **Done** |
 | [TASK-36](TASK-36-opaque-handle-as-merchant.md) | A UPI handle's local part is stored as the merchant name | Important | **Done** |
 | [TASK-37](TASK-37-stale-and-duplicate-obligations.md) | One commitment, three stored obligations | Critical | **Done** (stale half) |
-| [TASK-38](TASK-38-forecast-surface-cleanups.md) | Forecast-surface cleanups | Minor | **Done bar F4** |
+| [TASK-38](TASK-38-forecast-surface-cleanups.md) | Forecast-surface cleanups | Minor | **Done** |
 | [TASK-39](TASK-39-untidied-fallback-payee.md) | The `at`/`to` merchant fallbacks never tidied what they captured | Important | **Done** |
 
 **Phase 5's lesson is about measurement, not code: a number is only evidence once you know
@@ -214,6 +214,12 @@ means a build older than this branch will now refuse to open that database — i
    reparse only ever rewrites a stored row — it cannot retire one. TASK-32's defect
    therefore persists in data written before that fix, and rescanning will never clear it.
    New, measured, unfixed.
+
+   **Superseded by TASK-41, and re-measured 2026-08-05.** All 7 bodies are
+   `[amount] will be deducted on …`, so `isFutureDebitNotice` matches them and `active`
+   drops them: they are still on disk but no longer counted. What survives is narrower
+   than recorded here — the rows hold a real UMN in `merchant` while the body redacts it
+   as `[vpa]`, which is a redaction question (TASK-04's family), not a counting one.
 
 **Phase 5 was device-verified on 2026-08-04** and the database reconciled byte-identical
 before and after — install and navigation only, no scan, no destructive control tapped.
@@ -402,12 +408,81 @@ same calendar day. Historical only; it does not affect the current headline. Wid
 ±1 day was deliberately **not** done — same-day is doing most of the safety work, and a
 wider window is unmeasured.
 
-**New, measured, unfixed.** The ₹61,415 HDFC EMI landed mid-session and August's Drivers now
-show `hdfc bank ltd ₹61,415` beside `hdfc ltd ₹61,415`, putting "Required in bank" ₹61,415
-too high. **The mechanism recorded here was wrong in all three of its parts and is corrected
-in [TASK-43](TASK-43-one-debit-two-bank-alerts.md)** — see the Phase-6 entry below. Both rows
-are *actual debits*; neither is the obligation; `_obligationMatchKey` is not the gate; and
+**Measured, then fixed — kept for the correction it carries.** The ₹61,415 HDFC EMI landed
+mid-session and August's Drivers showed `hdfc bank ltd ₹61,415` beside `hdfc ltd ₹61,415`,
+putting "Required in bank" ₹61,415 too high. **The mechanism recorded here was wrong in all
+three of its parts and is corrected in
+[TASK-43](TASK-43-one-debit-two-bank-alerts.md)**, which then fixed it. Both rows are
+*actual debits*; neither is the obligation; `_obligationMatchKey` is not the gate; and
 `_matches` never reaches the merchant comparison for this pair at all.
+
+### Phase 7 — What an announcement is
+
+Opened 2026-08-05 by reading the device database after Phase 6 closed, rather than from the
+task the plan named next.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-44](TASK-44-announcement-booked-as-money.md) | Two bank announcements are still booked as real money (10 rows, ₹2,26,911.10) | Critical | **Done** |
+
+**The plan's stated next task was wrong for the third phase running, and once again the
+correction came from a query rather than from reading the source.** TASK-42 handed off
+"`sms_mandate:<payee>` cannot represent two concurrent mandates for one payee" as the obvious
+next move. It is real, but **latent on this device**: the only payee with two mandates is
+`phonepe`, and TASK-42's own fix already separates them, so nothing is being lost today. It
+stays open as a latent item rather than a defect to go fix.
+
+What was *not* latent sat beside it. `kFutureDebitNoticePattern` is the single source of
+truth for "this is an announcement, not money that moved", and two of the author's banks
+announce in words it did not contain:
+
+- **ICICI standing instruction** — `… towards Merchant Amazon **to be debited** from ICICI
+  Bank Credit Card …`. 8 rows, ₹4,081.10, every one stored as a completed debit. Four are
+  followed by the real card debit two to three days later (double-counted ₹2,639.00); four
+  have no partner at all (phantom ₹1,442.10). Four of the eight are user-confirmed.
+- **HDFC NACH mandate registration** — `Auto Pay (HDFC Bank NACH Mandate): … Freq MNTH
+  **received today for processing**.` 2 rows, ₹2,22,830, booked as **credits**, because
+  `received` reads as an inflow. Nothing moved; the amount is the mandate *ceiling*, and
+  ₹1,22,830 is exactly 2 × the ₹61,415 EMI TASK-43 spent its length on. This was phantom
+  income feeding the baselines that salary and inflow estimates are learned from.
+
+**Its lesson is that TASK-41's rule can be in the right place and still never fire.** The
+predicate already sits at `active`, where the working set is defined, so every read path
+inherits it — that half has been right since TASK-41. The rule simply did not know the words.
+**A rule in the right place is only as good as the vocabulary it consults**, and a vocabulary
+is the one part of a rule that no amount of reading the control flow will audit: you have to
+go and look at what the banks actually wrote. Ten further future-tense phrasings were swept
+and matched nothing, which is the evidence that the two added are the whole of it *on this
+inbox* — not that the vocabulary is now complete.
+
+Two entries in one regex, and nothing else. Because `isFutureDebitNotice` re-derives from the
+stored redacted body at read time, the 10 rows already on disk stopped counting the moment
+the pattern learned the words — no migration, no schema bump, no row deleted, and the four
+user-confirmed rows keep their confirmation.
+
+Predicted offline before installing, per TASK-43's precedent: over all 2,065 exported rows the
+widened pattern excluded **exactly 10 rows / ₹2,26,911.10**, and the 32 rows / ₹86,734.29
+TASK-41 already excludes reconciled unchanged.
+
+**Still open, and none of it is a defect to go fix today:**
+
+1. **The mandate key**, carried forward from TASK-42 and now measured as latent (above).
+2. **214 counted rows, ₹43,72,805.95, carry no merchant at all**, and 132 more carry the
+   `card purchase` placeholder although their bodies name the payee outright
+   (`… on AMAZON PAY IN G`). Same family as TASK-31/36/39. It is an identity and labelling
+   problem, not a counting one — every one of those rupees still has exactly one owner.
+3. **Five of the seven live obligations carry a due date in the past**, one from
+   2024-12-02. All are `onetime` mandate rows, which `_obligationHitsMonth` never projects
+   forward, and they surface as reviewable `pastDueObligation` coverage lines — the designed
+   behaviour, not a silent exclusion. Nothing refreshes or retires them once their notice
+   ages out of the inbox.
+4. **A redaction placeholder is reaching the user as a payee name.** The install for
+   TASK-44 rendered the 5 Aug ICICI card purchase as **`[number]`** in the transaction
+   list, where the stored `merchant` is `card purchase`. Recorded as an observed symptom
+   with **no diagnosed mechanism** — the suspect is TASK-30's reparse re-running the parser
+   over `raw_body_redacted`, whose tokens stand where the digits were, but that was not
+   confirmed and must be checked before anything is built on it. This is the fifth phase
+   running in which installing the build found something reading the source did not.
 
 ---
 

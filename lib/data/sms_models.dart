@@ -203,8 +203,9 @@ extension CoverageBucketStorage on CoverageBucket {
   };
 }
 
-/// The future tense that marks a bank message as an *announcement* of money
-/// about to move rather than a record of money that moved.
+/// The vocabulary that marks a bank message as an *announcement* — money about
+/// to move, or an authority to move it — rather than a record of money that
+/// moved.
 ///
 /// Single source of truth, read at two moments. The parser consults it at write
 /// time so a notice is never stored as an actual (TASK-32); the read paths
@@ -215,13 +216,31 @@ extension CoverageBucketStorage on CoverageBucket {
 /// It previously existed twice, as this regex in the parser and as a shorter
 /// substring list in `real_insights`, which is why the estimator and the
 /// recurring detector never saw the exclusion at all.
+///
+/// TASK-44 added the last two alternatives, and they are why the doc comment
+/// above says "announcement" rather than "future tense". The rule was already
+/// in the right place — at `active`, where the working set is defined — and
+/// simply never fired for these, because the vocabulary did not contain the
+/// words two of the author's banks use. Measured at 10 rows / ₹2,26,911.10.
 final RegExp kFutureDebitNoticePattern = RegExp(
   r'\bwill be (?:debited|credited|deducted)\b'
   r'|\bis due on\b'
   r'|\bdue for payment\b'
   r'|\bscheduled for\b'
   r'|\bupcoming mandate\b'
-  r'|\bmandate set for\b',
+  r'|\bmandate set for\b'
+  // ICICI standing instruction: "Payment of Rs X towards Merchant <M> to be
+  // debited from ICICI Bank Credit Card <n>, as per Standing Instruction".
+  // 8 rows on the device; 4 counted a second time against the real card debit
+  // that landed two to three days later, 4 were phantoms with no debit at all.
+  r'|\bto be debited\b'
+  // NACH mandate *registration*: "Auto Pay (HDFC Bank NACH Mandate): Rs X
+  // UMRN:… To:<payee> Freq <F> received today for processing." Nothing moved
+  // and the amount is the mandate ceiling, not a payment — ₹1,22,830 is
+  // exactly 2 × the ₹61,415 EMI of TASK-43. Both rows were stored as *credits*
+  // ("received" reads as an inflow), so this was phantom income feeding the
+  // baselines that salary and inflow estimates are learned from.
+  r'|\breceived today for processing\b',
   caseSensitive: false,
 );
 
