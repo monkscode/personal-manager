@@ -240,23 +240,71 @@ class SmsScanOrchestrator {
     );
 
     // One owner per rupee: when history has already locked a commitment for
-    // this payee, that commitment owns the future debit and the notice must not
-    // raise a second obligation beside it. The rupee is still attributed — just
-    // to the stronger of the two signals, the one backed by real occurrences.
-    final ownedByCommitment = {for (final c in candidates) c.merchantNorm};
+    // this debit, that commitment owns it and the notice must not raise a
+    // second obligation beside it. The rupee is still attributed — just to the
+    // stronger of the two signals, the one backed by real occurrences.
+    //
+    // The rule lives in `MandateOwnership` rather than here, and both places
+    // that need it below ask the same object. A predicate spelled out at each
+    // call site is not a rule (TASK-41).
+    final ownership = MandateOwnership(candidates);
+
+    // Every notice for one payee collapses onto `sms_mandate:<payee>` — the key
+    // is payee-only on purpose, because the announced amount changes month to
+    // month. The upsert merge then takes the incoming due date unconditionally,
+    // so writing each notice as it is read leaves the row holding whichever one
+    // the reader happened to yield last rather than the one actually next due.
+    // On the device that left the PhonePe mandate announcing 30 Dec 2025 while
+    // the newest notice for it said 29 Jul 2026 (TASK-42).
+    final latestPerPayee = <String, ObligationRecord>{};
+    // The payees some commitment owns *as this scan reads them*. A notice that
+    // is owned is never written, so the stored row keeps whatever it last held
+    // — on the device, a day-30 date from a December notice that no longer
+    // matches the day-29 commitment. Judging the stored row on its own stale
+    // fields would therefore never retire it. What the scan just read decides.
+    final ownedPayeeKeys = <String>{};
     for (final notice in notices) {
       final obligation = noticeObligations.toObligation(notice, now: timestamp);
-      if (ownedByCommitment.contains(obligation.merchantNorm)) continue;
+      if (ownership.owns(obligation)) {
+        ownedPayeeKeys.add(obligation.dedupeKey);
+        continue;
+      }
+      final held = latestPerPayee[obligation.dedupeKey];
+      if (held == null || _announcedAfter(obligation, held)) {
+        latestPerPayee[obligation.dedupeKey] = obligation;
+      }
+    }
+    for (final obligation in latestPerPayee.values) {
       await obliRepo.upsert(obligation, now: timestamp);
     }
 
+    // A payee is only redundant when *every* notice the scan read for it is
+    // owned. `sms_mandate:` is keyed on the payee alone, and one payee can
+    // front several unrelated mandates: Axis announces both the ₹120.07 Bharat
+    // Connect postpaid bill and a ₹310 Bharat Connect gas bill as "towards
+    // PhonePe". Retiring the row because one of its notices is owned would take
+    // the other, unowned, debit out of the forecast with it — a silent
+    // exclusion. Where an unowned notice exists the row stays live and now
+    // carries that debit, written just above.
+    final redundantPayeeKeys = ownedPayeeKeys.difference(
+      latestPerPayee.keys.toSet(),
+    );
+
     // The same rule, applied to rows already stored. The loop above only
-    // declines to write a *new* notice obligation for an owned payee; one
+    // declines to write a *new* notice obligation for an owned debit; one
     // written before the commitment locked stayed in the forecast beside it
     // forever (TASK-32's recorded finding). Runs after the notice loop so a
     // notice re-written this scan is retired only if a commitment owns it.
-    final retiredMandates = await obliRepo.retireOwnedMandates(
-      ownedMerchantNorms: ownedByCommitment,
+    final stored = await obliRepo.allActive();
+    final retiredMandates = await obliRepo.retireMandates(
+      dedupeKeys: {
+        for (final obligation in stored)
+          if (!obligation.isRetired &&
+              obligation.dedupeKey.startsWith(kMandateKeyPrefix) &&
+              (redundantPayeeKeys.contains(obligation.dedupeKey) ||
+                  ownership.owns(obligation)))
+            obligation.dedupeKey,
+      },
       now: timestamp,
     );
 
@@ -273,5 +321,17 @@ class SmsScanOrchestrator {
       refreshedParse: refreshedParse,
       skippedMessages: outcome.skippedCount,
     );
+  }
+
+  /// Whether [candidate] announces a later debit than [held].
+  ///
+  /// A notice always carries a date, so the nulls below are unreachable in
+  /// practice; a dateless record simply never displaces one that has a date.
+  static bool _announcedAfter(ObligationRecord candidate, ObligationRecord held) {
+    final next = candidate.dueDate;
+    final current = held.dueDate;
+    if (next == null) return false;
+    if (current == null) return true;
+    return next.isAfter(current);
   }
 }

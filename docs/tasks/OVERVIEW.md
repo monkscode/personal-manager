@@ -236,6 +236,7 @@ Opened 2026-08-05 from the four items carried out of Phase 5.
 |---|---|---|---|
 | [TASK-40](TASK-40-risk-decision-one-way-door.md) | A confirmed or dismissed risk decision cannot be undone | Critical | **Done** |
 | [TASK-41](TASK-41-notice-leak-into-working-set.md) | A future-debit notice reaches every read path added after TASK-32 | Critical | **Done** |
+| [TASK-42](TASK-42-mandate-owned-by-announced-debit.md) | A mandate notice and the commitment it announces are two owners for one rupee | Important | **Done** |
 
 **TASK-41 came from the user, not from the plan** — *"two entries for ₹118 on 3 Aug, I only
 spent it once; it wasn't showing two days ago."* Both halves were exact, and the second half
@@ -307,11 +308,52 @@ exactly two `Undo` controls, both rendering the stored override; the third decis
 obligation TASK-37 retired — correctly produces no row. The dismissed-restore path is
 test-verified only: this database holds no dismissal to render.
 
-**Still open from the Phase-5 four:** merchant identity resolution (the PhonePe pair and the
-Google pair, joined by name because every stored obligation carries `category_key = 'other'`),
-and the 7 rows worth ₹1,001.77 still holding a UMN as their merchant, which a reparse cannot
-retire. Item 4 is **narrowed, not closed**: two of the three stuck decisions are now
-user-clearable, the third is inert.
+**TASK-42 corrected the plan's own idea of what was left.** Phase 5 and the Phase-6 handoff
+both recorded the remaining duplicates as *merchant identity resolution* — "the join must
+come from the name", starting with the PhonePe pair, blocked by every obligation carrying
+`category_key = 'other'`. All three parts of that were wrong, and acting on it would have
+destroyed a real commitment:
+
+- The category blocker names `_commitmentSuppression`, which joins a *commitment* to a
+  projected obligation. Both members of each device pair are rows in the `obligations`
+  table, and **nothing joins obligation to obligation** — the horizon dedupes on
+  `dedupeKey + month`, the matcher emits one owner per row. The degeneracy is real and
+  unreachable from these rows.
+- **`phonepe` and `bharat connect postpaid bill payment` share no token.** They are one Axis
+  autopay: the notice says "towards PhonePe", the debit says "AutoPay Bharat Connect
+  PostPaid Bill Payment". No string method joins them.
+- **`google` and `google asia pacific pte.ltd` are two different subscriptions** — Axis on
+  the 28th, HDFC on the 11th, each with its own real debit series — and are *more* alike as
+  strings than the real duplicate. Name similarity gets the true duplicate wrong and merges
+  the two genuine commitments.
+
+So the join is what a notice **announces**: same due day, amount within the recurring jitter.
+`MandateOwnership` holds that rule and both the notice-write loop and the retirement sweep
+ask it.
+
+**Its lesson is that a green suite is not a verified fix.** Part 1 passed every test and
+changed nothing on the phone — the stored mandate held day 30 from a December notice while
+the commitment sat on day 29, because `sms_mandate:` is keyed on the payee alone and
+`_merge` takes the incoming date unconditionally, so the row held whichever notice was read
+last. Fixing that (newest notice wins) then exposed a third defect the same way: retiring a
+payee because one of its notices is owned took a *different* debit with it — Axis announces
+both a ₹120.07 postpaid bill and a ₹310 gas bill as "towards PhonePe". A payee is redundant
+only when **every** notice for it is owned. Two of the three parts exist because the build
+was installed and the database read, not because anything was reasoned out.
+
+**Still open:** the 7 rows worth ₹1,001.77 holding a UMN as their merchant, which a reparse
+cannot retire; and `sms_mandate:<payee>` still cannot represent two concurrent mandates for
+one payee (keying by payee *and* day-of-month is the obvious next move, complicated by the
+day drifting 29/30). Item 4 is **narrowed, not closed**: two of the three stuck decisions are
+now user-clearable, the third is inert.
+
+**New, measured, unfixed — and the real merchant-identity problem.** The ₹61,415 HDFC EMI
+landed mid-session and August's Drivers now show `hdfc bank ltd ₹61,415` beside
+`hdfc ltd ₹61,415`, putting "Required in bank" ₹61,415 too high.
+`ReconciliationMatcher._obligationMatchKey` builds its match key from `merchantNorm`, so an
+actual never folds into the obligation it just paid when the two spell the payee differently.
+Unlike the obligation pairs above, this one *is* a name problem — one token apart, same
+lender, no announced-debit evidence to substitute. It is the next task.
 
 ---
 

@@ -49,6 +49,9 @@ ObligationRecord smsRecurringCandidate({
   ObligationSourceType sourceType = ObligationSourceType.smsRecurring,
   String dedupeKey = 'sms_recurring:netflix:monthly',
   String merchantNorm = 'netflix',
+  int? amountPaise = 64900,
+  int? dueDay,
+  ReconciliationRecurrence recurrence = ReconciliationRecurrence.monthly,
 }) => ObligationRecord(
   sourceType: sourceType,
   sourceId: 'sms:batch',
@@ -56,9 +59,10 @@ ObligationRecord smsRecurringCandidate({
   merchant: merchantNorm,
   merchantNorm: merchantNorm,
   categoryKey: 'entertainment',
-  amountPaise: 64900,
+  amountPaise: amountPaise,
   amountStatus: AmountStatus.known,
-  recurrence: ReconciliationRecurrence.monthly,
+  recurrence: recurrence,
+  dueDay: dueDay,
   paymentAccountScope: AccountScope.unknown,
   paymentStatus: ReconciliationPaymentStatus.unpaid,
   nextExpectedSource: NextExpectedSource.lockedCadence,
@@ -541,6 +545,304 @@ void main() {
       );
 
       expect((await obliRepo.allActive()).single.isRetired, isFalse);
+    });
+  });
+
+  group('TASK-42 — a mandate notice is owned by the debit it announces', () {
+    Future<ScanRunResult> runWith(_StubCandidates source) => orchestrator(
+      candidateSource: source,
+    ).run(
+      outcome: SmsScanOutcome.success(const []),
+      txRepo: txRepo,
+      obliRepo: obliRepo,
+      isFirstScan: false,
+      bodyHashSalt: 'salt',
+      now: DateTime(2026, 8, 5),
+    );
+
+    test('a mandate the commitment spells differently is still retired',
+        () async {
+      // The device's live duplicate. Axis announces the debit as "PhonePe"
+      // ("For the upcoming mandate set for 29-07-26 … towards PhonePe for
+      // Autopay") and records the same debit as "AutoPay Bharat Connect
+      // PostPaid Bill Payment". One ₹120.07 commitment, two spellings that
+      // share no token, so the merchant-norm join in `ownedByCommitment`
+      // cannot see they are one payee.
+      await obliRepo.upsert(
+        smsRecurringCandidate(
+          dedupeKey: 'sms_mandate:phonepe',
+          merchantNorm: 'phonepe',
+          amountPaise: 12007,
+          dueDay: 29,
+          recurrence: ReconciliationRecurrence.onetime,
+        ),
+        now: DateTime(2026, 7, 1),
+      );
+
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey:
+                'sms_recurring:bharat connect postpaid bill payment:monthly',
+            merchantNorm: 'bharat connect postpaid bill payment',
+            amountPaise: 12007,
+            dueDay: 29,
+          ),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:phonepe',
+      );
+      expect(mandate.isRetired, isTrue);
+    });
+
+    test('same amount on a different due day is a different commitment',
+        () async {
+      // The guard that stops the fix from being an amount-only merge. Both
+      // Google mandates on the device are ₹1,999: one is an Axis debit on the
+      // 28th ("debited towards Google"), the other an HDFC UPI mandate on the
+      // 11th ("To Google Play"). Two subscriptions, not one spelled twice —
+      // and their names are far *more* alike than the PhonePe pair's.
+      await obliRepo.upsert(
+        smsRecurringCandidate(
+          dedupeKey: 'sms_mandate:google asia pacific pte.ltd',
+          merchantNorm: 'google asia pacific pte.ltd',
+          amountPaise: 199900,
+          dueDay: 11,
+          recurrence: ReconciliationRecurrence.onetime,
+        ),
+        now: DateTime(2026, 7, 1),
+      );
+
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey: 'sms_recurring:google:monthly',
+            merchantNorm: 'google',
+            amountPaise: 199900,
+            dueDay: 28,
+          ),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:google asia pacific pte.ltd',
+      );
+      expect(mandate.isRetired, isFalse);
+    });
+
+    test('a different amount on the same due day is a different commitment',
+        () async {
+      await obliRepo.upsert(
+        smsRecurringCandidate(
+          dedupeKey: 'sms_mandate:axis bank cc',
+          merchantNorm: 'axis bank cc',
+          amountPaise: 127500,
+          dueDay: 5,
+          recurrence: ReconciliationRecurrence.onetime,
+        ),
+        now: DateTime(2026, 7, 1),
+      );
+
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey: 'sms_recurring:hdfc bank ltd:monthly',
+            merchantNorm: 'hdfc bank ltd',
+            amountPaise: 6141500,
+            dueDay: 5,
+          ),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:axis bank cc',
+      );
+      expect(mandate.isRetired, isFalse);
+    });
+
+    test('the newest notice for a payee sets the due date, whatever order '
+        'the scan reads them in', () async {
+      // Every notice for one payee collapses onto `sms_mandate:<payee>` — the
+      // key is payee-only on purpose (the announced amount changes monthly).
+      // `_merge` then takes `incoming.dueDate` unconditionally, so the row ends
+      // up holding whichever notice the scan happened to read last. On the
+      // device that left `sms_mandate:phonepe` announcing 30 Dec 2025 while the
+      // newest notice said 29 Jul 2026 — and a stale day is what stops the
+      // mandate joining the commitment that owns it.
+      await orchestrator().run(
+        outcome: SmsScanOutcome.success([
+          bankSms(
+            providerId: 'notice-new',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2026, 7, 26, 9),
+            body:
+                'For the upcoming mandate set for 29-07-26, Rs.120.07 will be '
+                'debited from your A/c towards PhonePe for Autopay, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+          bankSms(
+            providerId: 'notice-old',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2025, 12, 27, 9),
+            body:
+                'For the upcoming mandate set for 30-12-25, Rs.120.07 will be '
+                'debited from your A/c towards PhonePe for Autopay, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+        ]),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: false,
+        bodyHashSalt: 'salt',
+        now: DateTime(2026, 8, 5),
+      );
+
+      final mandate = (await obliRepo.allActive()).single;
+      expect(mandate.dedupeKey, 'sms_mandate:phonepe');
+      expect(mandate.dueDate, DateTime(2026, 7, 29));
+      expect(mandate.dueDay, 29);
+    });
+
+    test('a stored mandate holding a stale day is retired on what the scan '
+        'reads now', () async {
+      // The device's exact state, and the trap in the fix above. The stored row
+      // held day 30 from an old notice. The notice this scan reads says day 29
+      // and *is* owned by the commitment — so it is never written, the stored
+      // row keeps day 30, and judging that row on its own stale fields would
+      // leave the duplicate standing forever.
+      await obliRepo.upsert(
+        smsRecurringCandidate(
+          dedupeKey: 'sms_mandate:phonepe',
+          merchantNorm: 'phonepe',
+          amountPaise: 12007,
+          dueDay: 30,
+          recurrence: ReconciliationRecurrence.onetime,
+        ),
+        now: DateTime(2026, 7, 1),
+      );
+
+      await orchestrator(
+        candidateSource: _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey:
+                'sms_recurring:bharat connect postpaid bill payment:monthly',
+            merchantNorm: 'bharat connect postpaid bill payment',
+            amountPaise: 12007,
+            dueDay: 29,
+          ),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      ).run(
+        outcome: SmsScanOutcome.success([
+          bankSms(
+            providerId: 'notice-live',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2026, 7, 26, 9),
+            body:
+                'For the upcoming mandate set for 29-07-26, Rs.120.07 will be '
+                'debited from your A/c towards PhonePe for Autopay, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+        ]),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: false,
+        bodyHashSalt: 'salt',
+        now: DateTime(2026, 8, 5),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:phonepe',
+      );
+      expect(mandate.isRetired, isTrue);
+    });
+
+    test('a payee whose other mandate is unowned keeps its obligation',
+        () async {
+      // Measured on the device and very nearly shipped as a silent exclusion.
+      // Axis announces two different autopays as "towards PhonePe": the
+      // ₹120.07 Bharat Connect *PostPaid* bill on the 29th, which a commitment
+      // owns, and a ₹310 Bharat Connect *Gas* bill on the 3rd, which nothing
+      // else owns. Both collapse onto `sms_mandate:phonepe`, so retiring the
+      // row because one of its notices is owned takes the gas bill with it.
+      await orchestrator(
+        candidateSource: _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey:
+                'sms_recurring:bharat connect postpaid bill payment:monthly',
+            merchantNorm: 'bharat connect postpaid bill payment',
+            amountPaise: 12007,
+            dueDay: 29,
+          ),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      ).run(
+        outcome: SmsScanOutcome.success([
+          bankSms(
+            providerId: 'notice-owned',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2026, 7, 26, 9),
+            body:
+                'For the upcoming mandate set for 29-07-26, Rs.120.07 will be '
+                'debited from your A/c towards PhonePe for Autopay, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+          bankSms(
+            providerId: 'notice-unowned',
+            sender: 'AX-AXISBK-S',
+            at: DateTime(2026, 7, 1, 9),
+            body:
+                'For the upcoming mandate set for 03-07-26, Rs.310.00 will be '
+                'debited from your A/c towards PhonePe for Autopay, '
+                '512345678901. To stop execution, pause mandate - Axis Bank',
+          ),
+        ]),
+        txRepo: txRepo,
+        obliRepo: obliRepo,
+        isFirstScan: false,
+        bodyHashSalt: 'salt',
+        now: DateTime(2026, 8, 5),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:phonepe',
+      );
+      // Live, and carrying the debit nothing else owns — not the owned one.
+      expect(mandate.isRetired, isFalse);
+      expect(mandate.amountPaise, 31000);
+      expect(mandate.dueDay, 3);
+    });
+
+    test('a mandate with no due day is never matched by amount alone',
+        () async {
+      // `unnamed mandate` carries an amount but the notice named no payee. An
+      // amount-only join would retire it against any commitment that happened
+      // to cost the same.
+      await obliRepo.upsert(
+        smsRecurringCandidate(
+          dedupeKey: 'sms_mandate:unnamed mandate',
+          merchantNorm: 'unnamed mandate',
+          amountPaise: 10000,
+          recurrence: ReconciliationRecurrence.onetime,
+        ),
+        now: DateTime(2026, 7, 1),
+      );
+
+      await runWith(
+        _StubCandidates([
+          smsRecurringCandidate(
+            dedupeKey: 'sms_recurring:someone:monthly',
+            merchantNorm: 'someone',
+            amountPaise: 10000,
+            dueDay: 14,
+          ),
+        ], sweptKeyPrefixes: const {'sms_recurring:'}),
+      );
+
+      final mandate = (await obliRepo.allActive()).firstWhere(
+        (o) => o.dedupeKey == 'sms_mandate:unnamed mandate',
+      );
+      expect(mandate.isRetired, isFalse);
     });
   });
 }

@@ -163,26 +163,30 @@ class ObligationRepository {
     return retired;
   }
 
-  /// Stamps `retired_at` on the `sms_mandate:` row for each payee in
-  /// [ownedMerchantNorms]. Returns the number stamped.
+  /// Stamps `retired_at` on each row named in [dedupeKeys]. Returns the number
+  /// stamped.
   ///
   /// A mandate obligation is one bank pre-notification: it proves a date, not a
-  /// cadence. Once history locks a *commitment* for the same payee, that
-  /// commitment owns the future debit and the notice is a second owner for the
-  /// same rupee. `SmsScanOrchestrator` already declines to write one in that
-  /// case, but that guard only covers new notices — a row stored before the
-  /// commitment locked stayed forever, which is TASK-32's recorded finding.
+  /// cadence. Once history locks a *commitment* for the same debit, that
+  /// commitment owns it and the notice is a second owner for the same rupee.
+  /// `SmsScanOrchestrator` already declines to write one in that case, but that
+  /// guard only covers new notices — a row stored before the commitment locked
+  /// stayed forever, which is TASK-32's recorded finding.
   ///
-  /// Retires by exact key, never by prefix: the payee has to be the one the
-  /// commitment actually named.
-  Future<int> retireOwnedMandates({
-    required Set<String> ownedMerchantNorms,
+  /// Which keys those are is not this layer's decision: `MandateOwnership`
+  /// holds the rule, and the orchestrator applies it to both the notices it is
+  /// about to write and the rows already stored, so one rule governs both
+  /// (TASK-42). This method retires by exact key and never by prefix.
+  ///
+  /// Rows already retired are left alone so the original timestamp survives.
+  Future<int> retireMandates({
+    required Set<String> dedupeKeys,
     required DateTime now,
   }) async {
-    if (ownedMerchantNorms.isEmpty) return 0;
+    if (dedupeKeys.isEmpty) return 0;
     var retired = 0;
     await _db.transaction((txn) async {
-      for (final norm in ownedMerchantNorms) {
+      for (final key in dedupeKeys) {
         retired += await txn.update(
           'obligations',
           {
@@ -190,7 +194,7 @@ class ObligationRepository {
             'updated_at': now.millisecondsSinceEpoch,
           },
           where: 'dedupe_key = ? AND retired_at IS NULL',
-          whereArgs: ['sms_mandate:$norm'],
+          whereArgs: [key],
         );
       }
     });
