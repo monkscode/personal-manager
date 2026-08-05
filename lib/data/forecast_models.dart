@@ -1,3 +1,4 @@
+import 'forecast_risk_models.dart';
 import 'sms_models.dart';
 
 /// Months of forward outlook the rolling ledger projects (matches the 12-bar
@@ -233,6 +234,29 @@ class ForecastLine {
 
   /// The canonical obligation dedupe key for stable risk-decision matching.
   final String? obligationDedupeKey;
+}
+
+/// A forecast line that is where it is because the user decided so, paired with
+/// the decision that put it there.
+///
+/// Exists because a risk decision used to be a one-way door (TASK-40): a
+/// `dismissed` candidate reached no collection at all, and a `confirmed` one
+/// moved into the hard lines, which render without controls. Neither could be
+/// reversed from the app. This is a *control surface* — nothing sums it, and a
+/// confirmed line appears here as well as in the ledger it now belongs to.
+///
+/// Only `confirmed` and `dismissed` are ever collected. A `pending` decision is
+/// the absence of a decision, so there is nothing to undo.
+class ForecastDecidedLine {
+  const ForecastDecidedLine({required this.line, required this.status});
+
+  /// For a confirmed decision this carries the *overridden* amount and date —
+  /// the row the user sees must be the amount actually in the plan. For a
+  /// dismissed one it is the untouched candidate, because an override on a
+  /// dismissed decision never reached the ledger either.
+  final ForecastLine line;
+
+  final ForecastRiskDecisionStatus status;
 }
 
 class ForecastMonthResult {

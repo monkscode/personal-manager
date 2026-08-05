@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:expense_insight/data/forecast_models.dart';
+import 'package:expense_insight/data/forecast_risk_models.dart';
 import 'package:expense_insight/services/forecast_adapter.dart';
 import 'package:expense_insight/services/forecast_explorer.dart';
 import 'package:expense_insight/services/reserve_planner.dart';
@@ -1413,6 +1414,75 @@ void main() {
     });
   });
 
+  group('TASK-40 — a decided line reaches the month it belongs to', () {
+    ForecastDecidedLine decided(String label, DateTime date, int paise) =>
+        ForecastDecidedLine(
+          line: ForecastLine(
+            label: label,
+            amountPaise: paise,
+            source: ForecastEventSource.recurring,
+            date: date,
+            ownerKey: 'owner:$label',
+            status: ForecastLineStatus.review,
+            confidence: 0.5,
+            direction: LedgerDirection.outflow,
+          ),
+          status: ForecastRiskDecisionStatus.dismissed,
+        );
+
+    test('lands in its own month and not in a neighbouring one', () {
+      final july = DateTime(2026, 7, 1);
+      final august = DateTime(2026, 8, 1);
+      final outlook = ForecastOutlook(
+        targetMonth: july,
+        anchor: _anchor(10000000, july),
+        openingBalancePaise: 10000000,
+        closingBalancePaise: 10000000,
+        minimumBalancePaise: 10000000,
+        minimumBalanceDate: july,
+        shortfallPaise: 0,
+        headline: 'OK',
+        isProvisional: false,
+        salaryMissing: false,
+        isSeasonalBufferShortfall: false,
+        salary: const ForecastSalaryStrip(
+          committedPaise: 0,
+          expectedSalaryPaise: 0,
+          freePaise: 10000000,
+        ),
+        lines: const [],
+        coverageLines: const [],
+        forwardEarmarks: const [],
+        assignments: const [],
+        months: [
+          _monthResult(july, 10000000, []),
+          ..._emptyMonths(11, august),
+        ],
+        decidedLines: [
+          decided('July dismissal', DateTime(2026, 7, 14), 300000),
+          decided('August dismissal', DateTime(2026, 8, 14), 400000),
+        ],
+      );
+
+      final explorer = buildForecastExplorer(
+        outlook: outlook,
+        reservePlan: const ReservePlan.empty(),
+        now: DateTime(2026, 7, 22),
+      );
+
+      expect(
+        explorer.planAt(0).decidedLines.map((d) => d.line.label),
+        ['July dismissal'],
+      );
+      expect(
+        explorer.planAt(1).decidedLines.map((d) => d.line.label),
+        ['August dismissal'],
+      );
+      // A control surface only: a dismissed line is not money in the plan.
+      expect(explorer.planAt(0).riskBufferPaise, 0);
+      expect(explorer.planAt(0).committedOutflowPaise, 0);
+    });
+  });
 }
 
 // Helper builders

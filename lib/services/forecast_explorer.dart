@@ -41,6 +41,7 @@ class ForecastMonthPlan {
     required this.riskBufferPaise,
     required this.riskLines,
     required this.hardLines,
+    required this.decidedLines,
     required this.coverageLines,
     required this.confidence,
     required this.isProvisional,
@@ -67,6 +68,12 @@ class ForecastMonthPlan {
   final int riskBufferPaise;
   final List<ForecastLine> riskLines;
   final List<ForecastLine> hardLines;
+
+  /// Candidates in this month whose placement is the user's own decision, so
+  /// the decision can be reversed (TASK-40). Required rather than defaulted so
+  /// no construction site inherits an empty list silently — the same reasoning
+  /// that made [ForecastLine.direction] required in TASK-35.
+  final List<ForecastDecidedLine> decidedLines;
   final List<ForecastCoverageLine> coverageLines;
   final double confidence;
   final bool isProvisional;
@@ -122,6 +129,9 @@ ForecastExplorer buildForecastExplorer({
       monthStart,
     );
     final monthRiskLines = _linesForMonth(outlook.riskLines, monthStart);
+    final monthDecidedLines = outlook.decidedLines
+        .where((d) => _isInMonth(d.line, monthStart))
+        .toList();
     // Use coverage lines from the month result (already month-specific)
     final monthCoverageLines = monthResult.coverageLines;
 
@@ -187,6 +197,7 @@ ForecastExplorer buildForecastExplorer({
         riskBufferPaise: riskBuffer,
         riskLines: monthRiskLines,
         hardLines: monthHardLines,
+        decidedLines: monthDecidedLines,
         coverageLines: monthCoverageLines,
         confidence: confidence,
         isProvisional: outlook.isProvisional,
@@ -250,13 +261,17 @@ DateTime _normalizeMonth(DateTime date) {
   return DateTime(date.year, date.month, 1);
 }
 
+/// Whether a line is dated inside the given month. An undated line belongs to
+/// no month.
+bool _isInMonth(ForecastLine line, DateTime month) {
+  if (line.date == null) return false;
+  final lineMonth = _normalizeMonth(line.date!);
+  return lineMonth.year == month.year && lineMonth.month == month.month;
+}
+
 /// Filter lines to those with a date in the specified month.
 List<ForecastLine> _linesForMonth(List<ForecastLine> lines, DateTime month) {
-  return lines.where((line) {
-    if (line.date == null) return false;
-    final lineMonth = _normalizeMonth(line.date!);
-    return lineMonth.year == month.year && lineMonth.month == month.month;
-  }).toList();
+  return lines.where((line) => _isInMonth(line, month)).toList();
 }
 
 /// Statuses that represent true hard states (not weak/risk/coverage).

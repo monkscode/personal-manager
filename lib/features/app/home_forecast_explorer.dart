@@ -242,7 +242,26 @@ class _HomeForecastExplorerState extends State<HomeForecastExplorer> {
         if (plan.hardLines.isNotEmpty) ...[
           _SectionLabel('Drivers'),
           const SizedBox(height: 8),
-          ..._rankedDrivers(plan.hardLines),
+          ..._rankedDrivers(plan),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Dismissed by the user ───────────────────────────────────────
+        // A dismissed candidate reaches neither the ledger nor the risk
+        // lines, so without this section it left the plan with nothing on
+        // screen to say so and no way back (TASK-40).
+        if (_dismissed(plan).isNotEmpty) ...[
+          _SectionLabel('Dismissed'),
+          const SizedBox(height: 8),
+          ..._dismissed(plan).map(
+            (d) => _DismissedRow(
+              line: d.line,
+              isPending: _pendingActions.contains('risk:${d.line.ownerKey}'),
+              onRestore: () => _handleRiskAction(
+                _pendingDecision(d.line, plan.monthStart),
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
         ],
 
@@ -307,10 +326,47 @@ class _HomeForecastExplorerState extends State<HomeForecastExplorer> {
     );
   }
 
-  List<Widget> _rankedDrivers(List<ForecastLine> lines) {
-    final sorted = [...lines]
+  List<ForecastDecidedLine> _dismissed(ForecastMonthPlan plan) => plan
+      .decidedLines
+      .where((d) => d.status == ForecastRiskDecisionStatus.dismissed)
+      .toList();
+
+  /// Reverting a decision writes `pending`, which is in every respect
+  /// equivalent to never having decided: `_isHard` tests only for `confirmed`,
+  /// `_applyOverride` ignores any non-confirmed status, and the dismissal
+  /// `continue` stops firing. The overrides are deliberately dropped rather
+  /// than echoed back — the decision they belonged to is being withdrawn.
+  ForecastRiskDecision _pendingDecision(ForecastLine line, DateTime month) =>
+      ForecastRiskDecision(
+        ownerKey: line.ownerKey,
+        targetMonth: _targetMonthKey(month),
+        status: ForecastRiskDecisionStatus.pending,
+      );
+
+  List<Widget> _rankedDrivers(ForecastMonthPlan plan) {
+    // Match on ownerKey, not on the line object: `_hardLinesForMonth`
+    // substitutes a matching reconciliation line for the event-derived one
+    // when amount and date agree, so identity — and any flag stamped onto the
+    // line — does not survive. The owner key does.
+    final confirmedOwners = {
+      for (final d in plan.decidedLines)
+        if (d.status == ForecastRiskDecisionStatus.confirmed) d.line.ownerKey,
+    };
+    final sorted = [...plan.hardLines]
       ..sort((a, b) => b.amountPaise.compareTo(a.amountPaise));
-    return sorted.map((line) => _DriverRow(line: line)).toList();
+    return sorted
+        .map(
+          (line) => _DriverRow(
+            line: line,
+            isPending: _pendingActions.contains('risk:${line.ownerKey}'),
+            onUndo: confirmedOwners.contains(line.ownerKey)
+                ? () => _handleRiskAction(
+                    _pendingDecision(line, plan.monthStart),
+                  )
+                : null,
+          ),
+        )
+        .toList();
   }
 }
 
@@ -756,9 +812,18 @@ class _DetailRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _DriverRow extends StatelessWidget {
-  const _DriverRow({required this.line});
+  const _DriverRow({
+    required this.line,
+    this.onUndo,
+    this.isPending = false,
+  });
 
   final ForecastLine line;
+
+  /// Null when this line is hard on its own evidence — there is no decision to
+  /// reverse, so no control is offered.
+  final VoidCallback? onUndo;
+  final bool isPending;
 
   @override
   Widget build(BuildContext context) {
@@ -786,6 +851,77 @@ class _DriverRow extends StatelessWidget {
               color: p.textSecondary,
             ),
           ),
+          if (onUndo != null) ...[
+            const SizedBox(width: 8),
+            if (isPending)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              _SmallAction(label: 'Undo', onTap: onUndo!, muted: true),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dismissed row
+// ---------------------------------------------------------------------------
+
+class _DismissedRow extends StatelessWidget {
+  const _DismissedRow({
+    required this.line,
+    required this.isPending,
+    required this.onRestore,
+  });
+
+  final ForecastLine line;
+  final bool isPending;
+  final VoidCallback onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  line.label,
+                  style: jakarta(
+                    size: 12,
+                    weight: FontWeight.w600,
+                    color: p.textSecondary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  inr(line.amountPaise ~/ 100),
+                  style: mono(
+                    size: 11,
+                    weight: FontWeight.w500,
+                    color: p.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isPending)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            _SmallAction(label: 'Restore', onTap: onRestore),
         ],
       ),
     );

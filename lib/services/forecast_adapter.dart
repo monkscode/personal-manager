@@ -67,6 +67,7 @@ class ForecastOutlook {
     required this.assignments,
     required this.months,
     this.riskLines = const [],
+    this.decidedLines = const [],
   });
 
   final DateTime targetMonth;
@@ -103,6 +104,10 @@ class ForecastOutlook {
   /// no confirmed risk decision — surfaced separately so they cannot create
   /// false safety or false shortfall.
   final List<ForecastLine> riskLines;
+
+  /// Candidates whose placement is the user's own decision, so that decision
+  /// can be reversed (TASK-40). Not a ledger input — nothing sums this.
+  final List<ForecastDecidedLine> decidedLines;
 
   final List<OwnedForecastItem> assignments;
   final List<ForecastMonthResult> months;
@@ -163,16 +168,41 @@ class ForecastAdapter {
     final riskDecisionMap = _buildDecisionMap(snapshot.riskDecisions);
     final hardEvents = <ForecastEvent>[];
     final riskLines = <ForecastLine>[];
+    // Every candidate the user has ruled on, so the ruling can be reversed.
+    // Both branches below used to be terminal: a dismissed candidate reached no
+    // collection at all, and a confirmed one landed in the hard lines, which
+    // render without controls (TASK-40).
+    final decidedLines = <ForecastDecidedLine>[];
     for (final event in candidateEvents) {
       final monthKey = _monthKey(event.date);
       final decision = riskDecisionMap['${event.ownerKey}:$monthKey'];
 
       if (decision?.status == ForecastRiskDecisionStatus.dismissed) {
-        continue; // dismissed — disappear entirely
+        // Report it before dropping it. The override is deliberately NOT
+        // applied: it never reached the ledger either, so echoing it back
+        // would show the user an amount nothing ever used.
+        decidedLines.add(
+          ForecastDecidedLine(
+            line: _decidedLine(event, ForecastLineStatus.review),
+            status: ForecastRiskDecisionStatus.dismissed,
+          ),
+        );
+        continue; // dismissed — stays out of the plan
       }
 
       if (_isHard(event, decision)) {
-        hardEvents.add(_applyOverride(event, decision));
+        final resolved = _applyOverride(event, decision);
+        hardEvents.add(resolved);
+        // Only a decision earns an undo. An event that is hard on its own
+        // confidence has nothing for the user to reverse.
+        if (decision?.status == ForecastRiskDecisionStatus.confirmed) {
+          decidedLines.add(
+            ForecastDecidedLine(
+              line: _decidedLine(resolved, ForecastLineStatus.projected),
+              status: ForecastRiskDecisionStatus.confirmed,
+            ),
+          );
+        }
       } else {
         riskLines.add(
           ForecastLine(
@@ -244,6 +274,7 @@ class ForecastAdapter {
       coverageLines: month0.coverageLines,
       forwardEarmarks: forwardEarmarks,
       riskLines: List.unmodifiable(riskLines),
+      decidedLines: List.unmodifiable(decidedLines),
       assignments: reconciliation.assignments,
       months: months,
     );
@@ -713,6 +744,23 @@ class ForecastAdapter {
       decision?.status == ForecastRiskDecisionStatus.confirmed ||
       event.isUserConfirmed ||
       event.confidence >= kReserveHardConfidence;
+
+  /// Render an event as the line shown beside its undo control.
+  static ForecastLine _decidedLine(
+    ForecastEvent event,
+    ForecastLineStatus status,
+  ) => ForecastLine(
+    label: event.label,
+    amountPaise: event.amountPaise,
+    source: event.source,
+    date: event.date,
+    ownerKey: event.ownerKey,
+    status: status,
+    confidence: event.confidence,
+    direction: event.direction,
+    isUserConfirmed: event.isUserConfirmed,
+    obligationDedupeKey: event.obligationDedupeKey,
+  );
 
   /// Apply amount/date overrides from a confirmed decision.
   static ForecastEvent _applyOverride(

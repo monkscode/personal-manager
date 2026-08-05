@@ -228,6 +228,51 @@ gone from the total), and TASK-37's double count confirmed rendered: `phonepe �
 was minting a *fourth* stored spelling of one commitment, and `merchantNorm` is what the
 obligation dedupe key is built from — TASK-37's double count fed from upstream.
 
+### Phase 6 — Reversibility and identity
+
+Opened 2026-08-05 from the four items carried out of Phase 5.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-40](TASK-40-risk-decision-one-way-door.md) | A confirmed or dismissed risk decision cannot be undone | Critical | **Done** |
+
+**TASK-40's premises all survived contact with the source and the device** — the first task
+file in six phases where that is true, and worth recording precisely because the standing
+lesson is the opposite. Both doors were exactly as described: `dismissed` hits a `continue`
+before any collection, and `confirmed` lands in `hardLines`, which render through
+`_rankedDrivers` as a label and an amount with no callbacks at all.
+
+The mechanism is a new `ForecastDecidedLine` collection carried on `ForecastOutlook` and
+`ForecastMonthPlan`. Reversal writes `ForecastRiskDecisionStatus.pending` rather than
+deleting the row — verified against all three consumers to be exactly equivalent to never
+having decided (`_isHard` tests only for `confirmed`; `_applyOverride` returns the event
+untouched for any other status; the dismissal `continue` stops firing). Retire, never
+delete — the same rule TASK-37 established for obligations.
+
+**Two things worth carrying forward.**
+
+1. **Match on `ownerKey`, never on a flag stamped onto the line.**
+   `_hardLinesForMonth` substitutes a matching *reconciliation* line for the event-derived
+   one whenever amount and date agree — and a plain `Confirm` passes the line's own amount
+   and date as the override, so that substitution is the common case, not the edge. A flag
+   would have been silently dropped on exactly the rows that needed it, and every unit test
+   would still have passed.
+2. **A widget test that asserts an absence must scroll the section into view first.** The
+   `no Undo without a decision` guard initially "failed" for the wrong reason — the row was
+   never built, because the `ListView` is lazy and the Drivers section sits below the fold.
+   An unscrolled `findsNothing` passes whatever the code does.
+
+Device-verified 2026-08-05, byte-identical database before and after. September shows
+exactly two `Undo` controls, both rendering the stored override; the third decision — whose
+obligation TASK-37 retired — correctly produces no row. The dismissed-restore path is
+test-verified only: this database holds no dismissal to render.
+
+**Still open from the Phase-5 four:** merchant identity resolution (the PhonePe pair and the
+Google pair, joined by name because every stored obligation carries `category_key = 'other'`),
+and the 7 rows worth ₹1,001.77 still holding a UMN as their merchant, which a reparse cannot
+retire. Item 4 is **narrowed, not closed**: two of the three stuck decisions are now
+user-clearable, the third is inert.
+
 ---
 
 ## Context every agent needs

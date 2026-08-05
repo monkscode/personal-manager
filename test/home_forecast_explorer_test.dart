@@ -104,6 +104,7 @@ ForecastMonthPlan _plan({
   int riskBufferPaise = 0,
   List<ForecastLine> riskLines = const [],
   List<ForecastLine> hardLines = const [],
+  List<ForecastDecidedLine> decidedLines = const [],
   List<ForecastCoverageLine> coverageLines = const [],
   double confidence = 0.85,
   bool isProvisional = false,
@@ -122,6 +123,7 @@ ForecastMonthPlan _plan({
   riskBufferPaise: riskBufferPaise,
   riskLines: riskLines,
   hardLines: hardLines,
+  decidedLines: decidedLines,
   coverageLines: coverageLines,
   confidence: confidence,
   isProvisional: isProvisional,
@@ -1513,5 +1515,139 @@ void main() {
         expect(sepPlan.riskLines.first.label, 'Car service');
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK-40 — a risk decision must be reversible from the screen
+  // -------------------------------------------------------------------------
+
+  group('TASK-40 — a decision can be undone', () {
+    final july = _monthStart(_kJuly);
+
+    ForecastExplorer withDecided(
+      List<ForecastDecidedLine> decided, {
+      List<ForecastLine> hardLines = const [],
+    }) {
+      final plans = <ForecastMonthPlan>[
+        _plan(
+          monthStart: july,
+          requiredInBankPaise: 1800000,
+          committedOutflowPaise: 1800000,
+          hardLines: hardLines,
+          decidedLines: decided,
+        ),
+        for (var m = 8; m <= 18; m++)
+          _plan(
+            monthStart: _monthStart(m > 12 ? m - 12 : m, m > 12 ? 2027 : 2026),
+            requiredInBankPaise: 1000000,
+            committedOutflowPaise: 1000000,
+          ),
+      ];
+      return ForecastExplorer(
+        plans: plans,
+        currentAction: ForecastCurrentAction(
+          requiredInBankPaise: plans.first.requiredInBankPaise,
+          keepAvailableUntil: plans.first.minimumBalanceDate,
+          reserveContributionPaise: 0,
+          reserveSchedules: const [],
+          isProvisional: false,
+        ),
+        availableToEnable: const [],
+      );
+    }
+
+    testWidgets('a confirmed driver row offers Undo, and it writes pending', (
+      tester,
+    ) async {
+      final line = _hardLine('LIC premium', 3200000, july, ownerKey: 'own:lic');
+      await _pumpExplorer(
+        tester,
+        withDecided(
+          [
+            ForecastDecidedLine(
+              line: line,
+              status: ForecastRiskDecisionStatus.confirmed,
+            ),
+          ],
+          hardLines: [line],
+        ),
+      );
+
+      await tester.dragUntilVisible(
+        find.text('LIC premium'),
+        find.byType(ListView),
+        const Offset(0, -200),
+      );
+
+      expect(find.text('Undo'), findsOneWidget);
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+
+      expect(_riskDecisions, hasLength(1));
+      expect(_riskDecisions.single.status, ForecastRiskDecisionStatus.pending);
+      expect(_riskDecisions.single.ownerKey, 'own:lic');
+      expect(_riskDecisions.single.targetMonth, '2026-07');
+    });
+
+    testWidgets('a driver row with no decision offers no Undo (guard)', (
+      tester,
+    ) async {
+      // Guard, not regression coverage: this passes before the fix too, because
+      // no row had an Undo at all. It is here so the fix cannot over-reach and
+      // offer to undo an event that is hard on its own confidence.
+      await _pumpExplorer(
+        tester,
+        withDecided(const [], hardLines: [_hardLine('Rent', 1500000, july)]),
+      );
+
+      // Scroll the Drivers section into view first: asserting an absence
+      // against an unbuilt ListView would pass for the wrong reason.
+      await tester.dragUntilVisible(
+        find.text('Rent'),
+        find.byType(ListView),
+        const Offset(0, -200),
+      );
+
+      expect(find.text('Rent'), findsOneWidget);
+      expect(find.text('Undo'), findsNothing);
+    });
+
+    testWidgets('a dismissed line is named on screen and can be restored', (
+      tester,
+    ) async {
+      await _pumpExplorer(
+        tester,
+        withDecided([
+          ForecastDecidedLine(
+            line: _riskLine(
+              'Car service',
+              500000,
+              july,
+              ownerKey: 'own:car',
+            ),
+            status: ForecastRiskDecisionStatus.dismissed,
+          ),
+        ]),
+      );
+
+      await tester.dragUntilVisible(
+        find.text('Car service'),
+        find.byType(ListView),
+        const Offset(0, -200),
+      );
+
+      // Named, so the exclusion is not silent.
+      expect(find.text('Dismissed'), findsOneWidget);
+      expect(find.text('Car service'), findsOneWidget);
+      expect(find.text(inr(500000 ~/ 100)), findsOneWidget);
+
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+
+      expect(_riskDecisions, hasLength(1));
+      expect(_riskDecisions.single.status, ForecastRiskDecisionStatus.pending);
+      expect(_riskDecisions.single.ownerKey, 'own:car');
+      expect(_riskDecisions.single.targetMonth, '2026-07');
+    });
   });
 }

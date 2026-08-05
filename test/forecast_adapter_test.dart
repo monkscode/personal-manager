@@ -703,6 +703,129 @@ void main() {
       },
     );
 
+    // ---- TASK-40: a decision must be reversible --------------------------
+    //
+    // Both branches a decision can take are terminal in the UI: `dismissed`
+    // hits a `continue` and reaches no collection at all, and `confirmed`
+    // lands in hardLines, which render as display-only driver rows. The
+    // adapter is the only place that sees the candidate and the decision
+    // together, so it has to report what a decision did.
+
+    SmsAnalysisSnapshot decidedSnap(ForecastRiskDecision decision) => _snap(
+      anchor: _anchor(50000000, DateTime(2026, 8, 1)),
+      items: [
+        _salaryInflow('sal', 8500000, DateTime(2026, 8, 10)),
+        ReconciliationItem(
+          id: 'obl:ins',
+          label: 'Possible insurance',
+          amountPaise: 6000000,
+          direction: LedgerDirection.outflow,
+          owner: ForecastOwner.gmailBill,
+          source: ForecastItemSource.sms,
+          dueDate: DateTime(2027, 2, 15),
+          confidence: 0.62,
+          isUserConfirmed: false,
+          obligationDedupeKey: 'gmail:insurance',
+        ),
+      ],
+      riskDecisions: [decision],
+    );
+
+    // How many of the three partitions the insurance candidate shows up in.
+    // Phase 5's lesson: a number is only evidence once you know which
+    // collection it came from, so prove the fixture, not only the fix.
+    int insuranceAppearances(ForecastOutlook outlook) =>
+        outlook.months.expand((m) => m.events).where((e) => e.label == 'Possible insurance').length +
+        outlook.riskLines.where((l) => l.label == 'Possible insurance').length +
+        outlook.decidedLines
+            .where((d) => d.line.label == 'Possible insurance')
+            .length;
+
+    test('dismissed decision is still reported as a decided line', () {
+      final outlook = _build(
+        decidedSnap(
+          const ForecastRiskDecision(
+            ownerKey: 'gmailBill:obl:ins',
+            targetMonth: '2027-02',
+            status: ForecastRiskDecisionStatus.dismissed,
+          ),
+        ),
+      );
+
+      final decided = outlook.decidedLines.singleWhere(
+        (d) => d.line.label == 'Possible insurance',
+      );
+      expect(decided.status, ForecastRiskDecisionStatus.dismissed);
+      expect(decided.line.amountPaise, 6000000);
+      expect(decided.line.date, DateTime(2027, 2, 15));
+
+      // Still out of the plan — reporting it must not re-book it.
+      expect(outlook.riskLines, isEmpty);
+      expect(
+        outlook.months
+            .expand((m) => m.events)
+            .where((e) => e.label == 'Possible insurance'),
+        isEmpty,
+      );
+      // Guard: one candidate in, exactly one line out.
+      expect(insuranceAppearances(outlook), 1);
+    });
+
+    test('confirmed decision is reported as a decided line at the override', () {
+      final outlook = _build(
+        decidedSnap(
+          ForecastRiskDecision(
+            ownerKey: 'gmailBill:obl:ins',
+            targetMonth: '2027-02',
+            status: ForecastRiskDecisionStatus.confirmed,
+            amountOverridePaise: 7500000,
+            dueDateOverride: DateTime(2027, 2, 20),
+          ),
+        ),
+      );
+
+      final decided = outlook.decidedLines.singleWhere(
+        (d) => d.line.label == 'Possible insurance',
+      );
+      expect(decided.status, ForecastRiskDecisionStatus.confirmed);
+      // The row the user sees must be the amount actually in the plan.
+      expect(decided.line.amountPaise, 7500000);
+      expect(decided.line.date, DateTime(2027, 2, 20));
+      expect(decided.line.ownerKey, 'gmailBill:obl:ins');
+
+      // Guard: in the ledger once, and reported once — the decided line is a
+      // control surface, not a second copy of the money.
+      expect(insuranceAppearances(outlook), 2);
+      expect(
+        outlook.months
+            .expand((m) => m.events)
+            .where((e) => e.label == 'Possible insurance'),
+        hasLength(1),
+      );
+    });
+
+    test('pending decision produces no decided line', () {
+      // Pending is the absence of a decision. Offering to undo it would be
+      // offering to undo nothing.
+      final outlook = _build(
+        decidedSnap(
+          const ForecastRiskDecision(
+            ownerKey: 'gmailBill:obl:ins',
+            targetMonth: '2027-02',
+            status: ForecastRiskDecisionStatus.pending,
+          ),
+        ),
+      );
+
+      expect(outlook.decidedLines, isEmpty);
+      // and the candidate is back where it was before any decision
+      expect(
+        outlook.riskLines.where((l) => l.label == 'Possible insurance'),
+        hasLength(1),
+      );
+      expect(insuranceAppearances(outlook), 1);
+    });
+
     test('low-confidence projected salary does not enter hard horizon', () {
       // Salary with insufficientData confidence projected → risk, not hard.
       final outlook = _build(
