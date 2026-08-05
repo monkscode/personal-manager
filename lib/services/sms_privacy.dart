@@ -4,6 +4,38 @@ import 'package:crypto/crypto.dart';
 
 import '../data/sms_models.dart';
 
+/// The privacy floor for stored SMS data.
+///
+/// SQLCipher is deferred, so redaction is the **only** barrier protecting data
+/// at rest and `allowBackup="false"` is the second and last (TASK-04).
+///
+/// TASK-04 applied that barrier to exactly one column and classified nothing
+/// else, and five sibling columns are derived from the *raw* body and stored
+/// beside it. So the floor is not a function applied to one column; it is a
+/// classification every stored column carries. Three classes, and a new column
+/// belongs to one of them before it ships (TASK-46):
+///
+/// | Class | Columns | Why |
+/// |---|---|---|
+/// | **Floored** | `transactions.raw_body_redacted` | [redactBody]. |
+/// | **Identifier-free** | `transactions.merchant` | A display and owner-key column: no feature needs the digits. Enforced in `TransactionRepository._toRow`, the one place a merchant becomes a stored value. |
+/// | **Declared exception** | `transactions.account_last4` | Card-cycle payment matching (TASK-13) and `idx_transactions_account_instrument`. |
+/// | | `transactions.ref_number` | TASK-43's re-delivery clause, and `idx_transactions_ref`. |
+/// | | `transactions.balance_paise` | The TASK-22 balance anchor, and TASK-43's discriminator — two debits cannot leave the same balance. |
+/// | | `transactions.upi_vpa_norm` | Payee identity, `MerchantDisplay`'s third name fallback, and the `known_accounts` self-transfer allow-list. |
+/// | | `obligations.payment_account_hint_last4` | Payment-account scope on a commitment. |
+///
+/// An exception holds identifying material **because a named feature breaks
+/// without it**. Stripping the four would break TASK-13, TASK-22, TASK-43 and
+/// the allow-list, so they stay — declared, with the feature written down,
+/// rather than leaking unexamined. Adding a column here without naming its
+/// feature is how the register stops meaning anything.
+///
+/// Known and unfixed: the identifier rule covers a standalone digit run and a
+/// masked tail, and does **not** cover a rail reference embedded in a path-like
+/// string — `neft/mb/axmb000000000000/payee name/state` survives it. Widening
+/// risks the `priyalpatel1910` regression TASK-45 caught once, so it needs its
+/// own task and its own offline prediction.
 class SmsPrivacy {
   const SmsPrivacy._();
 

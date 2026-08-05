@@ -662,7 +662,15 @@ class SmsTransactionParser {
     // says "towards Google" in plain words.
     final named = _namedPayee(lower);
     if (named != null) return named;
-    if (upiVpa != null) return upiVpa.split('@').first;
+    // Tidied like every other capture. This was the one path that was not, and
+    // a bare `.split('@').first` is how the device came to store the mobile
+    // number from `9999999999@axl` as a payee name on two rows: a
+    // phone-number VPA is the common Indian shape, and `_tidyPayee` rejects a
+    // bare digit run precisely because it is not a name (TASK-45/46).
+    if (upiVpa != null) {
+      final handle = _tidyPayee(upiVpa.split('@').first);
+      if (handle != null) return handle;
+    }
     // Tidied like every `_namedPayee` capture. These fallbacks used to only
     // `.trim()`, so `To AutoPay  Bharat Connec` was stored verbatim — a fourth
     // spelling of a commitment that already had three, and the boilerplate

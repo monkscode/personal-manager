@@ -513,6 +513,53 @@ would have: a blunt `\d{4,}` mangled the real UPI handle `priyalpatel1910`, and 
 separators inside the new shared rule broke `MerchantDisplay`'s existing `RAZ*` prefix strip.
 **A shared rule must not do a job its callers are still doing.**
 
+### Phase 8 — What the floor covers
+
+Opened 2026-08-05 from TASK-45's still-open items 1 and 2.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-46](TASK-46-derived-column-redaction-floor.md) | The redaction floor was applied to one column and classified nothing else | Important | **Done** |
+
+**The plan's stated next task was wrong for the fourth phase running, and this time the
+correction was that the work had already happened.** TASK-45 handed off 236 rows whose
+stored `merchant` carried a non-public identifier. Measured against the device before
+building anything: **3**. A scan had run since — 17 batches — and TASK-30's reparse rewrote
+the stored merchants through the fixed parser. The 180 dispute-footer merchants TASK-45
+counted are all gone. **Check what the data looks like now before building the thing that
+fixes it**; a planned backfill can be overtaken by a mechanism that already exists. The
+schema-v6 migration this task was designed around was dropped on that evidence, and the
+schema stays at **5**.
+
+What was real was the mechanism rather than the count. Two of the three survivors store the
+bare mobile number `9999999999` and both carry `upi_vpa_norm = 9999999999@axl` — **a live
+defect, reproducible today**. `_merchant`'s VPA branch returned `upiVpa.split('@').first`
+with no tidying: TASK-45 routed *five* parser captures through `PayeeText.sanitize` and this
+was the sixth.
+
+**Its lesson is TASK-41's, repeating inside TASK-45's own remedy** — *a predicate applied at
+call sites is not a rule; only one applied where the set is defined is.* Five out of six is
+what a convention gets you, and every test still passed. The rule now lives in
+`TransactionRepository._toRow`, the one place a merchant becomes a stored value, so the
+guarantee no longer depends on having found every path. It stayed invisible because
+`MerchantDisplay._isOpaque` matches `^\d{6,}$`, so a 10-digit merchant renders as something
+readable — **stored dirty, displayed clean**, the same shape TASK-45 found.
+
+`SmsPrivacy` now carries a register: every stored column is floored, identifier-free, or a
+**declared exception naming the feature that breaks without it** — `account_last4`
+(TASK-13), `ref_number` (TASK-43), `balance_paise` (TASK-22), `upi_vpa_norm` (the
+self-transfer allow-list). They hold identifying material on purpose, and saying so is what
+stops the next one slipping through unexamined.
+
+Two honest limits, neither a defect to go fix: nulling `merchant` on the VPA rows is a
+**labelling** win, not a privacy one — `upi_vpa_norm` still holds the same digits by
+design; and the identifier rule covers standalone digit runs and masked tails but not a
+rail reference embedded in a path (`neft/mb/axmb000000000000/payee name/state`). Widening it
+is how TASK-45's offline pass caught a real regression, so it gets its own task.
+
+Obligations were **measured, not rewritten**: zero of the 7 live rows carry a digit run or
+a VPA, so the `dedupe_key` hazard TASK-37 and TASK-42 both paid for never had to be taken.
+
 ---
 
 ## Context every agent needs

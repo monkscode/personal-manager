@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../services/payee_text.dart';
 import '../services/sms_ingestion_policy.dart';
 import 'forecast_models.dart';
 import 'sms_models.dart';
@@ -287,7 +288,22 @@ class TransactionRepository {
     );
   }
 
+  /// The one place a merchant becomes a stored value, so the one place the
+  /// identifier-free rule can be a rule rather than a convention (TASK-46).
+  ///
+  /// `merchant` is a display and owner-key column: no feature needs the digits,
+  /// unlike `account_last4`, `ref_number`, `balance_paise` and `upi_vpa_norm`,
+  /// which carry identifying material because something breaks without it —
+  /// see the register on [SmsPrivacy].
+  ///
+  /// Applying it here rather than at the capture sites is TASK-41's rule on a
+  /// write path. TASK-45 tidied five parser captures and the sixth still leaked:
+  /// `_merchant` returns a UPI handle's local part with a bare
+  /// `.split('@').first`, which stored the bare mobile number from
+  /// `9999999999@axl` as a payee name. That path is fixed too, but the
+  /// guarantee no longer depends on having found every path.
   static Map<String, Object?> _toRow(ParsedTxn txn, DateTime createdAt) {
+    final merchant = txn.merchant;
     return {
       'sms_id': txn.smsId,
       'sender': txn.sender,
@@ -300,7 +316,7 @@ class TransactionRepository {
       'txn_month': txn.txnMonth,
       'effective_month': txn.effectiveMonth,
       'account_last4': txn.accountLast4,
-      'merchant': txn.merchant,
+      'merchant': merchant == null ? null : PayeeText.sanitize(merchant),
       'upi_vpa_norm': txn.upiVpaNorm,
       'payee_type': txn.payeeType.storageValue,
       'category_key': txn.categoryKey,

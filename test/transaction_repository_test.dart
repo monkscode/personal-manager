@@ -532,6 +532,64 @@ void main() {
         );
       });
     });
+
+    // TASK-46. The floor on `merchant` is enforced HERE, where a merchant
+    // becomes a stored value, not at the capture sites.
+    //
+    // TASK-45 routed five parser captures through `PayeeText.sanitize`, which
+    // is the shape TASK-41 warns about: a predicate applied at call sites is
+    // not a rule. The sixth path proved it — `_merchant` returns a UPI handle's
+    // local part with a bare `.split('@').first` and no tidying, so the device
+    // stored the bare mobile number `9999999999` (from `9999999999@axl`) as a
+    // payee name on two rows.
+    //
+    // Every test below writes straight through the repository, bypassing the
+    // parser entirely. A test that went through the parser would pass already
+    // and prove nothing about the guarantee.
+    group('stores no identifier in the merchant column', () {
+      test('clears a bare mobile number captured from a UPI handle', () async {
+        final repo = await openRepository();
+        await repo.upsertParsedTxn(txn(merchant: '9999999999'));
+
+        final stored = await repo.allSince(DateTime(2000));
+        expect(stored.single.merchant, isNull);
+      });
+
+      test('trims a card tail rather than storing it', () async {
+        final repo = await openRepository();
+        await repo.upsertParsedTxn(
+          txn(merchant: 'your icici bank credit card xx7117'),
+        );
+
+        final stored = await repo.allSince(DateTime(2000));
+        expect(stored.single.merchant, isNull);
+      });
+
+      test('keeps the payee when only a trailing reference is dropped', () async {
+        final repo = await openRepository();
+        await repo.upsertParsedTxn(
+          txn(merchant: 'ecs/razorpay softw/111120218042703'),
+        );
+
+        final stored = await repo.allSince(DateTime(2000));
+        expect(stored.single.merchant, 'ecs/razorpay softw');
+      });
+
+      test('leaves a genuine payee untouched', () async {
+        final repo = await openRepository();
+        // `priyalpatel1910` is a real UPI handle and `1mg` a pharmacy: digits
+        // glued to letters are part of the word (TASK-45).
+        for (final name in ['zomato', 'priyalpatel1910', '1mg', 'science city-ii']) {
+          await repo.upsertParsedTxn(txn(smsId: 'provider:$name', merchant: name));
+        }
+
+        final stored = await repo.allSince(DateTime(2000));
+        expect(
+          {for (final t in stored) t.merchant},
+          {'zomato', 'priyalpatel1910', '1mg', 'science city-ii'},
+        );
+      });
+    });
   });
 }
 
