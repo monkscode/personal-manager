@@ -149,9 +149,22 @@ class SmsAnalysisSnapshot {
     required DateTime now,
     String? configuredSalaryRupees,
   }) {
+    // The working set every producer below reads from.
+    //
+    // A future-debit notice is excluded *here*, not at each consumer. Rows
+    // written before TASK-32 taught the parser to route notices to obligations
+    // are still on disk as completed debits — a reparse rewrites a stored row
+    // but cannot retire one — and the bank sends the real debit alert a day or
+    // two later, so each of those rows double-counts a rupee that is already
+    // owned. The check used to sit on four leaf consumers instead, which meant
+    // `spentThisMonthPaise` excluded the phantom while `currentMonthTxns` —
+    // and therefore reconciliation, the forecast events and the drivers list
+    // built from them — still counted it. Filtering the working set is what
+    // makes the exclusion hold for read paths added later too (TASK-41).
     final active = [
       for (final txn in history)
-        if (txn.reviewStatus != ReviewStatus.dismissed) txn,
+        if (txn.reviewStatus != ReviewStatus.dismissed && !txn.isFutureDebitNotice)
+          txn,
     ];
     final targetMonth = DateTime(now.year, now.month);
     final credits = [

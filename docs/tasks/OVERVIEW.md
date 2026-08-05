@@ -235,6 +235,46 @@ Opened 2026-08-05 from the four items carried out of Phase 5.
 | Task | Title | Severity | State |
 |---|---|---|---|
 | [TASK-40](TASK-40-risk-decision-one-way-door.md) | A confirmed or dismissed risk decision cannot be undone | Critical | **Done** |
+| [TASK-41](TASK-41-notice-leak-into-working-set.md) | A future-debit notice reaches every read path added after TASK-32 | Critical | **Done** |
+
+**TASK-41 came from the user, not from the plan** — *"two entries for ₹118 on 3 Aug, I only
+spent it once; it wasn't showing two days ago."* Both halves were exact, and the second half
+is what identified the mechanism: the notice row was stored 2 Aug 12:41, TASK-32 fixed the
+parser 3 Aug 13:55, and the real debit landed 3 Aug 14:35. **A user's timeline is evidence —
+"it changed on this day" narrows the cause faster than reading the source does.**
+
+Its lesson is the sharpest one in the plan so far, because the defect was *inside the
+previous fix*: TASK-32 built the right read-time check, `isFutureDebitNotice`, and applied it
+at **four leaf consumers** instead of at `active`, the one place `SmsAnalysisSnapshot.reduce`
+defines the working set. Every path added later — `currentMonthTxns` → reconciliation →
+forecast events → the Drivers list, and `allTxns` → the transaction list — re-admitted the
+phantom. TASK-32's own doc comment complains that the notice vocabulary "previously existed
+twice … which is why the estimator and the recurring detector never saw the exclusion at
+all", and the remedy then reproduced that shape one layer up. **A predicate applied at call
+sites is not a rule; only one applied where the set is defined is.**
+
+The measured signature was the app disagreeing with itself: August's Drivers summed to
+₹50,734 across 10 rows while "Spent this month" read ₹50,616 — exactly ₹118 apart, because
+`_isConsumptionSpend` applied the check and reconciliation did not. After the fix the device
+reads 11 payments tracked against 11 driver rows.
+
+Scope, measured rather than assumed: **32 rows / ₹86,734 leave the working set**, only 8 of
+which carry the `E-Mandate!` prefix that prompted the report — the rest are Axis
+`upcoming mandate set for …` and card-bill reminders, which is why it had to be fixed by the
+pattern and not by the format. 30 of the 32 have a real-debit partner within ±7 days; the
+two that do not are named in the task file rather than left as a remainder. **28
+user-confirmed rows disappear from the transaction list** — intended, since the user was
+looking at a list when they counted the duplicate.
+
+Deliberately untouched: the same-day same-amount clusters that are not notices (five ₹10,000
+`indian clearing corp` on 5 Jun, four ₹20,000 `science city-ii` on 17 Jul). TASK-24 M5
+established those can be genuine, and **no two rows in the database share an `sms_id`**, so
+there is no evidence of a true duplicate. Shared `body_hash` is expected — that is what
+collision sets are for (TASK-09).
+
+**Correction to the device notes below: a cold start DOES run a scan.** TASK-41's
+verification wrote two rows with no pull-to-refresh; the only difference from the previous
+session was `am force-stop` before `am start`. Capture counts before and after any launch.
 
 **TASK-40's premises all survived contact with the source and the device** — the first task
 file in six phases where that is true, and worth recording precisely because the standing

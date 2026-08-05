@@ -26,6 +26,7 @@ ParsedTxn txn({
   int? balancePaise,
   ReviewStatus reviewStatus = ReviewStatus.confirmed,
   String? smsId,
+  String rawBodyRedacted = 'redacted',
 }) => ParsedTxn(
   smsId: smsId ?? 'sms:${date.toIso8601String()}:$amountPaise',
   sender: 'VM-ICICIB',
@@ -43,7 +44,7 @@ ParsedTxn txn({
   reviewStatus: reviewStatus,
   source: TxnSource.sms,
   coverageBucket: CoverageBucket.datedEvent,
-  rawBodyRedacted: 'redacted',
+  rawBodyRedacted: rawBodyRedacted,
   bodyHash: 'h',
   scanBatchId: 'b',
 );
@@ -59,6 +60,7 @@ List<ParsedTxn> monthlySip({required int count, int day = 10}) => [
 
 void main() {
   _task21Horizon();
+  _task41NoticeLeak();
   final now = DateTime(2026, 8, 15);
 
   group('kAnalysisLookbackMonths', () {
@@ -669,6 +671,89 @@ void _task21Horizon() {
           reason: 'offset $offset has no everyday spending at all',
         );
       }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TASK-41 — a pre-notification must not survive into the working set
+// ---------------------------------------------------------------------------
+
+/// The bank announces the debit a day early, then reports the real one. Both
+/// were stored as completed debits before TASK-32 fixed the parser, and no
+/// rescan can retire the stale row — so the read paths have to reject it.
+/// Payee is synthetic; the structure is the device's.
+const _kNoticeBody = '''
+E-Mandate!
+[amount] will be deducted on 03/08/26, 00:00:00
+For AutoPay  Acme Broadband Bill Payment mandate
+UMN [vpa]
+Maintain Balance
+-HDFC Bank''';
+
+const _kRealDebitBody = '''
+UPI Mandate:
+Sent [amount]
+from HDFC Bank A/c [account]
+To AutoPay  Acme Broadband
+03/08/26
+[ref]''';
+
+void _task41NoticeLeak() {
+  group('TASK-41 — a future-debit notice is not a transaction anywhere', () {
+    final now = DateTime(2026, 8, 15);
+
+    SmsAnalysisSnapshot build() => SmsAnalysisSnapshot.reduce(
+      history: [
+        txn(
+          amountPaise: 11800,
+          date: DateTime(2026, 8, 3),
+          merchant: 'opaqueumnhandle',
+          categoryKey: 'other',
+          smsId: 'notice',
+          rawBodyRedacted: _kNoticeBody,
+        ),
+        txn(
+          amountPaise: 11800,
+          date: DateTime(2026, 8, 3),
+          merchant: 'acme broadband',
+          categoryKey: 'other',
+          smsId: 'real',
+          rawBodyRedacted: _kRealDebitBody,
+        ),
+      ],
+      obligations: const [],
+      riskDecisions: const [],
+      configuredPlans: const [],
+      now: now,
+    );
+
+    test('the announcement is kept out of the target month actuals', () {
+      final snapshot = build();
+
+      // One spend happened, so exactly one row may reach reconciliation and
+      // the forecast drivers that are built from it.
+      expect(snapshot.currentMonthTxns, hasLength(1));
+      expect(snapshot.currentMonthTxns.single.smsId, 'real');
+    });
+
+    test('and out of the transaction list the user scrolls', () {
+      final snapshot = build();
+
+      expect(snapshot.allTxns, hasLength(1));
+      expect(snapshot.allTxns.single.smsId, 'real');
+    });
+
+    test('the surviving rupee is the real debit, counted once', () {
+      final snapshot = build();
+
+      // Guard: the fix must remove a phantom, not a rupee. ₹118 was spent
+      // once and must still be there once.
+      final total = snapshot.currentMonthTxns.fold<int>(
+        0,
+        (sum, t) => sum + t.amountPaise,
+      );
+      expect(total, 11800);
     });
   });
 }
