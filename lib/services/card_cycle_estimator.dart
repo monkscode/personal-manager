@@ -2,6 +2,7 @@ import '../core/clamped_date.dart';
 import '../data/card_models.dart';
 import '../data/forecast_models.dart';
 import '../data/sms_models.dart';
+import 'money_lens.dart';
 
 /// Confidence used for a card-cycle estimate when the billing cycle is unknown
 /// (a "set card billing cycle" coverage line, not a dated event).
@@ -32,25 +33,58 @@ final RegExp _billPayment = RegExp(
   caseSensitive: false,
 );
 
+/// The date of the most recent card-side payment credit in [cardTxns], or null
+/// when the holder has never been seen paying this card.
+///
+/// Deliberately the *card* side. The bank-side debit that pays a bill may
+/// arrive through CRED or BillDesk carrying no card number at all, so it cannot
+/// be attributed to a card; the card's own acknowledgement always can.
+///
+/// Lives here, beside [isCardBillPayment], but is applied by the caller that
+/// builds the per-card set — see `SmsAnalysisSnapshot._cardEstimates`. Which
+/// transactions belong in a cycle is a question about set membership, and the
+/// estimator answers a different one: given a set, what do the figures come to.
+DateTime? lastCardBillPaymentDate(List<ParsedTxn> cardTxns) {
+  DateTime? latest;
+  for (final txn in cardTxns) {
+    if (txn.instrument != PaymentInstrument.card) continue;
+    if (txn.direction != TransactionDirection.credit) continue;
+    if (!isCardBillPayment(txn)) continue;
+    if (latest == null || txn.txnDate.isAfter(latest)) latest = txn.txnDate;
+  }
+  return latest;
+}
+
 /// Estimates a card's current cycle spend, statement residual, and the single
 /// expected bank cash outflow (spec §7). The bank ledger counts card usage
 /// exactly once — via the statement/payment event — never per purchase.
 class CardCycleEstimator {
   const CardCycleEstimator();
 
+  /// [windowStart] is recorded, never applied. [cardTxns] is already the set
+  /// the caller decided belongs to this cycle; passing the date here is what
+  /// lets a reader of the estimate say *which* window the figures cover, and
+  /// null says the figures are everything ever seen on the card.
   CardCycleEstimate estimate(
     List<ParsedTxn> cardTxns, {
     CardCycle? cycle,
     DateTime? statementMonth,
     int? statementTotalPaise,
     int? amountPaidPaise,
+    DateTime? windowStart,
+    String? cardLast4Fallback,
   }) {
     final observedPurchases = cardTxns
         .where(
           (t) =>
               t.instrument == PaymentInstrument.card &&
               t.direction == TransactionDirection.debit &&
-              t.type != TxnType.atm,
+              t.type != TxnType.atm &&
+              // A bank writing its settlement debit as "payment towards your
+              // HDFC Credit Card" is stored as a card debit with `type: pos` —
+              // indistinguishable from a purchase by instrument alone. Counting
+              // it here added the bill to the spend the bill is for.
+              !MoneyLens.isCardSettlement(t),
         )
         .fold<int>(0, (sum, t) => sum + t.amountPaise);
     final cardRefunds = cardTxns
@@ -65,6 +99,7 @@ class CardCycleEstimator {
     final cycleSpendSeen = observedPurchases - cardRefunds;
 
     final cardLast4 = cycle?.cardLast4 ??
+        cardLast4Fallback ??
         cardTxns
             .map((t) => t.accountLast4)
             .firstWhere((last4) => last4 != null, orElse: () => null) ??
@@ -123,6 +158,7 @@ class CardCycleEstimator {
     return CardCycleEstimate(
       cardLast4: cardLast4,
       cardCycleKey: cardCycleKey,
+      windowStart: windowStart,
       observedPurchasesPaise: observedPurchases,
       cardRefundsPaise: cardRefunds,
       cycleSpendSeenPaise: cycleSpendSeen,

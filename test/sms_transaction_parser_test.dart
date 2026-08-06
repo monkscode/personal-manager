@@ -1244,4 +1244,188 @@ void main() {
       expect(txn.merchant, 'swiggy');
     });
   });
+
+  // Spec A Part 2 — card identity.
+  //
+  // `accountLast4` is not only a label. It is one of the five `signals` the
+  // parser counts, and `signals < 2` refuses the row outright, so widening the
+  // regex that produces it changes *what counts as a transaction at all*. That
+  // is asserted here first, before the formats it was widened for, because it
+  // is the consequence most likely to be discovered in production.
+  group('the admission floor moves when a card tail becomes readable', () {
+    // No reference, no balance ("Avl Lmt" is neither a balance keyword nor a
+    // recognised one), and a sender carrying no bank fragment — so `amount` and
+    // the card tail are the only two signals available. Before the widening the
+    // tail read null, the row scored 1, and the purchase was thrown away.
+    const body =
+        'Rs.10550 spent on ICICI Bank Card xx7108 at SANSKRUTIK. Avl Lmt: Rs.95500';
+
+    test('a card-tail purchase from an unrecognised sender is now admitted', () {
+      final txn = parser.parseOne(
+        sms(sender: 'AD-762211', body: body),
+        scanBatchId: 'scan-admission',
+        bodyHashSalt: 'test-salt',
+      );
+
+      // Admitted deliberately. The body already had to name a bank to reach
+      // this point (`_isStrictBankSms`), and a bank name plus an amount plus a
+      // card tail is the same evidence an `A/c XX1234` row clears the floor
+      // with today. Refusing it is how card purchases go missing, which is the
+      // defect this spec exists to remove.
+      expect(txn, isNotNull, reason: 'the card tail is the second signal');
+      expect(txn!.accountLast4, '7108');
+      expect(txn.instrument, PaymentInstrument.card);
+    });
+
+    test('and the tail is what carries it — without one the row is refused', () {
+      // The same body with the tail removed. One signal, so it stays out. This
+      // guard is what proves the assertion above is about the tail and not
+      // about something else in the body.
+      final txn = parser.parseOne(
+        sms(
+          sender: 'AD-762211',
+          body: 'Rs.10550 spent on ICICI Bank Card at SANSKRUTIK. '
+              'Avl Lmt: Rs.95500',
+        ),
+        scanBatchId: 'scan-admission',
+        bodyHashSalt: 'test-salt',
+      );
+
+      expect(txn, isNull);
+    });
+
+    test('a known bank sender was already over the floor, tail or not', () {
+      // The same row from `VM-ICICIB` is admitted before and after: sender plus
+      // amount is already two signals. This is why the change is invisible on
+      // an inbox whose senders all carry their bank's name, and why the test
+      // above uses one that does not.
+      final txn = parser.parseOne(
+        sms(sender: 'VM-ICICIB', body: body),
+        scanBatchId: 'scan-admission',
+        bodyHashSalt: 'test-salt',
+      )!;
+
+      expect(txn.accountLast4, '7108');
+    });
+  });
+
+  // The formats the widening was written for, and the ones it must keep
+  // refusing. Five of the seven card shapes this app meets yielded no card
+  // number at all, so `_cardEstimates` — which groups by `accountLast4 ??
+  // 'unknown'` — collapsed every card into one bucket.
+  group('card identity — the formats that used to read null', () {
+    String? last4(String body, {String sender = 'VM-HDFCBK'}) => parser
+        .parseOne(
+          sms(sender: sender, body: body),
+          scanBatchId: 'scan-identity',
+          bodyHashSalt: 'test-salt',
+        )
+        ?.accountLast4;
+
+    test('a bare `Card <mask><tail>` yields the card number', () {
+      expect(
+        last4('Rs.2500 spent on HDFC Bank Card x3333 at RAZ*SWIGGY '
+            'on 05-08-26:22:03:27.Not U?'),
+        '3333',
+      );
+      expect(
+        last4('Rs.10550 spent on ICICI Bank Card xx7108 at SANSKRUTIK. '
+            'Avl Lmt: Rs.95500'),
+        '7108',
+      );
+      expect(
+        last4('Spent Rs.3,200.00 on HDFC Bank Card XX9012 at AMAZON '
+            'on 26-06-25. Available Limit Rs.46,800.00.'),
+        '9012',
+      );
+    });
+
+    test('`ending with` yields the card number', () {
+      // The word `with` sitting between the keyword and the digits is the whole
+      // reason this one read null: `_cardEnding` required them adjacent.
+      expect(
+        last4('DEAR HDFCBANK CARDMEMBER, PAYMENT OF Rs.5000 RECEIVED TOWARDS '
+            'YOUR CREDIT CARD ENDING WITH 1234 ON 20-08-26.'),
+        '1234',
+      );
+    });
+
+    test('the two formats that already worked still work', () {
+      expect(
+        last4('HDFC Credit Card ending 4321 spent Rs. 1,299 at Amazon. '
+            'Available credit limit Rs. 50,000.'),
+        '4321',
+      );
+      expect(
+        last4('Rs.900 debited from A/c XX1234 on 12-07-26. Avl Bal Rs.5,000.00'),
+        '1234',
+      );
+    });
+
+    test('a card tail never comes from a reference, a limit or a helpline', () {
+      // Three negatives. Each body is a real transaction so the row is admitted
+      // and `accountLast4` can actually be read — asserting null on a row the
+      // parser rejects would prove nothing about the regex.
+      expect(
+        last4('HDFC Bank: Rs. 450.00 debited via UPI to swiggy@okhdfcbank. '
+            'UPI Ref 123456789012.'),
+        isNull,
+        reason: 'a 12-digit reference is not a card tail',
+      );
+      expect(
+        last4('Rs.1,200.00 spent on your HDFC Bank credit card at BIGBAZAAR. '
+            'Your card limit is Rs.50000.'),
+        isNull,
+        reason: 'a limit is a rupee amount, not an identity',
+      );
+      expect(
+        last4('Rs.500.00 spent on HDFC Bank at BIGBAZAAR on 12-07-26. '
+            'Card blocked? Call 18002586161.'),
+        isNull,
+        reason: 'a helpline number is not a card tail',
+      );
+    });
+  });
+
+  group('_cardEnding is gone and nothing regressed with it', () {
+    String? last4(String body) => parser
+        .parseOne(
+          sms(sender: 'VM-HDFCBK', body: body),
+          scanBatchId: 'scan-cardending',
+          bodyHashSalt: 'test-salt',
+        )
+        ?.accountLast4;
+
+    // `_cardEnding` was the fallback for exactly one shape. The widened
+    // `_account` matches it first, so the fallback can never fire again and is
+    // removed rather than left as a second definition of the same rule.
+    test('both `card ending` shapes are read by the one regex now', () {
+      expect(last4('HDFC Credit Card ending 4321 spent Rs.1,299 at Amazon.'),
+          '4321');
+      expect(
+        last4('Payment of Rs.5000 received towards your credit card '
+            'ending with 4321 on 20-08-26.'),
+        '4321',
+      );
+    });
+
+    test('a notice reads its card tail from the same one regex', () {
+      // `_parseNotice` shared the `_account ?? _cardEnding` pair, so removing
+      // the fallback has to keep working on that path too.
+      final notice = parser
+          .parse(
+            sms(
+              sender: 'VM-ICICIB',
+              body: 'Payment of Rs 399.00 towards Merchant Amazon to be '
+                  'debited from ICICI Bank Credit Card 7117 on 28-06-26.',
+            ),
+            scanBatchId: 'scan-cardending',
+            bodyHashSalt: 'test-salt',
+          )
+          .notice;
+
+      expect(notice, isNotNull);
+      expect(notice!.accountLast4, '7117');
+    });
+  });
 }

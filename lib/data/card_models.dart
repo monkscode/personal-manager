@@ -44,10 +44,17 @@ class CardCycleEstimate {
     this.statementResidualPaise,
     this.outstandingPaise,
     this.dueDate,
+    this.windowStart,
   });
 
   final String cardLast4;
   final String cardCycleKey;
+
+  /// The card-side payment credit this estimate counts forward from, or null
+  /// when the history holds none. Null means the figures below are everything
+  /// ever seen on the card rather than one bill's worth, which is a difference
+  /// the user has to be told about.
+  final DateTime? windowStart;
 
   /// Σ card purchase debits observed in the cycle.
   final int observedPurchasesPaise;

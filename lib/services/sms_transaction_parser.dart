@@ -59,12 +59,16 @@ class SmsTransactionParser {
     r'(?:₹|\b(?:rs\.?|inr))\s*([0-9][0-9,]*(?:\.[0-9]+)?)',
     caseSensitive: false,
   );
+  // `card` and `with` are what make a *card* identifiable. Without them
+  // `Card XX9012` and `CARD ENDING WITH 1234` both read null — five of the
+  // seven card formats this app meets — and `_cardEstimates`, which groups by
+  // `accountLast4 ?? 'unknown'`, collapsed every card into one bucket.
+  //
+  // This is not only a label: `accountLast4` is one of the five admission
+  // `signals`, so widening it changes what counts as a transaction at all.
+  // Deliberate, and asserted in the parser tests.
   static final RegExp _account = RegExp(
-    r'\b(?:a/c|ac|acct|account|ending)\s*(?:no\.?\s*)?[*xX]*(\d{4})\b',
-    caseSensitive: false,
-  );
-  static final RegExp _cardEnding = RegExp(
-    r'\bcard\s+ending\s+(\d{4})\b',
+    r'\b(?:a/c|ac|acct|account|card|ending)\s*(?:no\.?\s*|with\s+)?[*xX]*(\d{4})\b',
     caseSensitive: false,
   );
   // The optional `no` absorbs both SBI's `Refno 5012...` and the spaced
@@ -314,9 +318,7 @@ class SmsTransactionParser {
       dueDate: _statedDate(lower) ?? sms.receivedAt,
       categoryKey: _category(lower, payee),
       payee: payee,
-      accountLast4:
-          _account.firstMatch(body)?.group(1) ??
-          _cardEnding.firstMatch(body)?.group(1),
+      accountLast4: _account.firstMatch(body)?.group(1),
     );
   }
 
@@ -373,9 +375,7 @@ class SmsTransactionParser {
 
     final amount = _extractAmount(body, lower);
     final amountPaise = amount.paise;
-    final accountLast4 =
-        _account.firstMatch(body)?.group(1) ??
-        _cardEnding.firstMatch(body)?.group(1);
+    final accountLast4 = _account.firstMatch(body)?.group(1);
     final refNumber = _ref.firstMatch(body)?.group(1);
     final hasKnownBankSender = _isKnownBankSender(sms.sender);
     final balancePaise = _extractBalancePaise(body, lower);

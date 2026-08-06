@@ -403,8 +403,45 @@ class SmsAnalysisSnapshot {
     const estimator = CardCycleEstimator();
     return [
       for (final entry in byCard.entries)
-        estimator.estimate(entry.value, statementMonth: targetMonth),
+        _estimateSinceLastPayment(estimator, entry.value, targetMonth),
     ];
+  }
+
+  /// One card's estimate, counted forward from the last time its bill was paid.
+  ///
+  /// The window is applied **here**, where the per-card set is built, and not
+  /// inside the estimator: which transactions belong to a cycle is a question
+  /// about set membership, and TASK-41's rule is that membership is decided
+  /// once, where the set is defined. It also keeps the estimator's own
+  /// bill-payment guard reachable — a payment credit is always the boundary, so
+  /// windowing inside would have made TASK-28's net unable to fire.
+  ///
+  /// With no payment credit in history the window has no start and every row is
+  /// counted, which is a lifetime total and is labelled as one rather than
+  /// presented as a single bill.
+  static CardCycleEstimate _estimateSinceLastPayment(
+    CardCycleEstimator estimator,
+    List<ParsedTxn> cardTxns,
+    DateTime targetMonth,
+  ) {
+    final windowStart = lastCardBillPaymentDate(cardTxns);
+    return estimator.estimate(
+      windowStart == null
+          ? cardTxns
+          : [
+              for (final txn in cardTxns)
+                if (txn.txnDate.isAfter(windowStart)) txn,
+            ],
+      statementMonth: targetMonth,
+      windowStart: windowStart,
+      // The card is named from the full history, not the window: a card whose
+      // every row predates its last payment still has an identity, and falling
+      // back to 'unknown' there would merge it with a genuinely unidentified
+      // card.
+      cardLast4Fallback: cardTxns
+          .map((t) => t.accountLast4)
+          .firstWhere((last4) => last4 != null, orElse: () => null),
+    );
   }
 
   /// Same-month-last-year comparison, over [spendLensTxns].

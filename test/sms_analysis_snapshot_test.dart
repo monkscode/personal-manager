@@ -8,7 +8,12 @@ import 'package:expense_insight/data/sms_database.dart';
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/data/transaction_repository.dart';
 import 'package:expense_insight/data/transactions_notifier.dart';
+import 'package:expense_insight/data/app_state.dart';
+import 'package:expense_insight/services/forecast_adapter.dart';
+import 'package:expense_insight/services/forecast_explorer.dart';
+import 'package:expense_insight/services/money_lens.dart';
 import 'package:expense_insight/services/recurring_debit_detector.dart';
+import 'package:expense_insight/services/sms_transaction_parser.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -64,6 +69,7 @@ void main() {
   _task21Horizon();
   _task41NoticeLeak();
   _specASpendLens();
+  _specACardIdentity();
   final now = DateTime(2026, 8, 15);
 
   group('kAnalysisLookbackMonths', () {
@@ -865,6 +871,211 @@ void _specASpendLens() {
 
       expect(snapshot.yearOverYear['shopping']?.currentPaise, 50000);
       expect(snapshot.yearOverYear['other']?.currentPaise ?? 0, 0);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Spec A Part 2 — card identity, and the coverage line it makes sayable.
+//
+// Part 1 took the card-settlement inflation out of the required figure and put
+// nothing back. The line that names that gap has to name the card, which is why
+// it waited for the regex.
+// ---------------------------------------------------------------------------
+
+const _kParser = SmsTransactionParser();
+
+/// Parses a real body, so these tests exercise the identity chain end to end:
+/// body -> `_account` -> `accountLast4` -> `_cardEstimates` bucket -> the
+/// coverage line the user reads. Handing `accountLast4` in directly would make
+/// them pass with the old regex still in place.
+ParsedTxn _parsed(String body, DateTime at, {String sender = 'VM-HDFCBK'}) =>
+    _kParser.parseOne(
+      RawSms(
+        providerId: '$body|$at',
+        sender: sender,
+        body: body,
+        receivedAt: at,
+      ),
+      scanBatchId: 'batch',
+      bodyHashSalt: 'salt',
+    )!;
+
+String _purchase(int rupees, String card, String merchant) =>
+    'Rs.$rupees spent on HDFC Bank Card $card at $merchant. Avl Lmt: Rs.95500';
+
+/// The card-side acknowledgement that the holder paid their bill — the credit
+/// `isCardBillPayment` reads, and the only thing in this app that can say when
+/// one card cycle ended and the next began.
+String _billPaid(String card) =>
+    'Payment of Rs.20000 received towards your credit card ending with $card '
+    'on 20-08-26.';
+
+void _specACardIdentity() {
+  final now = DateTime(2026, 8, 31);
+
+  SmsAnalysisSnapshot snap(List<ParsedTxn> history) => SmsAnalysisSnapshot.reduce(
+    history: history,
+    obligations: const [],
+    riskDecisions: const [],
+    configuredPlans: const [],
+    now: now,
+  );
+
+  group('Spec A Part 2 — two cards stay two cards', () {
+    test('purchases on two cards produce two estimates, not one unknown bucket', () {
+      final history = [
+        _parsed(_purchase(2500, 'x3333', 'RAZ*SWIGGY'), DateTime(2026, 8, 4)),
+        _parsed(_purchase(3200, 'XX9012', 'AMAZON'), DateTime(2026, 8, 6)),
+      ];
+
+      // Guard: the fixture proves itself. If the parser stopped reading tails
+      // the assertion below would still "pass" at length 1 for the wrong
+      // reason — one bucket, not two cards.
+      expect(
+        history.map((t) => t.accountLast4).toList(),
+        ['3333', '9012'],
+      );
+      expect(
+        history.every((t) => t.instrument == PaymentInstrument.card),
+        isTrue,
+      );
+
+      final cards = snap(history).cards;
+
+      expect(cards, hasLength(2));
+      expect(
+        cards.map((c) => c.cardLast4).toSet(),
+        {'3333', '9012'},
+        reason: 'both cards collapsed into the unknown bucket',
+      );
+    });
+  });
+
+  group('Spec A Part 2 — the coverage line that names the gap', () {
+    ForecastOutlook outlook(List<ParsedTxn> history) =>
+        const ForecastAdapter().build(const AppState(), snap(history), now: now);
+
+    List<ForecastCoverageLine> cardLines(List<ParsedTxn> history) => [
+      for (final line in outlook(history).coverageLines)
+        if (line.reason == CoverageReason.cardCycleOnly) line,
+    ];
+
+    test('reads the spend since the last bill payment, not the lifetime total', () {
+      final history = [
+        // Before the window opens. These belong to a bill that has been paid.
+        _parsed(_purchase(50000, 'x7110', 'AMAZON'), DateTime(2026, 8, 2)),
+        _parsed(_purchase(70000, 'x7110', 'FLIPKART'), DateTime(2026, 8, 10)),
+        // The window opens here.
+        _parsed(_billPaid('7110'), DateTime(2026, 8, 20)),
+        // Rs.38,000 after it.
+        _parsed(_purchase(30000, 'x7110', 'CROMA'), DateTime(2026, 8, 22)),
+        _parsed(_purchase(8000, 'x7110', 'BIGBASKET'), DateTime(2026, 8, 27)),
+      ];
+
+      final line = cardLines(history).single;
+
+      expect(line.amountPaise, 3800000, reason: 'lifetime total, not the window');
+      expect(line.label, contains('7110'));
+      expect(
+        line.label.toLowerCase(),
+        contains('last payment'),
+        reason: 'the line must say which window the figure covers',
+      );
+      // The gap is named, never planned: it stays a coverage line and never
+      // becomes a dated requirement (Spec B owns that).
+      expect(
+        outlook(history).months.first.events.map((e) => e.label),
+        isNot(contains(line.label)),
+      );
+    });
+
+    test('says the window is unknown when no bill payment was ever seen', () {
+      final history = [
+        _parsed(_purchase(50000, 'x7110', 'AMAZON'), DateTime(2026, 8, 2)),
+        _parsed(_purchase(30000, 'x7110', 'CROMA'), DateTime(2026, 8, 22)),
+      ];
+
+      final line = cardLines(history).single;
+
+      // A lifetime total presented as one bill is a number the user cannot act
+      // on. The amount is still shown — the omission has to stay quantified —
+      // but the line says what it is.
+      expect(line.amountPaise, 8000000);
+      expect(
+        line.label.toLowerCase(),
+        contains('no bill payment'),
+        reason: 'a lifetime total must not read as one bill',
+      );
+      expect(line.label.toLowerCase(), isNot(contains('last payment')));
+    });
+
+    test('a settlement inside the window is not counted as a purchase', () {
+      // `CardCycleEstimator` admitted any card-instrument debit that was not an
+      // ATM withdrawal, which is exactly the shape of a body-worded settlement
+      // (`_cardMarker` fires on the bare phrase "credit card"). It inflated the
+      // one line Part 2 exists to add.
+      final settlement = _parsed(
+        'Payment of Rs.45000 towards your HDFC Credit Card ending with 7110 '
+        'debited from A/c XX1234 on 21-08-26.',
+        DateTime(2026, 8, 21),
+      );
+      expect(MoneyLens.isCardSettlement(settlement), isTrue);
+      expect(settlement.instrument, PaymentInstrument.card);
+      expect(settlement.direction, TransactionDirection.debit);
+
+      final history = [
+        _parsed(_billPaid('7110'), DateTime(2026, 8, 20)),
+        settlement,
+        _parsed(_purchase(30000, 'x7110', 'CROMA'), DateTime(2026, 8, 22)),
+      ];
+
+      expect(cardLines(history).single.amountPaise, 3000000);
+    });
+
+    test('a card with nothing bought since its bill was paid says nothing', () {
+      // The window created this case: before it, the figure was a lifetime
+      // total and was never zero, so the line always had something to say. A
+      // ₹0 "bills aren't planned yet" is noise, not honesty — there is no
+      // omission to name — and it would sit in "Needs your attention" for every
+      // card the user is up to date on.
+      final history = [
+        _parsed(_purchase(50000, 'x7110', 'AMAZON'), DateTime(2026, 8, 2)),
+        _parsed(_billPaid('7110'), DateTime(2026, 8, 20)),
+      ];
+
+      // Guard: the card is still identified and still estimated. Suppressing
+      // the *line* must not mean losing the card.
+      final estimate = snap(history).cards.single;
+      expect(estimate.cardLast4, '7110');
+      expect(estimate.statementEventAmountPaise, 0);
+
+      expect(cardLines(history), isEmpty);
+    });
+
+    test('and it is reachable — the why-log reads plan.coverageLines', () {
+      // TASK-34: three phases of coverage lines were computed correctly and not
+      // one of them could be opened. `home_screen.dart` passes
+      // `plan.coverageLines` to `WhyLogScreen`, and a plan's lines come from
+      // `monthResult.coverageLines`, not from `outlook.coverageLines` — which is
+      // what every assertion above reads. A line that lands in one and not the
+      // other is invisible.
+      final history = [
+        _parsed(_billPaid('7110'), DateTime(2026, 8, 20)),
+        _parsed(_purchase(38000, 'x7110', 'CROMA'), DateTime(2026, 8, 22)),
+      ];
+
+      final plan = buildForecastExplorer(
+        outlook: outlook(history),
+        reservePlan: snap(history).reservePlan,
+        now: now,
+      ).planAt(0);
+
+      final line = plan.coverageLines.singleWhere(
+        (c) => c.reason == CoverageReason.cardCycleOnly,
+      );
+      expect(line.amountPaise, 3800000);
+      expect(line.label, contains('7110'));
     });
   });
 }

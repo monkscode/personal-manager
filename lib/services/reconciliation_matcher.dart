@@ -506,6 +506,24 @@ class ReconciliationMatcher {
 
   // ---- cards --------------------------------------------------------------
 
+  /// Names the gap Spec A Part 1 opened: card purchases now count as spend on
+  /// the day they were made, and the bill that will actually leave the bank is
+  /// still in nobody's plan (a `cardPurchase` item is routed to
+  /// `quantifiedExcluded` and never becomes a dated event). The omission has to
+  /// be quantified and named, per the no-silent-exclusion rule — but never
+  /// dated, because nothing here knows the due date.
+  ///
+  /// The window is what makes the number honest. With a card-side payment
+  /// credit in history the figure is one bill's worth; without one it is
+  /// everything ever seen on the card, and saying "since its last payment"
+  /// there would be a lie the user cannot check.
+  String _cardSpendLabel(CardCycleEstimate estimate) =>
+      estimate.windowStart == null
+      ? "Card ${estimate.cardLast4} bills aren't planned yet — "
+            'no bill payment seen, so this is everything'
+      : "Card ${estimate.cardLast4} bills aren't planned yet — "
+            'spent since its last payment';
+
   List<ReconciliationItem> _cardItems(
     List<CardCycleEstimate> cards,
     List<ParsedTxn> cardPayments,
@@ -514,10 +532,16 @@ class ReconciliationMatcher {
     for (var i = 0; i < cards.length; i++) {
       final estimate = cards[i];
       if (estimate.needsCycleSetup) {
+        // Nothing bought since the bill was paid. Counting forward from the
+        // last payment is what makes this reachable at all — the figure used to
+        // be a lifetime total and was never zero — and a ₹0 line in "Needs your
+        // attention" names an omission that is not there. This is not a silent
+        // exclusion: there is no rupee to exclude.
+        if (estimate.statementEventAmountPaise == 0) continue;
         items.add(
           ReconciliationItem(
             id: 'card:${estimate.cardCycleKey}:$i',
-            label: 'Card ${estimate.cardLast4} spend',
+            label: _cardSpendLabel(estimate),
             amountPaise: estimate.statementEventAmountPaise,
             direction: LedgerDirection.outflow,
             owner: ForecastOwner.cardPurchase,

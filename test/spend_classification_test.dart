@@ -392,6 +392,48 @@ void _cardSettlementClassification() {
       // Guard: the identity above is worthless if both sides are zero.
       expect(lensSum, 100000 + 250000 - 40000);
     });
+
+    test('and it holds when the set contains a body-worded settlement', () {
+      // Part 1 left this false. `observedPurchasesPaise` admitted any
+      // card-instrument debit that was not an ATM withdrawal, and a bank
+      // writing its settlement as "Payment of Rs.45,000 towards your HDFC
+      // Credit Card" is stored exactly that way (`_cardMarker` fires on the
+      // bare phrase "credit card"). The lens excluded it and the estimator did
+      // not, so the two sides disagreed by a whole statement — in the one line
+      // Part 2 puts on screen.
+      final cardTxns = [
+        _cardPurchase(
+          amountPaise: 100000,
+          date: DateTime(2026, 8, 4),
+          smsId: 'p1',
+        ),
+        _txn(
+          amountPaise: 4500000,
+          instrument: PaymentInstrument.card,
+          date: DateTime(2026, 8, 20),
+          smsId: 's1',
+          body: _kSettlementBody,
+        ),
+      ];
+
+      // The fixture proves itself: this row really is the shape the estimator
+      // used to read as a purchase.
+      expect(MoneyLens.isCardSettlement(cardTxns[1]), isTrue);
+      expect(cardTxns[1].instrument, PaymentInstrument.card);
+      expect(cardTxns[1].direction, TransactionDirection.debit);
+      expect(cardTxns[1].type, isNot(TxnType.atm));
+
+      final estimate = const CardCycleEstimator().estimate(cardTxns);
+      final lensSum = cardTxns
+          .where(MoneyLens.isSpend)
+          .fold<int>(0, (sum, t) => sum + MoneyLens.signedSpendPaise(t));
+
+      expect(
+        lensSum,
+        estimate.observedPurchasesPaise - estimate.cardRefundsPaise,
+      );
+      expect(lensSum, 100000);
+    });
   });
 }
 

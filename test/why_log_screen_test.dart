@@ -460,5 +460,38 @@ void main() {
 
       expect(find.textContaining('· Review'), findsOneWidget);
     });
+
+    testWidgets('the card-bill coverage line renders whole on a phone', (
+      tester,
+    ) async {
+      // Spec A Part 2 ships the longest label this screen carries, and it sits
+      // in a Row beside a right-aligned amount. A model test proves the line
+      // reaches `plan.coverageLines`; only this proves the user can read it.
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await _pump(
+        tester,
+        lines: const [],
+        coverage: const [
+          ForecastCoverageLine(
+            label: "Card 7110 bills aren't planned yet — "
+                'spent since its last payment',
+            reason: CoverageReason.cardCycleOnly,
+            action: CoverageAction.setCardCycle,
+            confidence: 0.3,
+            amountPaise: 3800000,
+          ),
+        ],
+      );
+
+      expect(
+        find.textContaining('spent since its last payment'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('38,000'), findsOneWidget);
+    });
   });
 }

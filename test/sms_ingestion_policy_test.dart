@@ -1,5 +1,6 @@
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/sms_ingestion_policy.dart';
+import 'package:expense_insight/services/sms_transaction_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ParsedTxn txn({
@@ -430,6 +431,79 @@ void main() {
         expect(c.collisionSetId, b.collisionSetId);
       },
     );
+  });
+
+  // Spec A Part 2. `accountLast4` is the account leg of the weak-collision
+  // tuple, so making a card tail readable puts card rows through a gate they
+  // used to walk past with a null account. Measured here rather than assumed.
+  group('two card purchases that a readable tail now brings into one tuple', () {
+    const parser = SmsTransactionParser();
+
+    ParsedTxn purchase(String id, String merchantSuffix) => parser.parseOne(
+      RawSms(
+        providerId: id,
+        sender: 'VM-HDFCBK',
+        // No reference, and "Avl Lmt" is not a balance keyword, so neither
+        // reference nor balance can tell the two rows apart.
+        body: 'Rs.250 spent on HDFC Bank Card x3333 at SWIGGY$merchantSuffix. '
+            'Avl Lmt: Rs.95500',
+        receivedAt: DateTime(2026, 8, 6, 13),
+      ),
+      scanBatchId: 'batch',
+      bodyHashSalt: 'salt',
+    )!;
+
+    test('the tail is what puts them in one tuple at all', () {
+      // The fixture proves itself: without this the assertions below could pass
+      // for the wrong reason — two rows the policy never even compared.
+      final a = purchase('1', '');
+      expect(a.accountLast4, '3333');
+      expect(a.instrument, PaymentInstrument.card);
+      expect(a.refNumber, isNull);
+      expect(a.balancePaise, isNull);
+    });
+
+    test('same merchant: the policy asks the user rather than guessing', () {
+      final decision = SmsIngestionPolicy.classify(
+        incoming: purchase('2', ''),
+        existing: [purchase('1', '')],
+        isFirstScan: false,
+      );
+
+      // The spec predicted these would stay apart. They do not, and the
+      // behaviour is the policy's designed one rather than a defect the
+      // widening introduced: same amount, same day, same account, same
+      // direction and nothing to tell them apart is exactly the tuple
+      // `_weakCollision` exists to surface, and a bank row with an `A/c` tail
+      // has been treated this way since TASK-09.
+      //
+      // It costs the user a review prompt, not a rupee. `queueReview` writes
+      // both rows with `needsReview`, and `SmsAnalysisSnapshot.reduce` drops
+      // only `dismissed`, notices and superseded rows from `active` — so both
+      // purchases keep counting while the question is open. Scoping the tail
+      // away from this tuple would need a card identity separate from
+      // `accountLast4`, which is Spec B's.
+      expect(decision.action, IngestionAction.queueReview);
+      expect(decision.transaction.reviewReason, ReviewReason.dedupCollision);
+      expect(decision.existingToFlag, hasLength(1));
+      // Neither row is dropped — one owner per rupee survives the collision.
+      expect(decision.transaction.smsId, isNot(decision.existingToFlag.single.smsId));
+    });
+
+    test('different merchants stay apart, which is the common case', () {
+      // Two card purchases on one day at *different* merchants — the shape a
+      // real inbox produces far more often — are still told apart by
+      // `_hasDistinguishingSignal`, so the widening does not sweep ordinary
+      // card spending into review.
+      final decision = SmsIngestionPolicy.classify(
+        incoming: purchase('2', ' INSTAMART'),
+        existing: [purchase('1', '')],
+        isFirstScan: false,
+      );
+
+      expect(decision.action, IngestionAction.upsert);
+      expect(decision.transaction.reviewReason, isNull);
+    });
   });
 }
 
