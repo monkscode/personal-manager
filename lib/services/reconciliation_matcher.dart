@@ -5,6 +5,7 @@ import '../data/card_models.dart';
 import '../data/forecast_models.dart';
 import '../data/obligation_models.dart';
 import '../data/sms_models.dart';
+import 'money_lens.dart';
 import 'recurring_debit_detector.dart';
 import 'salary_income_detector.dart';
 import 'seasonal_estimator.dart';
@@ -85,7 +86,11 @@ class ReconciliationMatcher {
         // obligation, not whether the body says "transfer".
         transfers.add(txn);
         debits.add(txn);
-      } else if (_isCardPayment(txn)) {
+      } else if (MoneyLens.isCardSettlement(txn)) {
+        // Ahead of the `instrument == card` drop below on purpose: a bank
+        // writing its settlement debit as "towards your HDFC Credit Card" is
+        // stored as a card row, and the old bank-only test let it fall through
+        // to `continue`, so a real bank outflow had no owner at all.
         cardPayments.add(txn);
       } else if (txn.instrument == PaymentInstrument.card) {
         // Per-purchase card SMS is represented by the CardCycleEstimate, not as
@@ -884,17 +889,6 @@ class ReconciliationMatcher {
       txn.direction == TransactionDirection.credit &&
       txn.instrument == PaymentInstrument.bank &&
       txn.categoryKey.toLowerCase().contains('refund');
-
-  bool _isCardPayment(ParsedTxn txn) {
-    if (txn.direction != TransactionDirection.debit) return false;
-    if (txn.instrument != PaymentInstrument.bank) return false;
-    if (txn.categoryKey.toLowerCase().contains('card_payment')) return true;
-    final merchant = _norm(txn.merchant ?? '');
-    return merchant.contains('cred') ||
-        merchant.contains('billdesk') ||
-        merchant.contains('cc payment') ||
-        merchant.contains('card bill');
-  }
 
   ForecastItemSource _sourceFor(ObligationSourceType type) => switch (type) {
     ObligationSourceType.gmail => ForecastItemSource.gmail,

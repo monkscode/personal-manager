@@ -6,6 +6,7 @@ import 'obligation_models.dart';
 import 'sms_models.dart';
 import '../services/card_cycle_estimator.dart';
 import '../services/cash_coverage_metrics.dart';
+import '../services/money_lens.dart';
 import '../services/reconciliation_matcher.dart';
 import '../services/recurring_debit_detector.dart';
 import '../services/reserve_planner.dart';
@@ -39,7 +40,7 @@ class YearOverYearCategory {
 /// D1–D8 producers and the estimator run here, and their results are cached as
 /// plain value objects.
 class SmsAnalysisSnapshot {
-  const SmsAnalysisSnapshot({
+  SmsAnalysisSnapshot({
     required this.targetMonth,
     required this.hasData,
     required this.commitments,
@@ -63,7 +64,24 @@ class SmsAnalysisSnapshot {
     this.anchor,
     this.anchorFreshness,
     this.primaryAccountLast4,
-  });
+  }) : spendLensTxns = spendLensOf(
+         allTxns.isNotEmpty ? allTxns : currentMonthTxns,
+       ),
+       everydayCashTxns = List.unmodifiable([
+         // Same set `real_insights` calls `history`: [allTxns] when it was
+         // filled, and the target month alone when it was not. Deriving over a
+         // different set is how a lens quietly reports ₹0.
+         for (final txn in allTxns.isNotEmpty ? allTxns : currentMonthTxns)
+           if (MoneyLens.isEverydayCashSpend(txn)) txn,
+       ]);
+
+  /// The spend lens over an already-filtered working set. The one definition,
+  /// so [reduce] and the constructor cannot drift apart.
+  static List<ParsedTxn> spendLensOf(List<ParsedTxn> txns) =>
+      List.unmodifiable([
+        for (final txn in txns)
+          if (MoneyLens.isSpend(txn)) txn,
+      ]);
 
   /// An empty snapshot with no SMS-derived data.
   factory SmsAnalysisSnapshot.empty(DateTime now) => SmsAnalysisSnapshot(
@@ -124,6 +142,24 @@ class SmsAnalysisSnapshot {
   /// newest first. Drives the Activity tab's full history and the Home recent
   /// transactions strip. [currentMonthTxns] is the target-month subset.
   final List<ParsedTxn> allTxns;
+
+  /// [allTxns] narrowed to what the user actually consumed — card purchases on
+  /// the day they were made, card refunds netting negative on the day they
+  /// arrived, no card bill payments (`MoneyLens.isSpend`).
+  ///
+  /// Derived in the constructor rather than at each call site, so it is the
+  /// **same** working set every consumer of [allTxns] reads and every exclusion
+  /// `reduce` applies is inherited without being repeated. A predicate applied
+  /// at call sites is not a rule; only one applied where the set is defined is
+  /// (TASK-41). Named `spendLensTxns` because `real_insights` already has a
+  /// local called `spendTxns` that means something narrower.
+  final List<ParsedTxn> spendLensTxns;
+
+  /// [allTxns] narrowed to genuine consumption that left the *bank*
+  /// (`MoneyLens.isEverydayCashSpend`) — the planning baseline behind the
+  /// required figure, which is a cash question, not a consumption one.
+  final List<ParsedTxn> everydayCashTxns;
+
   final Map<String, YearOverYearCategory> yearOverYear;
 
   final CashCoverageLevel cashLevel;
@@ -291,7 +327,7 @@ class SmsAnalysisSnapshot {
       currentMonthTxns: List.unmodifiable(currentMonthTxns),
       allTxns: List.unmodifiable(allTxns),
       supersededRedeliveries: List.unmodifiable(supersededRedeliveries),
-      yearOverYear: Map.unmodifiable(_yearOverYear(active, now)),
+      yearOverYear: Map.unmodifiable(_yearOverYear(spendLensOf(active), now)),
       cashLevel: cash.level(window),
       cashDrainRatio: cash.cashDrainRatio(window),
       currentMonthAtmPaise: cash.currentMonthToDateAtmPaise(active, now),
@@ -371,23 +407,25 @@ class SmsAnalysisSnapshot {
     ];
   }
 
+  /// Same-month-last-year comparison, over [spendLensTxns].
+  ///
+  /// It used to carry its own predicate — debit, not transfer/atm, not a
+  /// notice — which never consulted `_isConsumptionSpend` and so counted a card
+  /// purchase *and* the settlement that paid for it. That is one rupee with two
+  /// owners in the one place the user compares months side by side.
   static Map<String, YearOverYearCategory> _yearOverYear(
-    List<ParsedTxn> active,
+    List<ParsedTxn> spendLensTxns,
     DateTime now,
   ) {
     final current = <String, int>{};
     final lastYear = <String, int>{};
-    for (final txn in active) {
-      if (txn.direction != TransactionDirection.debit) continue;
-      if (txn.type == TxnType.transfer || txn.type == TxnType.atm) continue;
-      if (txn.isFutureDebitNotice) continue;
+    for (final txn in spendLensTxns) {
       if (txn.txnDate.month != now.month) continue;
+      final paise = MoneyLens.signedSpendPaise(txn);
       if (txn.txnDate.year == now.year) {
-        current[txn.categoryKey] =
-            (current[txn.categoryKey] ?? 0) + txn.amountPaise;
+        current[txn.categoryKey] = (current[txn.categoryKey] ?? 0) + paise;
       } else if (txn.txnDate.year == now.year - 1) {
-        lastYear[txn.categoryKey] =
-            (lastYear[txn.categoryKey] ?? 0) + txn.amountPaise;
+        lastYear[txn.categoryKey] = (lastYear[txn.categoryKey] ?? 0) + paise;
       }
     }
     final keys = {...current.keys, ...lastYear.keys};

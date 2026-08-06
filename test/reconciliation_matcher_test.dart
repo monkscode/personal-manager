@@ -41,6 +41,7 @@ ParsedTxn actual({
   String? accountLast4,
   String? refNumber,
   String smsId = 'sms',
+  String rawBodyRedacted = 'redacted',
 }) => ParsedTxn(
   smsId: smsId,
   sender: 'VM-ICICIB',
@@ -58,7 +59,7 @@ ParsedTxn actual({
   reviewStatus: ReviewStatus.confirmed,
   source: TxnSource.sms,
   coverageBucket: CoverageBucket.datedEvent,
-  rawBodyRedacted: 'redacted',
+  rawBodyRedacted: rawBodyRedacted,
   bodyHash: 'h',
   scanBatchId: 'b',
 );
@@ -182,6 +183,51 @@ ForecastReconciliationResult reconcile({
 void main() {
   test('D8 annual heads-up expiry constant is the confirmed 15 months', () {
     expect(kAnnualHeadsUpExpiryMonths, 15);
+  });
+
+  group('Spec A — one definition of a card settlement serves both', () {
+    test('a merchant whose name merely contains "cred" is not a payment', () {
+      final items = build(
+        actuals: [
+          actual(
+            amountPaise: 500000,
+            date: DateTime(2026, 8, 12),
+            merchant: 'SACRED HEART SCHOOL',
+            categoryKey: 'other',
+            smsId: 'school',
+          ),
+        ],
+      );
+
+      expect(items.where((i) => i.owner == ForecastOwner.cardPayment), isEmpty);
+    });
+
+    test('a settlement stored as a card row reaches the payment lane', () {
+      // It used to fall through to `instrument == card` and be dropped
+      // outright: the money left the bank and no item owned it.
+      final items = build(
+        actuals: [
+          actual(
+            amountPaise: 4500000,
+            date: DateTime(2026, 8, 20),
+            instrument: PaymentInstrument.card,
+            type: TxnType.pos,
+            merchant: null,
+            categoryKey: 'other',
+            smsId: 'settlement',
+            rawBodyRedacted:
+                'Payment of [amount] towards your HDFC Credit Card debited '
+                'from A/c [account]',
+          ),
+        ],
+      );
+
+      final payments = items
+          .where((i) => i.owner == ForecastOwner.cardPayment)
+          .toList();
+      expect(payments, hasLength(1));
+      expect(payments.single.amountPaise, 4500000);
+    });
   });
 
   group('owner mapping (§7 producers become owned items)', () {

@@ -27,6 +27,7 @@ ParsedTxn txn({
   ReviewStatus reviewStatus = ReviewStatus.confirmed,
   String? smsId,
   String rawBodyRedacted = 'redacted',
+  String? supersededBySmsId,
 }) => ParsedTxn(
   smsId: smsId ?? 'sms:${date.toIso8601String()}:$amountPaise',
   sender: 'VM-ICICIB',
@@ -47,6 +48,7 @@ ParsedTxn txn({
   rawBodyRedacted: rawBodyRedacted,
   bodyHash: 'h',
   scanBatchId: 'b',
+  supersededBySmsId: supersededBySmsId,
 );
 
 List<ParsedTxn> monthlySip({required int count, int day = 10}) => [
@@ -61,6 +63,7 @@ List<ParsedTxn> monthlySip({required int count, int day = 10}) => [
 void main() {
   _task21Horizon();
   _task41NoticeLeak();
+  _specASpendLens();
   final now = DateTime(2026, 8, 15);
 
   group('kAnalysisLookbackMonths', () {
@@ -754,6 +757,114 @@ void _task41NoticeLeak() {
         (sum, t) => sum + t.amountPaise,
       );
       expect(total, 11800);
+    });
+  });
+}
+
+// A settlement stored as a card row — `_cardMarker` fires on `credit card`, so
+// the bank's own bill-payment debit is not distinguishable by instrument.
+const _kSettlementBody =
+    'Payment of [amount] towards your HDFC Credit Card debited from A/c '
+    '[account]';
+const _kCardPurchaseBody =
+    'Rs.[amount] spent on HDFC Bank Card [account] at AMAZON. Avl Lmt: '
+    '[amount]';
+
+void _specASpendLens() {
+  final now = DateTime(2026, 8, 15);
+
+  group('Spec A — the spend lens is derived where the working set is', () {
+    // The architectural claim of TASK-41, asserted rather than assumed: a read
+    // path added later that filters `spendLensTxns` inherits every exclusion
+    // `active` applies, without repeating any of them.
+    test('dismissed, notice and superseded rows never reach either lens', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: [
+          txn(
+            amountPaise: 250000,
+            date: DateTime(2026, 8, 5),
+            merchant: 'acme broadband',
+            categoryKey: 'other',
+            smsId: 'real',
+            rawBodyRedacted: 'Rs.2500 debited from HDFC Bank ac',
+          ),
+          txn(
+            amountPaise: 300000,
+            date: DateTime(2026, 8, 6),
+            merchant: 'acme broadband',
+            categoryKey: 'other',
+            smsId: 'dismissed',
+            reviewStatus: ReviewStatus.dismissed,
+            rawBodyRedacted: 'Rs.3000 debited from HDFC Bank ac',
+          ),
+          txn(
+            amountPaise: 199900,
+            date: DateTime(2026, 8, 7),
+            merchant: 'google',
+            categoryKey: 'other',
+            smsId: 'notice',
+            rawBodyRedacted:
+                'E-Mandate! Rs.1999 will be deducted on 11/08/26 For Google',
+          ),
+          txn(
+            amountPaise: 400000,
+            date: DateTime(2026, 8, 8),
+            merchant: 'acme broadband',
+            categoryKey: 'other',
+            smsId: 'superseded',
+            supersededBySmsId: 'real',
+            rawBodyRedacted: 'Rs.4000 debited from HDFC Bank ac',
+          ),
+        ],
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+
+      // Guard: the predicates themselves have no opinion about a dismissal or
+      // a supersede, so an empty result would prove nothing without this.
+      final dismissed = snapshot.allTxns.where((t) => t.smsId == 'dismissed');
+      expect(dismissed, isEmpty);
+
+      expect(snapshot.spendLensTxns.map((t) => t.smsId), ['real']);
+      expect(snapshot.everydayCashTxns.map((t) => t.smsId), ['real']);
+    });
+  });
+
+  group('Spec A — year-over-year switches to the spend lens', () {
+    test('a card purchase counts once and a settlement counts zero times', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: [
+          txn(
+            amountPaise: 50000,
+            date: DateTime(2026, 8, 6),
+            instrument: PaymentInstrument.card,
+            type: TxnType.pos,
+            merchant: 'amazon',
+            categoryKey: 'shopping',
+            smsId: 'purchase',
+            rawBodyRedacted: _kCardPurchaseBody,
+          ),
+          txn(
+            amountPaise: 4500000,
+            date: DateTime(2026, 8, 20),
+            instrument: PaymentInstrument.card,
+            type: TxnType.pos,
+            merchant: null,
+            categoryKey: 'other',
+            smsId: 'settlement',
+            rawBodyRedacted: _kSettlementBody,
+          ),
+        ],
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: now,
+      );
+
+      expect(snapshot.yearOverYear['shopping']?.currentPaise, 50000);
+      expect(snapshot.yearOverYear['other']?.currentPaise ?? 0, 0);
     });
   });
 }

@@ -61,6 +61,8 @@ class TxRow {
     this.date = '',
     this.amountColor,
     this.isCredit = false,
+    this.subtitle = '',
+    this.isCardSettlement = false,
   });
   final String name;
   final String category;
@@ -79,6 +81,15 @@ class TxRow {
   /// Optional amount colour (green for credits, primary for debits).
   final Color? amountColor;
   final bool isCredit;
+
+  /// A second line under [category], explaining why a row the user can see is
+  /// not in the total beside it. Empty for an ordinary row.
+  final String subtitle;
+
+  /// Whether this row settles a credit-card bill. The money left the bank, so
+  /// the row stays on screen; it is not consumption, so it is in no spend
+  /// total. Both facts have to be visible at once or the total looks wrong.
+  final bool isCardSettlement;
 }
 
 class TxGroupView {

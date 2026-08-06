@@ -1,3 +1,4 @@
+import 'package:expense_insight/core/format.dart';
 import 'package:expense_insight/core/theme.dart';
 import 'package:expense_insight/data/app_controller.dart';
 import 'package:expense_insight/data/app_state.dart';
@@ -152,5 +153,40 @@ void main() {
     // Sample scenario has no per-day AUG headers from the SMS path.
     expect(find.text('6 AUG'), findsNothing);
     expect(find.text('Transactions'), findsOneWidget);
+  });
+
+  testWidgets('a card settlement is shown, labelled, and not spend', (
+    tester,
+  ) async {
+    // Removing a rupee from the spend total must not remove it from the list —
+    // an omission the user cannot see is the silent exclusion the spec forbids.
+    final settlement = _txn('bill', 'CRED', 4500000, DateTime(2026, 8, 20));
+    final i = Insights.compute(
+      _state,
+      snapshot: _snapshot([
+        settlement,
+        _txn('food', 'Swiggy', 42000, DateTime(2026, 8, 20)),
+      ]),
+      now: _now,
+    );
+
+    final rows = [
+      for (final group in i.dateGroups)
+        for (final row in group.items) row,
+    ];
+    final settlementRow = rows.singleWhere((r) => r.isCardSettlement);
+
+    expect(settlementRow.subtitle, isNotEmpty);
+    // The bank debit that pays a card bill carries no card number — which is
+    // why `_cardCycleFor` has to guess by amount and window. Naming one here
+    // would be inventing it.
+    expect(settlementRow.subtitle, isNot(matches(RegExp(r'\d'))));
+    // ...and the ₹420 of food is the whole of the month's spend.
+    expect(i.spentThisMonthLabel, inr(420));
+
+    await _pump(tester, i);
+
+    expect(find.text(settlementRow.name), findsOneWidget);
+    expect(find.text(settlementRow.subtitle), findsOneWidget);
   });
 }

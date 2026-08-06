@@ -8,6 +8,7 @@ import '../core/theme.dart';
 import '../services/forecast_adapter.dart';
 import '../services/forecast_explorer.dart';
 import '../services/merchant_display.dart';
+import '../services/money_lens.dart';
 import '../services/salary_income_detector.dart';
 import 'app_state.dart';
 import 'forecast_models.dart';
@@ -569,7 +570,13 @@ Insights _forecastInsights(
     final isCredit = t.direction == TransactionDirection.credit;
     final sign = isCredit ? '+' : '-';
     final color = _categoryColor(d.categoryKey);
+    // The subtitle deliberately does not name the card. A CRED or BillDesk
+    // bank debit carries no card number at all — which is why the cycle has to
+    // be attributed by amount and window — so there is nothing to render.
+    final isCardSettlement = MoneyLens.isCardSettlement(t);
     return TxRow(
+      subtitle: isCardSettlement ? 'Settles a card bill · not spend' : '',
+      isCardSettlement: isCardSettlement,
       name: d.name,
       category: d.categoryLabel,
       categoryKey: d.categoryKey,
@@ -604,12 +611,12 @@ Insights _forecastInsights(
 
   // ---- Home: spent this month + recent transactions -------------------------
   final spendTxns = [
-    for (final t in snapshot.currentMonthTxns)
-      if (_isConsumptionSpend(t)) t,
+    for (final t in snapshot.spendLensTxns)
+      if (t.txnDate.year == now.year && t.txnDate.month == now.month) t,
   ];
   final spentThisMonthPaise = spendTxns.fold<int>(
     0,
-    (acc, t) => acc + t.amountPaise,
+    (acc, t) => acc + MoneyLens.signedSpendPaise(t),
   );
   final recentTx = [
     for (final t in history.take(8)) txRowFor(t, withDate: true),
@@ -628,12 +635,12 @@ Insights _forecastInsights(
     for (final c in snapshot.commitments) c.merchantNorm,
   };
   final everydayBasePaise = _typicalMonthlySpendPaise(
-    history,
+    snapshot.everydayCashTxns,
     now,
     excludeOwnerKeys: commitmentOwnerKeys,
   );
   final everydayLastYearPaise = _monthSpendPaise(
-    history,
+    snapshot.everydayCashTxns,
     nextPlan.monthStart.year - 1,
     nextPlan.monthStart.month,
     excludeOwnerKeys: commitmentOwnerKeys,
@@ -774,7 +781,10 @@ Insights _forecastInsights(
     final m = DateTime(now.year, now.month - back);
     trendPoints.add((
       label: DateFormat('MMM').format(m),
-      paise: _monthSpendPaise(history, m.year, m.month),
+      // The same lens as `spentThisMonthPaise` below, which is the current bar
+      // of this very chart. Passing the planning baseline here instead would
+      // plot two different definitions of spend side by side.
+      paise: _monthSpendPaise(snapshot.spendLensTxns, m.year, m.month),
       kind: 'past',
     ));
   }
@@ -1107,10 +1117,15 @@ Color _categoryColor(String key) => switch (key) {
 };
 
 /// The user's typical monthly outflow, averaged over the completed calendar
-/// months in the trailing window (default 3) that actually have activity. Real
-/// debits only, excluding self/account transfers. Returns 0 with no history.
+/// months in the trailing window (default 3) that actually have activity.
+/// Returns 0 with no history.
+///
+/// [everydayCashTxns] is `SmsAnalysisSnapshot.everydayCashTxns` — the planning
+/// baseline lens, already filtered. This figure feeds `requiredPaise`, which is
+/// a question about cash leaving the bank, so it must not be handed the spend
+/// lens.
 int _typicalMonthlySpendPaise(
-  List<ParsedTxn> history,
+  List<ParsedTxn> everydayCashTxns,
   DateTime now, {
   int months = 3,
   Set<String> excludeOwnerKeys = const {},
@@ -1120,8 +1135,7 @@ int _typicalMonthlySpendPaise(
     final m = DateTime(now.year, now.month - back);
     byMonth['${m.year}-${m.month.toString().padLeft(2, '0')}'] = 0;
   }
-  for (final t in history) {
-    if (!_isConsumptionSpend(t)) continue;
+  for (final t in everydayCashTxns) {
     if (t.ownerKey != null && excludeOwnerKeys.contains(t.ownerKey)) continue;
     final key =
         '${t.txnDate.year}-${t.txnDate.month.toString().padLeft(2, '0')}';
@@ -1134,22 +1148,28 @@ int _typicalMonthlySpendPaise(
   return active.reduce((a, b) => a + b) ~/ active.length;
 }
 
-/// Total real spend (debits, excluding transfers) in one calendar month.
-/// Used to surface last-year same-month festival spend in the next-month need.
+/// Total spend in one calendar month, over whichever lens [txns] carries.
+///
+/// **The lens is the caller's choice and must be passed in.** Two callers want
+/// two different answers: the trend chart's past bars must match its current
+/// bar, which is the spend lens, while the next-month requirement's last-year
+/// figure feeds `requiredPaise` and must be the planning baseline. Reading a
+/// single fixed predicate here is what would have put two definitions of spend
+/// into one chart.
+///
 /// [excludeOwnerKeys] drops recurring-commitment owners so the everyday figure
 /// does not double-count amounts listed separately as recurring payments.
 int _monthSpendPaise(
-  List<ParsedTxn> history,
+  List<ParsedTxn> txns,
   int year,
   int month, {
   Set<String> excludeOwnerKeys = const {},
 }) {
   var sum = 0;
-  for (final t in history) {
-    if (!_isConsumptionSpend(t)) continue;
+  for (final t in txns) {
     if (t.ownerKey != null && excludeOwnerKeys.contains(t.ownerKey)) continue;
     if (t.txnDate.year == year && t.txnDate.month == month) {
-      sum += t.amountPaise;
+      sum += MoneyLens.signedSpendPaise(t);
     }
   }
   return sum;
@@ -1199,59 +1219,5 @@ String _compactInr(int paise) {
   return '₹${rupees.round()}';
 }
 
-/// Whether a stored transaction is genuine **consumption** that left the user's
-/// bank this period. Leading trackers (e.g. FinArt) separate spend from money
-/// that is merely *moved* or *reserved*, and so do we — excluding:
-///   • cash withdrawals (ATM) — cash on hand, not yet spent;
-///   • investments / SIP auto-debits — savings, not consumption;
-///   • credit-card purchases — not a bank cash outflow (the later bill payment
-///     is the single bank event, per the SMS-layer design §11);
-///   • future auto-pay mandate registrations and bill-due notices
-///     ("will be debited", "is due for payment") — the money has not left yet;
-///   • transfers and self-transfers between the user's own accounts.
-///
-/// Detection is re-derived from the redacted SMS body at read time, so it
-/// corrects already-stored rows without needing a rescan (some banks mis-tag an
-/// ATM cash-out as a POS purchase because the body names the debit card, so the
-/// raw body is the reliable signal).
-bool _isConsumptionSpend(ParsedTxn t) {
-  if (t.direction != TransactionDirection.debit) return false;
-  if (t.type == TxnType.transfer || t.type == TxnType.atm) return false;
-  if (t.payeeType == PayeeType.selfTransfer) return false;
-  if (t.instrument == PaymentInstrument.card) return false;
-  if (t.isFutureDebitNotice) return false;
-  final body = t.rawBodyRedacted.toLowerCase();
-  return !_matchesAny(body, _kCashWithdrawalMarkers) &&
-      !_matchesAny(body, _kInvestmentMarkers) &&
-      !_matchesAny(body, _kCreditCardPurchaseMarkers);
-}
-
 bool _matchesAny(String body, List<String> markers) =>
     markers.any(body.contains);
-
-/// ATM / cash-out signals. Some banks mis-tag these as POS because the body
-/// mentions the debit card, so the raw body — not the parsed type — is reliable.
-const _kCashWithdrawalMarkers = ['withdrawn', 'cash withdrawal', 'atm wdl'];
-
-/// Recurring investment / SIP auto-debit originators (Indian broking houses and
-/// mutual-fund clearing corporations). These are savings, not spend.
-const _kInvestmentMarkers = [
-  'groww',
-  'indian clearing corp',
-  'iccl',
-  'zerodha',
-  'mutual fund',
-  'invest tech',
-  'nse clearing',
-  'bse star',
-  'kfintech',
-];
-
-/// Credit-card purchase alerts, identified by the reported available *limit*
-/// (a bank debit-card purchase reports the available *balance* instead).
-const _kCreditCardPurchaseMarkers = [
-  'avl lmt',
-  'available limit',
-  'available credit',
-  'credit limit',
-];

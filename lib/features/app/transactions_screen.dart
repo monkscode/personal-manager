@@ -238,6 +238,16 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                             color: p.textTertiary,
                           ),
                         ),
+                        if (tx.subtitle.isNotEmpty)
+                          Text(
+                            tx.subtitle,
+                            maxLines: 2,
+                            style: jakarta(
+                              size: 11,
+                              weight: FontWeight.w500,
+                              color: p.textTertiary,
+                            ),
+                          ),
                       ],
                     ),
                   ),
