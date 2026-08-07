@@ -4,10 +4,10 @@
 // of the buckets it opened are not credit cards, and each got a line in "Needs
 // your attention" claiming a bill that will never arrive:
 //
-//   Card 7102  ₹3,56,000  23 rows, every one `Withdrawn ... Bal ...` — HDFC ATM
+//   The ATM card   ₹3,56,000  23 rows, every one `Withdrawn ... Bal ...` — HDFC ATM
 //                         cash-outs, stored as `pos` because the body names the
 //                         debit card. The money left the bank in 2025-10..2026-07.
-//   Card 7113  ₹4,235     6 rows, `Paid ... Bal ...` — debit-card POS purchases,
+//   The debit card ₹4,235     6 rows, `Paid ... Bal ...` — debit-card POS purchases,
 //                         already settled.
 //
 // Before Part 2 both sat unnamed in the shared `unknown` bucket and were
@@ -23,8 +23,8 @@
 //
 // It is pinned at TWO clocks on purpose. The rejected alternative — keep only
 // buckets that carry credit-card evidence (`avl lmt` and friends) — looked
-// right at one date and silently dropped genuine cards 7114 (₹93,706) and 7105
-// (₹3,419) at another, because the 13-month lookback slides and starves a
+// right at one date and silently dropped two genuine cards (₹93,706 and
+// ₹3,419) at another, because the 13-month lookback slides and starves a
 // bucket of the rows that carried its evidence. Card identity must not depend
 // on the calendar, so a second clock is part of the gate, not a nicety.
 //
@@ -86,6 +86,15 @@ void main() {
     Platform.environment['TASK47_DB'] ?? '.private/transactions.db',
   ).absolute.path;
 
+  // The three cards this test is about are real account tails, so they live
+  // beside the export rather than in this file — the repository is public and
+  // a committed identifier cannot be taken back. One tail per line, in the
+  // order the assertions below read them: the ATM card, the debit card, then
+  // the one genuine credit card.
+  final tailsPath = File(
+    Platform.environment['TASK47_CARDS'] ?? '.private/task47-cards.txt',
+  ).absolute.path;
+
   test('TASK-47 — no card bill is claimed for money already out of the bank',
       () async {
     if (!File(exportPath).existsSync()) {
@@ -95,6 +104,24 @@ void main() {
       );
       return;
     }
+    if (!File(tailsPath).existsSync()) {
+      markTestSkipped(
+        'No card tails at $tailsPath — three lines: the ATM card, the debit '
+        'card, the credit card. Skipping so the suite stays green.',
+      );
+      return;
+    }
+    final tails = File(tailsPath)
+        .readAsLinesSync()
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    expect(
+      tails,
+      hasLength(3),
+      reason: '$tailsPath must name exactly the ATM, debit and credit cards',
+    );
+    final (atmCard, debitCard, creditCard) = (tails[0], tails[1], tails[2]);
     sqfliteFfiInit();
 
     for (final now in [DateTime(2026, 8, 7, 12), DateTime(2026, 9, 7, 12)]) {
@@ -110,24 +137,24 @@ void main() {
       );
 
       expect(
-        lines.keys.any((l) => l.contains('7102')),
+        lines.keys.any((l) => l.contains(atmCard)),
         isFalse,
-        reason: 'card 7102 is 23 ATM cash-outs; the money left the bank months '
+        reason: 'the ATM card is 23 cash-outs; the money left the bank months '
             'ago and no card will bill for it',
       );
       expect(
-        lines.keys.any((l) => l.contains('7113')),
+        lines.keys.any((l) => l.contains(debitCard)),
         isFalse,
-        reason: 'card 7113 is 6 settled debit-card purchases, already inside '
-            'the spend total — a bill line for them double-counts',
+        reason: 'the debit card is 6 settled purchases, already inside the '
+            'spend total — a bill line for them double-counts',
       );
       expect(
-        lines.keys.any((l) => l.contains('7117')),
+        lines.keys.any((l) => l.contains(creditCard)),
         isTrue,
-        reason: 'card 7117 is the one genuine credit card, and its line is '
+        reason: 'the credit card is the one genuine one, and its line is '
             'correct — the guard must not swallow it',
       );
-      expect(total, 59000, reason: 'only 7117\'s ₹590 survives');
+      expect(total, 59000, reason: 'only the credit card\'s ₹590 survives');
     }
   }, timeout: const Timeout(Duration(minutes: 5)));
 
@@ -164,9 +191,9 @@ void main() {
     expect(
       cards.where(MoneyLens.reportsBankBalance).length,
       29,
-      reason: 'the guard is expected to fire on exactly the 23 rows of card '
-          '7102 and the 6 of card 7113 — a different count means the export '
-          'moved and the prediction needs re-deriving',
+      reason: 'the guard is expected to fire on exactly the 23 rows of '
+          'the ATM card and the 6 of the debit card — a different count means '
+          'the export moved and the prediction needs re-deriving',
     );
   }, timeout: const Timeout(Duration(minutes: 5)));
 }
