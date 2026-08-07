@@ -631,6 +631,58 @@ gone; and Home is unchanged, as it must be, because those rows were already out 
 **The honest successor is that ₹3,56,000 of cash still has no owner.** The parser fix makes
 the coverage metric *see* it but does not itemise it — reconciliation reads the current month
 only and the last withdrawal was 2026-07-17, so ATM items stayed 0 → 0.
+**Measured in TASK-48 and closed: this is correct behaviour, not a successor defect.**
+
+---
+
+### Phase 9 — a card's announcements are not its transactions
+
+Opened 2026-08-07, after TASK-47, from the observation that the spend lens reads everything
+a card sends as something a card *did*.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-48](TASK-48-announcements-are-not-transactions.md) | A card's announcements are not its transactions (38 rows; −₹35,882.70 and +₹2,554.00) | Important | **Done** |
+
+A credit card announces what *will* happen, acknowledges what the holder *did*, and reports
+a purchase. Only the third moved money this month, and the lens read all three as purchases.
+**The monthly statement** (`is due by`, a phrasing TASK-44's vocabulary lacked) was counted
+as a completed purchase — and because a statement total is the sum of purchases already
+counted individually, it double-counted them in a lump: 10 rows, **−₹35,882.70**.
+**The bill payment** was counted as a *refund*, because HDFC writes "was **credited** to your
+card" and the guard demanded "received" — so settling the bill made spend look smaller:
+8 rows corpus-wide of one identical sentence, 2 in window, **+₹2,554.00**. **The purchase**
+carried a merchant name in its own text that nothing read, leaving 26 rows showing
+"Card Purchase" while `MerchantDisplay` reported `resolved: true`.
+
+**The layering decision is the transferable part.** The merchant fix went into
+`MerchantDisplay`, not the parser, because the parser runs at scan time on the **raw** SMS —
+which the export does not store. A parser change cannot be predicted offline and reaches an
+existing row only after a device rescan; a read-time change renames rows already in the
+database and can be measured before it ships. Redaction replaced amounts and account
+numbers, never merchants, so the name survives in the text the read-time layer sees.
+26 rows renamed at one clock, 15 at another, **none renamed from anything but the
+placeholder and none lost a name.**
+
+**Six inherited backlog items were measured and moved nothing** — bank-side refunds and the
+`Info:` subset (every row out of window), the unowned ATM cash (working as designed; the rows
+*are* typed `atm`, coverage runs on a 90-day window where the figure is ₹1,00,000, and
+reconciliation is current-month by design), the 21 tailless card rows (**none is a
+purchase**), the three ATM vocabularies (34 divergent rows, 0 counted as spend, nothing since
+2021), and the `MoneyLens` ↔ `CardCycleEstimator` cycle. **Both real finds came from probing
+sideways**, neither from the ranked list. A task doc's own premises are evidence, not fact.
+
+**Device-verified 2026-08-07 without a rescan** — every fix in the task derives from
+`rawBodyRedacted` at read time, and the device md5 was identical before and after the
+install. The renamed Amazon row was confirmed on screen to the rupee; the two money deltas
+were not, and cannot be, because their rows are months old and the visible bars round to
+₹1.6L.
+
+**Still open: one row.** A machine token renders as the payee `Sy0525015` (₹400, in window) —
+TASK-46's defect class surviving in a single row. Deferred deliberately: the fix edits the
+predicate that names *every* transaction, and `priyalpatel1910` and `1mg` are legitimate
+neighbours. The inherited "17 rows" counts things the code deliberately decided are not
+identifiers.
 
 ---
 
