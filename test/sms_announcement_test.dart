@@ -1,5 +1,6 @@
 import 'package:expense_insight/data/sms_analysis_snapshot.dart';
 import 'package:expense_insight/data/sms_models.dart';
+import 'package:expense_insight/services/money_lens.dart';
 import 'package:expense_insight/services/sms_transaction_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -249,6 +250,67 @@ void main() {
           reason: 'no longer recognised: $body',
         );
       }
+    });
+  });
+
+  // TASK-44 again, one word later. The vocabulary carried "is due on" and
+  // "due for payment" but not "is due by", which is how ICICI words the
+  // monthly credit-card statement. So the statement was stored as a completed
+  // card purchase: 10 rows / Rs.35,882.70 inside the 13-month window, counted
+  // in "Spent this month".
+  //
+  // It is worse than one wrong row each month. A statement total is the sum of
+  // the purchases that made it up, and each of those was already counted on the
+  // day it was made, so the statement counts them a second time in a lump.
+  group('a credit-card statement is an announcement, not a purchase', () {
+    // Row 733 on the device, 25-Mar-2026, Rs.12,732 - the largest of the ten.
+    const statement =
+        'ICICI Bank Credit Card XX7117 Statement is sent to '
+        '1d********@gmail.com. Total of Rs 12732.00 or minimum of Rs 637.00 '
+        'is due by 05-APR-26.';
+
+    test('the statement wording is recognised as an announcement', () {
+      expect(kFutureDebitNoticePattern.hasMatch(statement), isTrue);
+    });
+
+    test('a stored statement row stops counting at read time', () {
+      final row = stored(
+        smsId: 'statement-1',
+        body: statement,
+        direction: TransactionDirection.debit,
+        amountPaise: 1273200,
+      );
+
+      expect(row.isFutureDebitNotice, isTrue);
+      expect(MoneyLens.isSpend(row), isFalse);
+    });
+
+    test('GUARD: a real card purchase is untouched', () {
+      final row = stored(
+        smsId: 'purchase-1',
+        body: _realCardDebit,
+        direction: TransactionDirection.debit,
+      );
+
+      expect(row.isFutureDebitNotice, isFalse);
+      expect(MoneyLens.isSpend(row), isTrue);
+    });
+
+    test('GUARD: the bill-payment acknowledgement is still not spend', () {
+      // The other big shape on the same card. It must stay excluded for its own
+      // reason - it is the settlement's other leg - not become an announcement.
+      final row = stored(
+        smsId: 'ack-1',
+        body:
+            'Payment of Rs 12732.00 has been received on your ICICI Bank '
+            'Credit Card XX7117 through Bharat Bill Payment System on '
+            '01-APR-26.',
+        direction: TransactionDirection.credit,
+        amountPaise: 1273200,
+      );
+
+      expect(row.isFutureDebitNotice, isFalse);
+      expect(MoneyLens.isSpend(row), isFalse);
     });
   });
 }

@@ -224,7 +224,12 @@ extension CoverageBucketStorage on CoverageBucket {
 /// words two of the author's banks use. Measured at 10 rows / ₹2,26,911.10.
 final RegExp kFutureDebitNoticePattern = RegExp(
   r'\bwill be (?:debited|credited|deducted)\b'
-  r'|\bis due on\b'
+  // "by" as well as "on": ICICI words the monthly credit-card statement
+  // "Total of Rs X or minimum of Rs Y is due by 05-APR-26", which was stored
+  // as a completed card purchase — 10 rows / ₹35,882.70 inside the window,
+  // and each one a second count of purchases already counted individually on
+  // the day they were made.
+  r'|\bis due (?:on|by)\b'
   r'|\bdue for payment\b'
   r'|\bscheduled for\b'
   r'|\bupcoming mandate\b'
