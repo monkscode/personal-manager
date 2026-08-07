@@ -174,7 +174,19 @@ class SmsTransactionParser {
   // Rail vocabulary for `_type`, anchored so a merchant name cannot claim a
   // rail it never touched.
   static final RegExp _upiWord = RegExp(r'\bupi\b');
-  static final RegExp _atmWord = RegExp(r'\batm\b');
+  /// Cash out of an account. `\batm\b` alone missed every HDFC withdrawal on
+  /// the owner's device: the bank writes "Withdrawn Rs.20,000 From HDFC Bank
+  /// Card XX7102 At SCIENCE CITY-II" and never uses the word ATM, so `_type`
+  /// fell through to `instrument == card -> pos` and 23 cash withdrawals were
+  /// stored as card purchases.
+  ///
+  /// The withdrawal wording is the same vocabulary `MerchantDisplay._withdrawn`
+  /// and `kCashWithdrawalMarkers` already treat as cash, and `withdrawn` is
+  /// already in `_txnVerb`; this is the parser agreeing with the three places
+  /// downstream of it that had to work around its answer.
+  static final RegExp _atmWord = RegExp(
+    r'\batm\b|\bwithdrawn\b|\bwithdrawal\b',
+  );
   static final RegExp _transferWord = RegExp(r'\bneft\b|\bimps\b|\btransfer\b');
   static final RegExp _posWord = RegExp(r'\bpos\b|\bcard\b');
 

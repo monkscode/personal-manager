@@ -997,6 +997,66 @@ void main() {
       expect(txn.instrument, PaymentInstrument.card);
     });
 
+    // TASK-47 — the cash-out that never says "ATM".
+    //
+    // HDFC words an ATM withdrawal as "Withdrawn ... From HDFC Bank Card ... At
+    // <branch>", so `_atmWord`'s `\batm\b` finds nothing and `_type` falls
+    // through to `instrument == card -> pos`. The type is then wrong for every
+    // consumer that keys on it: the ATM lane in `ReconciliationMatcher`, the
+    // cash-drain ratio in `CashCoverageMetrics`, and the ATM skip in
+    // `RecurringDebitDetector` all test `type == TxnType.atm` and all miss it.
+    //
+    // "withdrawn" is already in `_txnVerb`, so the parser has always read it as
+    // a money-moving verb; this is the same word deciding the rail as well.
+    test('an HDFC cash-out worded "Withdrawn" is an ATM withdrawal', () {
+      final txn = parse(
+        'Withdrawn Rs.20,000 From HDFC Bank Card XX7102 At SCIENCE CITY-II '
+        'On 2025-10-29:13:47:58 Bal Rs.1,04,235 Not You? Call 18002586161',
+      );
+
+      expect(txn.type, TxnType.atm);
+    });
+
+    // The other spelling `kCashWithdrawalMarkers` already knows about. It is
+    // only reachable when a second verb carries the row: `withdrawal` is not in
+    // `_debitVerb`, so a body using it alone yields no direction and no
+    // transaction at all — which is what the first draft of this test proved by
+    // returning null.
+    test('the spelled-out "cash withdrawal" is one too', () {
+      final txn = parse(
+        'Rs.5,000.00 debited from A/c XX1234 for cash withdrawal on 05-07-26.',
+      );
+
+      expect(txn.type, TxnType.atm);
+    });
+
+    // The guard on the widening: an ordinary card purchase must stay a POS
+    // purchase. Only the withdrawal wording moves a row, and the corpus says
+    // that is 23 rows and nothing else.
+    //
+    // The word is matched on a boundary, per M5 above, so `WITHDRAWNCO` cannot
+    // match. A merchant *named* the bare word "withdrawn" still would; that is
+    // accepted as far-fetched in a way `ATMOSPHERE` was not, since that one
+    // collided by substring accident rather than by being the whole word.
+    test('an ordinary card purchase is still a POS purchase', () {
+      final txn = parse(
+        'Spent Rs.320.00 on HDFC Bank Card XX9012 at BLUE TOKAI on 05-07-26. '
+        'Avl Lmt Rs.46,800.00.',
+      );
+
+      expect(txn.type, TxnType.pos);
+    });
+
+    // `_type` tests UPI before ATM, and that order has to survive: a UPI body
+    // that happens to use the word must stay on the UPI rail.
+    test('a resolved VPA still outranks the withdrawal wording', () {
+      final txn = parse(
+        'Rs.500.00 withdrawn from A/c XX1234 to shop@okhdfcbank on 05-07-26.',
+      );
+
+      expect(txn.type, TxnType.upi);
+    });
+
     test('a real VPA still classifies as UPI', () {
       expect(
         parse('Rs.450.00 debited from A/c XX1234 to swiggy@okhdfcbank. Ref 123456789012.').type,
