@@ -353,6 +353,60 @@ void _cardSettlementClassification() {
       final estimate = const CardCycleEstimator().estimate([paymentReceived]);
       expect(estimate.cardRefundsPaise, 0);
     });
+
+    // HDFC announces the same event with "credited", never "received", so the
+    // guard read the holder paying their own bill as a merchant refund and
+    // netted it off spend. 8 rows in the device corpus carry this exact
+    // wording, ₹40,797 lifetime; 2 of them (₹2,554) sit inside the 13-month
+    // window and made spend look that much lower.
+    final paymentCredited = _txn(
+      amountPaise: 135800,
+      direction: TransactionDirection.credit,
+      instrument: PaymentInstrument.card,
+      smsId: 'payment-credited',
+      body:
+          'HDFC Bank Cardmember, Online Payment of [amount] vide [ref] was '
+          'credited to your card ending [account] On 31/JAN/[number]_value '
+          'Date 31/JAN/[number]',
+    );
+
+    test('a payment announced as "credited to your card" is still a payment',
+        () {
+      expect(isCardBillPayment(paymentCredited), isTrue);
+      expect(MoneyLens.isSpend(paymentCredited), isFalse);
+      expect(
+        const CardCycleEstimator().estimate([paymentCredited]).cardRefundsPaise,
+        0,
+      );
+    });
+
+    test('a merchant refund is still a refund, not a payment', () {
+      // The narrowness that matters: the new wording keys on "payment", so an
+      // unlabelled card credit keeps counting as a refund exactly as before.
+      // Axis cashback ("Cashback of X has been credited to your ... Card") and
+      // the excess-amount reversal both live in this class in the corpus.
+      final refund = _cardRefund(
+        amountPaise: 40000,
+        date: DateTime(2026, 8, 11),
+        smsId: 'refund',
+      );
+      final cashback = _txn(
+        amountPaise: 5500,
+        direction: TransactionDirection.credit,
+        instrument: PaymentInstrument.card,
+        smsId: 'cashback',
+        body:
+            'Congratulations! Cashback of [amount] has been credited to your '
+            'Axis Bank Flipkart Visa Credit Card [account] towards your last '
+            'month spends - Axis Bank',
+      );
+
+      for (final txn in [refund, cashback]) {
+        expect(isCardBillPayment(txn), isFalse, reason: txn.smsId);
+        expect(MoneyLens.isSpend(txn), isTrue, reason: txn.smsId);
+        expect(MoneyLens.signedSpendPaise(txn), -txn.amountPaise);
+      }
+    });
   });
 
   group('the spend lens conserves what the cycle estimator observed', () {

@@ -16,6 +16,12 @@ const double kCardCycleUnknownConfidence = 0.3;
 ///     CREDIT CARD ENDING WITH 1234 ...
 ///     Payment of Rs.2500 has been received on your ICICI Bank Credit Card
 ///     XX12 through Bharat Bill Payment System ...
+///     HDFC Bank Cardmember, Online Payment of Rs.1358 vide REF was credited
+///     to your card ending 1234 On 31/JAN/26 ...
+///
+/// The third wording says "credited" and never "received", so it read as a
+/// refund: 8 rows in the device corpus, ₹40,797 lifetime, ₹2,554 of it inside
+/// the 13-month window and netted off spend.
 ///
 /// A refund cancels spend; a payment settles it. Counting a payment as a refund
 /// makes paying the bill look like the holder spent less, which understates the
@@ -29,7 +35,11 @@ bool isCardBillPayment(ParsedTxn txn) =>
 
 final RegExp _billPayment = RegExp(
   r'\bpayment\b[\s\S]{0,60}?\breceived\b'
-  r'|\breceived\b[\s\S]{0,60}?\btowards\s+your\b',
+  r'|\breceived\b[\s\S]{0,60}?\btowards\s+your\b'
+  // Anchored on "payment" for the same reason as the first branch: cashback
+  // and an excess-amount reversal are also "credited to your ... card", and
+  // both are genuine refunds that must keep netting against spend.
+  r'|\bpayment\b[\s\S]{0,60}?\bcredited\s+to\s+your\b[\s\S]{0,20}?\bcard\b',
   caseSensitive: false,
 );
 
