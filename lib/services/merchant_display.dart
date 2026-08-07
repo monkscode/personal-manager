@@ -123,6 +123,33 @@ class MerchantDisplay {
     ).firstMatch(body);
     if (upi != null) return upi.group(1);
 
+    // Axis card purchase. The merchant is its own line, after the line holding
+    // the time:
+    //
+    //     Spent / Card no. XX1234 / INR 100.00 / 07-07-25 21:16:01 /
+    //     Disha Enter / Avl Lmt INR 5000
+    //
+    // The amount sits between the card line and the time, and the count of
+    // lines between them is what varies across Axis templates — so the gap is
+    // tolerated rather than assumed to be one line.
+    final axisCard = RegExp(
+      r'\bcard no\.[^\n]*\n(?:[^\n]*\n){0,3}?[^\n]*\d{1,2}:\d{2}:\d{2}[^\n]*\n'
+      r'\s*([^\n]{2,40})',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (axisCard != null) return axisCard.group(1);
+
+    // ICICI card purchase, single line, merchant after the *second* "on":
+    // "<amt> spent using ICICI Bank Card XX12 on 27-Dec-25 on AMAZON INDIA CY.
+    // Avl Limit: ...". Anchored on the trailing "Avl Limit" because the
+    // merchant itself may contain a period ("IND*Amazon.in -").
+    final iciciCard = RegExp(
+      r'\bspent using\b[^\n]*?\bon\s+\d{1,2}-[a-z]{3}-\d{2,4}\s+on\s+'
+      r'(.+?)\s*\.\s*avl\s+limit',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (iciciCard != null) return iciciCard.group(1);
+
     // "... at MERCHANT on <date>" / "... at MERCHANT. " / "... at MERCHANT<EOL>".
     // Stop before a following " on <digit>" date, a period, "Avl"/"Bal", or EOL.
     final at = RegExp(

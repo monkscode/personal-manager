@@ -100,6 +100,61 @@ void main() {
       );
       expect(d.name, 'Freeze Land');
     });
+
+    // The two card shapes that reached the user as "Card Purchase" — 31 rows
+    // in the 13-month window. The parser stores its `card purchase`
+    // placeholder for both, and nothing here read past it, so step 2 handed
+    // the placeholder back as though it were a resolved name.
+    test('the newer Axis card body names the merchant after the timestamp', () {
+      final d = resolver.resolve(
+        txn(
+          sender: 'AD-AXISBK-S',
+          merchant: 'card purchase',
+          body:
+              'Spent\nCard no. [account]\n[amount]\n07-07-25 21:16:01\n'
+              'Disha Enter\nAvl Lmt [amount]\n'
+              'SMS BLOCK [number] to [number], if not you - Axis Bank',
+        ),
+      );
+      expect(d.name, 'Disha Enter');
+    });
+
+    test('the ICICI card body names the merchant after the second "on"', () {
+      final d = resolver.resolve(
+        txn(
+          sender: 'JD-ICICIT-S',
+          merchant: 'card purchase',
+          body:
+              '[amount] spent using ICICI Bank Card [account] on 27-Dec-25 '
+              'on AMAZON INDIA CY. Avl Limit: [amount]. If not you, call '
+              '[number] [number]/SMS BLOCK [number] to [number].',
+        ),
+      );
+      // Canonicalised: the bank truncates to ~11 characters and the corpus
+      // carries six spellings of this one merchant.
+      expect(d.name, 'Amazon');
+    });
+
+    test('the limit line is never mistaken for the merchant', () {
+      // The pattern takes the line after the timestamp on faith, because Axis
+      // always puts the merchant there. When it does not, the pattern really
+      // does capture "Avl Lmt INR 5000.00" — measured, not assumed. What keeps
+      // that off the screen is PayeeText.sanitize, whose footer rule cuts at
+      // `\bavl\b` and leaves nothing with a letter in it.
+      //
+      // So this pins a composition rather than one regex: loosen that footer
+      // rule and a payee called "Avl Lmt Inr 5000.00" appears on Axis rows.
+      final d = resolver.resolve(
+        txn(
+          sender: 'AD-AXISBK-S',
+          merchant: 'card purchase',
+          body: 'Spent\nCard no. XX1234\nINR 100.00\n07-07-25 21:16:01\n'
+              'Avl Lmt INR 5000.00\n'
+              'SMS BLOCK 1234 to 919000000000, if not you - Axis Bank',
+        ),
+      );
+      expect(d.name, 'Card Purchase');
+    });
   });
 
   group('ATM / cash', () {
