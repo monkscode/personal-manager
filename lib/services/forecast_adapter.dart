@@ -174,7 +174,13 @@ class ForecastAdapter {
     // collection at all, and a confirmed one landed in the hard lines, which
     // render without controls (TASK-40).
     final decidedLines = <ForecastDecidedLine>[];
-    for (final event in candidateEvents) {
+    for (final unit in _reviewUnits(candidateEvents)) {
+      // The whole unit is one thing to the user, so it is one thing to the
+      // decision store too: a category's daily slices carry a shared group key
+      // and are confirmed or dismissed together. An ungrouped event is a unit
+      // of one and keeps its own owner key, which is every event but the
+      // everyday-spending slices.
+      final event = unit.length == 1 ? unit.first : _aggregate(unit);
       final monthKey = _monthKey(event.date);
       final decision = riskDecisionMap['${event.ownerKey}:$monthKey'];
 
@@ -193,7 +199,16 @@ class ForecastAdapter {
 
       if (_isHard(event, decision)) {
         final resolved = _applyOverride(event, decision);
-        hardEvents.add(resolved);
+        // The ledger keeps the unit's own shape. Confirming a month of
+        // groceries must not drop the whole total onto one day: the daily
+        // slices exist so the running balance has a daily minimum, and the
+        // date a grouped row carries is one of many, never a due date the
+        // user chose. Only the amount is the user's to restate.
+        hardEvents.addAll(
+          unit.length == 1
+              ? [resolved]
+              : _redistribute(unit, resolved.amountPaise),
+        );
         // Only a decision earns an undo. An event that is hard on its own
         // confidence has nothing for the user to reverse.
         if (decision?.status == ForecastRiskDecisionStatus.confirmed) {
@@ -739,6 +754,83 @@ class ForecastAdapter {
   ) {
     return {for (final d in decisions) '${d.ownerKey}:${d.targetMonth}': d};
   }
+
+  /// The candidate events split into the units the user actually reviews.
+  ///
+  /// An event with no [ForecastEvent.riskGroupKey] is a unit of its own, keyed
+  /// by position so two unrelated events that happen to share an owner key can
+  /// never be folded together. Slices that do carry one are gathered per group
+  /// per month.
+  static List<List<ForecastEvent>> _reviewUnits(List<ForecastEvent> events) {
+    final units = <String, List<ForecastEvent>>{};
+    for (var i = 0; i < events.length; i++) {
+      final event = events[i];
+      final key = event.riskGroupKey == null
+          ? 'ungrouped:$i'
+          : '${event.riskGroupKey}:${_monthKey(event.date)}';
+      units.putIfAbsent(key, () => <ForecastEvent>[]).add(event);
+    }
+    return units.values.toList();
+  }
+
+  /// The single event that stands for a whole unit on screen: the month's
+  /// total, on the unit's last date, at its weakest confidence — a group is
+  /// only as certain as its least certain slice.
+  static ForecastEvent _aggregate(List<ForecastEvent> unit) {
+    var total = 0;
+    var latest = unit.first.date;
+    var weakest = unit.first.confidence;
+    for (final event in unit) {
+      total += event.amountPaise;
+      if (event.date.isAfter(latest)) latest = event.date;
+      if (event.confidence < weakest) weakest = event.confidence;
+    }
+    return ForecastEvent(
+      date: latest,
+      amountPaise: total,
+      direction: unit.first.direction,
+      source: unit.first.source,
+      ownerKey: unit.first.groupKey,
+      label: unit.first.label,
+      confidence: weakest,
+      isUserConfirmed: unit.any((e) => e.isUserConfirmed),
+      obligationDedupeKey: unit.first.obligationDedupeKey,
+      riskGroupKey: unit.first.riskGroupKey,
+    );
+  }
+
+  /// The unit's slices carrying [total] between them, each on its own date.
+  /// An unchanged total leaves the slices exactly as they were; a restated one
+  /// is split the same way the estimate was, remainder to the earliest days.
+  static List<ForecastEvent> _redistribute(
+    List<ForecastEvent> unit,
+    int total,
+  ) {
+    final current = unit.fold<int>(0, (sum, e) => sum + e.amountPaise);
+    if (total == current) {
+      return [for (final event in unit) _confirmed(event, event.amountPaise)];
+    }
+    final base = total ~/ unit.length;
+    final remainder = total % unit.length;
+    return [
+      for (var i = 0; i < unit.length; i++)
+        _confirmed(unit[i], base + (i < remainder ? 1 : 0)),
+    ];
+  }
+
+  static ForecastEvent _confirmed(ForecastEvent event, int amountPaise) =>
+      ForecastEvent(
+        date: event.date,
+        amountPaise: amountPaise,
+        direction: event.direction,
+        source: event.source,
+        ownerKey: event.ownerKey,
+        label: event.label,
+        confidence: event.confidence,
+        isUserConfirmed: true,
+        obligationDedupeKey: event.obligationDedupeKey,
+        riskGroupKey: event.riskGroupKey,
+      );
 
   /// An event is "hard" (enters the rolling ledger) if it is user-confirmed, a
   /// confirmed risk decision exists, or confidence meets the reserve threshold.

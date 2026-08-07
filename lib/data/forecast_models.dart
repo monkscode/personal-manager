@@ -156,6 +156,7 @@ class ForecastEvent {
     required this.confidence,
     this.isUserConfirmed = false,
     this.obligationDedupeKey,
+    this.riskGroupKey,
   }) : assert(amountPaise >= 0),
        assert(confidence >= 0 && confidence <= 1);
 
@@ -174,6 +175,14 @@ class ForecastEvent {
   /// The canonical obligation dedupe key, if this event originated from an
   /// obligation. Used for stable matching against risk decisions.
   final String? obligationDedupeKey;
+
+  /// Set when this event is one slice of something the user reviews whole —
+  /// see [ReconciliationItem.groupId]. Null for events reviewed on their own.
+  final String? riskGroupKey;
+
+  /// The identity risk decisions are keyed on: the group when there is one,
+  /// otherwise the event's own [ownerKey].
+  String get groupKey => riskGroupKey ?? ownerKey;
 }
 
 class ForecastCoverageLine {
@@ -367,6 +376,7 @@ class ReconciliationItem {
     this.isUserConfirmed = false,
     this.obligationDedupeKey,
     this.needsAttributionReview = false,
+    this.groupId,
   }) : assert(amountPaise == null || amountPaise >= 0),
        assert(confidence >= 0 && confidence <= 1);
 
@@ -402,8 +412,22 @@ class ReconciliationItem {
   /// that an ambiguous attribution goes to review rather than being guessed.
   final bool needsAttributionReview;
 
+  /// Marks this item as one slice of a larger thing the user reviews as a
+  /// whole. The everyday-spending estimate is split one item per category per
+  /// remaining day so the ledger can find a daily minimum balance; all the
+  /// slices of a category share a [groupId], so the forecast can offer a single
+  /// Confirm/Edit/Dismiss for the month instead of one per day.
+  ///
+  /// Null for anything reviewed on its own, which is everything else.
+  final String? groupId;
+
   DateTime? get eventDate => actualDate ?? dueDate;
   String get ownerKey => '${owner.name}:$id';
+
+  /// The identity a risk decision is stored against when this item is a slice
+  /// of a group. Null when it is reviewed on its own — the caller then falls
+  /// back to [ownerKey], which is the behaviour every ungrouped item keeps.
+  String? get riskGroupKey => groupId == null ? null : '${owner.name}:$groupId';
 }
 
 class ForecastReconciliationResult {

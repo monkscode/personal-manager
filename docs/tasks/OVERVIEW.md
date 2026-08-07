@@ -686,6 +686,43 @@ identifiers.
 
 ---
 
+### Phase 10 — a ledger slice is not a decision
+
+Opened 2026-08-08 from a read-only walkthrough of the live app, not from a backlog item.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-49](TASK-49-a-ledger-slice-is-not-a-decision.md) | A ledger slice is not a decision (126 rows → 6) | Important | **Done** |
+
+"Unconfirmed risk" offered 126 rows and 378 buttons for six real decisions. The target
+month's everyday spending is split one item per category per remaining day so the ledger
+can find a daily minimum balance (TASK-16) — a correct split that leaked out of the ledger
+into a review list, where `_RiskRow` never draws the date that tells the slices apart. The
+same estimate rendered as **4 rows for next month and 124 for this month**, purely by which
+code path produced it.
+
+**Two inherited claims were wrong and were measured rather than believed.** The suspected
+`isPending` key collision does not exist — 126 rows, 126 distinct owner keys, so a guard
+would have protected nothing. And no money was wrong: the daily shares already summed to
+the residual.
+
+**The fix is a group id on the slice, not a workaround in the widget** — and grouping is
+opt-in by construction, an ungrouped event being keyed by position so two unrelated events
+sharing an owner key can never fold together. **Confirming a group had to be handled or the
+fix would have shipped a money defect**: the row now shows the month's total and
+`_applyOverride` writes it onto every event it touches. Proven by mutation — reverting the
+branch turned ₹30,001 into ₹90,003.
+
+126 → 6 rows at one clock, 122 → 6 at another; risk buffer identical to the paise at both;
+and the ledger captured across all 12 horizon months at both clocks, before and after, is
+**byte-identical**. Not yet seen on the device.
+
+**Still open:** the slices are dated from day 1 of the month when the anchor sits outside
+it, so past days read as spending still ahead. Invisible now that a category is one row,
+but it still moves where the residual sits in the month.
+
+---
+
 ## Context every agent needs
 
 **Product.** A salary-anchored, explainable monthly cash-flow forecaster. For any

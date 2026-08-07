@@ -66,6 +66,7 @@ ReconciliationItem _outflow(
   ReconciliationPaymentStatus status = ReconciliationPaymentStatus.unpaid,
   double confidence = 0.9,
   AccountScope scope = AccountScope.primary,
+  String? groupId,
 }) => ReconciliationItem(
   id: id,
   label: label,
@@ -79,6 +80,7 @@ ReconciliationItem _outflow(
   confidence: confidence,
   accountScope: scope,
   matchKey: 'match:$id',
+  groupId: groupId,
 );
 
 ReconciliationItem _salaryInflow(String id, int paise, DateTime dueDate) =>
@@ -2216,6 +2218,148 @@ void _task23() {
       // The buffer answers "how much might I have to pay that is not yet
       // confirmed?". A credit cannot belong to that total in any amount.
       expect(septemberPlan().riskBufferPaise, 0);
+    });
+  });
+
+  group('ForecastAdapter — a grouped estimate reviews as one line', () {
+    // The target month's everyday spending is spread one item per category per
+    // remaining day, so the ledger can find a daily minimum balance
+    // (`_seasonalItems`). That granularity is a ledger concern: on the corpus it
+    // put 126 rows and 378 buttons under "Unconfirmed risk" for six real
+    // decisions, and the row widget never draws the date that tells them apart.
+    // A group id marks the slices as one reviewable thing.
+    List<ReconciliationItem> groceriesAcrossThreeDays() => [
+      _outflow(
+        'seasonal:groceries:10',
+        'groceries',
+        10000,
+        DateTime(2026, 8, 10),
+        owner: ForecastOwner.discretionarySpend,
+        confidence: 0.3,
+        groupId: 'seasonal:groceries',
+      ),
+      _outflow(
+        'seasonal:groceries:11',
+        'groceries',
+        10000,
+        DateTime(2026, 8, 11),
+        owner: ForecastOwner.discretionarySpend,
+        confidence: 0.3,
+        groupId: 'seasonal:groceries',
+      ),
+      _outflow(
+        'seasonal:groceries:12',
+        'groceries',
+        10001,
+        DateTime(2026, 8, 12),
+        owner: ForecastOwner.discretionarySpend,
+        confidence: 0.3,
+        groupId: 'seasonal:groceries',
+      ),
+    ];
+
+    test('three daily slices become one risk line carrying the month total', () {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(500000, DateTime(2026, 8, 1)),
+          items: groceriesAcrossThreeDays(),
+        ),
+      );
+
+      expect(outlook.riskLines, hasLength(1));
+      expect(outlook.riskLines.single.label, 'groceries');
+      expect(outlook.riskLines.single.amountPaise, 30001);
+      // The action the row fires must address the group, not one day of it.
+      expect(
+        outlook.riskLines.single.ownerKey,
+        'discretionarySpend:seasonal:groceries',
+      );
+    });
+
+    test('confirming the group bills the month once, not once per day', () {
+      // The decision carries the aggregated amount, because that is what the
+      // row showed. Applied slice by slice it would charge the month total on
+      // every day of the group.
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(500000, DateTime(2026, 8, 1)),
+          items: groceriesAcrossThreeDays(),
+          riskDecisions: [
+            ForecastRiskDecision(
+              ownerKey: 'discretionarySpend:seasonal:groceries',
+              targetMonth: '2026-08',
+              status: ForecastRiskDecisionStatus.confirmed,
+              amountOverridePaise: 30001,
+              dueDateOverride: DateTime(2026, 8, 12),
+            ),
+          ],
+        ),
+      );
+
+      final grocery = outlook.months.first.events.where(
+        (e) => e.label == 'groceries',
+      );
+      expect(grocery, hasLength(3));
+      expect(grocery.fold<int>(0, (s, e) => s + e.amountPaise), 30001);
+      // Each slice keeps its own day: the ledger needs the daily shape, and the
+      // date on the row was one of three, not a due date the user picked.
+      expect(
+        grocery.map((e) => e.date).toList(),
+        [DateTime(2026, 8, 10), DateTime(2026, 8, 11), DateTime(2026, 8, 12)],
+      );
+      expect(outlook.riskLines, isEmpty);
+    });
+
+    test('restating the amount respreads it across the same days', () {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(500000, DateTime(2026, 8, 1)),
+          items: groceriesAcrossThreeDays(),
+          riskDecisions: [
+            ForecastRiskDecision(
+              ownerKey: 'discretionarySpend:seasonal:groceries',
+              targetMonth: '2026-08',
+              status: ForecastRiskDecisionStatus.confirmed,
+              amountOverridePaise: 60000,
+              dueDateOverride: DateTime(2026, 8, 12),
+            ),
+          ],
+        ),
+      );
+
+      final grocery = outlook.months.first.events
+          .where((e) => e.label == 'groceries')
+          .toList();
+      expect(grocery.fold<int>(0, (s, e) => s + e.amountPaise), 60000);
+      expect(grocery.map((e) => e.amountPaise).toList(), [20000, 20000, 20000]);
+    });
+
+    test('dismissing the group leaves one row to undo, not three', () {
+      final outlook = _build(
+        _snap(
+          anchor: _anchor(500000, DateTime(2026, 8, 1)),
+          items: groceriesAcrossThreeDays(),
+          riskDecisions: [
+            const ForecastRiskDecision(
+              ownerKey: 'discretionarySpend:seasonal:groceries',
+              targetMonth: '2026-08',
+              status: ForecastRiskDecisionStatus.dismissed,
+            ),
+          ],
+        ),
+      );
+
+      expect(outlook.riskLines, isEmpty);
+      expect(outlook.decidedLines, hasLength(1));
+      expect(outlook.decidedLines.single.line.amountPaise, 30001);
+      expect(
+        outlook.decidedLines.single.status,
+        ForecastRiskDecisionStatus.dismissed,
+      );
+      expect(
+        outlook.months.first.events.where((e) => e.label == 'groceries'),
+        isEmpty,
+      );
     });
   });
 }

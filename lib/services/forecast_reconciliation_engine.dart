@@ -407,6 +407,7 @@ class ForecastReconciliationEngine {
         confidence: item.confidence,
         isUserConfirmed: item.isUserConfirmed,
         obligationDedupeKey: item.obligationDedupeKey,
+        riskGroupKey: item.riskGroupKey,
       ),
     );
     lines.add(

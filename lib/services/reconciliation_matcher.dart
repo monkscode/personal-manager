@@ -731,6 +731,11 @@ class ReconciliationMatcher {
             dueDate: days[i],
             amountStatus: AmountStatus.estimated,
             confidence: entry.confidence,
+            // The split below is for the ledger's daily minimum balance, not
+            // for the user: a month of one category is one thing to confirm or
+            // dismiss. The shared id says so, and the forecast collapses the
+            // slices back into a single reviewable line.
+            groupId: 'seasonal:${entry.categoryKey}',
           ),
         );
       }

@@ -827,6 +827,26 @@ void main() {
       expect(dates, [23, 24, 25, 26, 27, 28, 29, 30, 31]);
     });
 
+    test('every day of a category shares one group id, so it reviews once', () {
+      final items = build(
+        seasonal: food(1000000),
+        actuals: foodSpend([(5, 400000), (12, 300000)]),
+        targetMonth: july,
+        anchor: anchorOn(22),
+      );
+      final slices = items
+          .where((i) => i.source == ForecastItemSource.estimator)
+          .toList();
+
+      // Nine days, one reviewable thing. Without the shared id the forecast
+      // offers Confirm/Edit/Dismiss nine times over for one month of food.
+      expect(slices, hasLength(9));
+      expect(
+        slices.map((i) => i.groupId).toSet(),
+        {'seasonal:food'},
+      );
+    });
+
     test('there is no overnight cliff between the 28th and the 29th', () {
       int requiredOn(int day) {
         final anchor = anchorOn(day);
