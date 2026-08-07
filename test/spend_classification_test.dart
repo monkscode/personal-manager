@@ -204,6 +204,7 @@ void main() {
   _refundNetting();
   _planningBaseline();
   _trendChartSingleLens();
+  _recurringDepositClassification();
 }
 
 // Bodies in their stored (redacted) form, which is what both lenses read.
@@ -653,6 +654,57 @@ void _trendChartSingleLens() {
       final byLabel = {for (final bar in i.spendTrendBars) bar.label: bar.tag};
       expect(byLabel['Jul'], '₹5k');
       expect(byLabel['Aug'], '₹5k');
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// A recurring deposit is money moved into savings, not consumption. The bank
+// names it on the rail as `RD/<ref>/<payee>`, and the marker has to carry that
+// slash: `_matchesAny` is a plain substring test, so the bare letters `rd`
+// match the word *card* and would silence 852 of the 2,071 rows on the owner's
+// device — every card purchase in the corpus.
+// ---------------------------------------------------------------------------
+void _recurringDepositClassification() {
+  group('a recurring deposit is savings, not spend', () {
+    test('the Axis RD auto-debit counts on neither lens', () {
+      // Redacted shape of the 7 monthly ₹12,000 RD debits on the owner's
+      // device. The payee name is synthetic.
+      final rd = _txn(
+        amountPaise: 1200000,
+        type: TxnType.other,
+        body:
+            '[amount] debited from A/c no. [account] on 16-12-20 05:17:59 IST '
+            'at RD/[number]/PAYEE NAME. Avl Bal- [amount].',
+      );
+
+      expect(MoneyLens.isSpend(rd), isFalse);
+      expect(MoneyLens.isEverydayCashSpend(rd), isFalse);
+    });
+
+    test('the older Info: MOB-RD form counts on neither lens', () {
+      final mobRd = _txn(
+        amountPaise: 1200000,
+        type: TxnType.other,
+        body:
+            'Your A/c [account] is debited by [amount] on 15Aug20. '
+            'Avbl Bal: [amount]. Info: MOB-RD/[number]/PAYEE NAME.',
+      );
+
+      expect(MoneyLens.isSpend(mobRd), isFalse);
+      expect(MoneyLens.isEverydayCashSpend(mobRd), isFalse);
+    });
+
+    test('the marker does not fire on the word card', () {
+      final purchase = _txn(
+        amountPaise: 250000,
+        body:
+            'Rs.2500 spent on HDFC Bank Card x3333 at RAZ*SWIGGY on '
+            '05-08-26:22:03:27.Not U?',
+      );
+
+      expect(MoneyLens.isSpend(purchase), isTrue);
+      expect(MoneyLens.isEverydayCashSpend(purchase), isTrue);
     });
   });
 }

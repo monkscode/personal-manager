@@ -55,6 +55,7 @@ class MoneyLens {
     final body = txn.rawBodyRedacted.toLowerCase();
     if (_matchesAny(body, kCashWithdrawalMarkers)) return false;
     if (_matchesAny(body, kInvestmentMarkers)) return false;
+    if (_matchesAny(body, kDepositMarkers)) return false;
     if (txn.direction == TransactionDirection.credit) {
       // Only a card credit nets against spend, and only when it is a merchant
       // refund. The card-side "payment received towards your credit card" is
@@ -100,6 +101,7 @@ class MoneyLens {
     final body = txn.rawBodyRedacted.toLowerCase();
     return !_matchesAny(body, kCashWithdrawalMarkers) &&
         !_matchesAny(body, kInvestmentMarkers) &&
+        !_matchesAny(body, kDepositMarkers) &&
         !_matchesAny(body, kCreditCardPurchaseMarkers);
   }
 
@@ -193,6 +195,18 @@ const kInvestmentMarkers = [
   'bse star',
   'kfintech',
 ];
+
+/// Bank deposit auto-debits — a recurring deposit is money moved into savings,
+/// not consumption.
+///
+/// The trailing slash is load-bearing. [MoneyLens._matchesAny] is a plain
+/// substring test, so the bare letters `rd` match the word *card* and would
+/// silence every card purchase in the corpus. The bank always writes the rail
+/// as `RD/<ref>/<payee>`, and `rd/` also covers the older `MOB-RD/` form.
+///
+/// Term deposits (`MOB-TD/`) are deliberately absent: `td/` is not safe as a
+/// substring — it fires on `Grofers India Pvt Ltd/Gurgaon`.
+const kDepositMarkers = ['rd/'];
 
 /// Credit-card purchase alerts, identified by the reported available *limit*
 /// (a bank debit-card purchase reports the available *balance* instead).
