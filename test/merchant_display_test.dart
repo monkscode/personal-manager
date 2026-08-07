@@ -224,12 +224,12 @@ void main() {
           sender: 'VM-AXISBK-S',
           type: TxnType.upi,
           instrument: PaymentInstrument.bank,
-          merchant: 'priyalpatel1910',
+          merchant: 'samplepayee1910',
           upiVpaNorm: 'samplepayee1910@okaxis',
           body: '[amount] debited [account] Axis Bank',
         ),
       );
-      expect(d.name, 'Priyalpatel1910');
+      expect(d.name, 'Samplepayee1910');
     });
   });
 

@@ -3,7 +3,7 @@
 // TASK-43/44/45 all established the same precedent: predict what a rule change
 // does to every body you have before you put the build on a phone. TASK-45's
 // offline pass is the argument for it — it caught a `\d{4,}` that mangled the
-// real UPI handle `priyalpatel1910`, which no amount of reading would have.
+// real UPI handle `samplepayee1910`, which no amount of reading would have.
 //
 // The spec's own figure did not survive being checked: it claimed "the 332 SMS
 // bodies in `test/golden/*.json`", and the golden corpus holds **38**. So this

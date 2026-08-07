@@ -104,7 +104,7 @@ nothing about the guarantee.
 - clears a bare mobile number captured from a UPI handle → `null`
 - trims a card tail rather than storing it → `null`
 - keeps the payee when only a trailing reference is dropped → `ecs/razorpay softw`
-- leaves a genuine payee untouched — `zomato`, `priyalpatel1910`, `1mg`, `science city-ii`
+- leaves a genuine payee untouched — `zomato`, `samplepayee1910`, `1mg`, `science city-ii`
 
 The last is the **guard**, not the assertion: it passed before the fix, and without it the
 first three would "pass" for the wrong reason if sanitising were too aggressive. Phase 5's
@@ -200,7 +200,7 @@ refresh, then compare.
 
 1. **The identifier rule is narrower than "carries an identifier."** 19 rows hold a 4+
    digit run in `merchant`; the rule flags 3. The other 16 have digits glued to letters,
-   spared **deliberately** — that is what keeps `priyalpatel1910` and `1mg` intact. But
+   spared **deliberately** — that is what keeps `samplepayee1910` and `1mg` intact. But
    `neft/mb/axmb000000000000/payee name/state` holds an Axis NEFT reference *and* a
    beneficiary name, and `cash-atm/ffbt0000000` an ATM reference; `SmsPrivacy._reference`
    strips exactly that class from bodies. Widening is how TASK-45's offline pass caught a

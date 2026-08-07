@@ -59,7 +59,7 @@ class PayeeText {
   ///
   /// The run must stand as its own field. A bank prints a reference in a slot
   /// of its own (`ECS/RAZORPAY SOFTW/111120218042703`), whereas digits glued
-  /// to letters are part of the word — `priyalpatel1910` is a UPI handle and
+  /// to letters are part of the word — `samplepayee1910` is a UPI handle and
   /// `1mg` is a pharmacy, and neither survives a blunt `\d{4,}`.
   static final RegExp _identifier = RegExp(
     r'(?<![a-z0-9])\d{4,}(?![a-z0-9])'

@@ -517,7 +517,7 @@ It also corrected its own first measurement, which is worth carrying: the first 
 by two thirds.
 
 And the offline prediction earned its place twice, catching two defects no amount of reading
-would have: a blunt `\d{4,}` mangled the real UPI handle `priyalpatel1910`, and collapsing
+would have: a blunt `\d{4,}` mangled the real UPI handle `samplepayee1910`, and collapsing
 separators inside the new shared rule broke `MerchantDisplay`'s existing `RAZ*` prefix strip.
 **A shared rule must not do a job its callers are still doing.**
 
@@ -680,7 +680,7 @@ were not, and cannot be, because their rows are months old and the visible bars 
 
 **Still open: one row.** A machine token renders as the payee `Sy0525015` (₹400, in window) —
 TASK-46's defect class surviving in a single row. Deferred deliberately: the fix edits the
-predicate that names *every* transaction, and `priyalpatel1910` and `1mg` are legitimate
+predicate that names *every* transaction, and `samplepayee1910` and `1mg` are legitimate
 neighbours. The inherited "17 rows" counts things the code deliberately decided are not
 identifiers.
 

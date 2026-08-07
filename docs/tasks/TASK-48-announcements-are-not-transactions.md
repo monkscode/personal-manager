@@ -220,7 +220,7 @@ outside the 13-month window.
 
 **Deferred, with the reason stated.** The fix means teaching `_isOpaque` to recognise a
 mostly-digits token with a short alpha prefix — but that predicate decides the displayed
-name of *every* transaction, and the neighbours are hostile: `priyalpatel1910` is a real
+name of *every* transaction, and the neighbours are hostile: `samplepayee1910` is a real
 person's handle and `1mg` is a pharmacy. Trading regression risk across every merchant name
 for one ₹400 row is a poor trade. If taken, it needs the same gate this task used: a full
 before/after name dump across the corpus at two clocks.

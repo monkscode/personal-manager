@@ -577,16 +577,16 @@ void main() {
 
       test('leaves a genuine payee untouched', () async {
         final repo = await openRepository();
-        // `priyalpatel1910` is a real UPI handle and `1mg` a pharmacy: digits
+        // `samplepayee1910` is a real UPI handle and `1mg` a pharmacy: digits
         // glued to letters are part of the word (TASK-45).
-        for (final name in ['zomato', 'priyalpatel1910', '1mg', 'science city-ii']) {
+        for (final name in ['zomato', 'samplepayee1910', '1mg', 'science city-ii']) {
           await repo.upsertParsedTxn(txn(smsId: 'provider:$name', merchant: name));
         }
 
         final stored = await repo.allSince(DateTime(2000));
         expect(
           {for (final t in stored) t.merchant},
-          {'zomato', 'priyalpatel1910', '1mg', 'science city-ii'},
+          {'zomato', 'samplepayee1910', '1mg', 'science city-ii'},
         );
       });
     });

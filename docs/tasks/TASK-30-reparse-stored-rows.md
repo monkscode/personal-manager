@@ -159,7 +159,7 @@ Target: `sms_id = provider:12138`, a **user-confirmed** row.
 
 | field | seeded state | after one pull-to-refresh | |
 |---|---|---|---|
-| `merchant` | `NULL` | `priyalpatel1910` | repaired |
+| `merchant` | `NULL` | `samplepayee1910` | repaired |
 | `payee_type` | `unknown` | `p2p_individual` | repaired |
 | `review_status` | `confirmed` | `confirmed` | **decision survived** |
 | `needs_review` | `0` | `0` | consistent |

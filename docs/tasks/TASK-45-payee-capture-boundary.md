@@ -218,8 +218,8 @@ was read; none lost a name the body actually contained.
 
 ### Two things the prediction caught that reading could not
 
-1. **A blunt `\d{4,}` mangles real names.** It turned the UPI handle `priyalpatel1910` into
-   `priyalpatel` and broke a passing TASK-36 test. An identifier must stand as **its own
+1. **A blunt `\d{4,}` mangles real names.** It turned the UPI handle `samplepayee1910` into
+   `samplepayee` and broke a passing TASK-36 test. An identifier must stand as **its own
    field** — a bank prints a reference in a slot of its own, whereas digits glued to letters
    are part of the word.
 2. **Collapsing separators inside the shared rule broke a caller.** `MerchantDisplay._clean`

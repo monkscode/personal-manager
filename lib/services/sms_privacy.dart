@@ -34,7 +34,7 @@ import '../data/sms_models.dart';
 /// Known and unfixed: the identifier rule covers a standalone digit run and a
 /// masked tail, and does **not** cover a rail reference embedded in a path-like
 /// string — `neft/mb/axmb000000000000/payee name/state` survives it. Widening
-/// risks the `priyalpatel1910` regression TASK-45 caught once, so it needs its
+/// risks the `samplepayee1910` regression TASK-45 caught once, so it needs its
 /// own task and its own offline prediction.
 class SmsPrivacy {
   const SmsPrivacy._();
