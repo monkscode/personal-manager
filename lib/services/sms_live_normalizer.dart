@@ -1,3 +1,4 @@
+import '../data/self_transfer_decision_store.dart';
 import '../data/sms_models.dart';
 import 'merchant_display.dart';
 import 'sms_ingestion_policy.dart';
@@ -26,12 +27,43 @@ class SmsLiveNormalizer {
 
   /// Dedup, then enrich. Order matters: dedup first so enrichment does not run
   /// on rows that are about to be dropped.
-  List<ParsedTxn> normalize(List<ParsedTxn> txns) {
+  ///
+  /// [selfTransfers] carries the user's stored answers to "is this a transfer
+  /// between your own accounts?". Applied last, because it keys on `smsId`
+  /// alone and so depends on nothing the earlier passes derive.
+  List<ParsedTxn> normalize(
+    List<ParsedTxn> txns, {
+    SelfTransferDecisions selfTransfers = const SelfTransferDecisions({}),
+  }) {
     final deduped = dedup(txns);
     // Enrich before marking: the re-delivery rule joins on the payee name, and
     // enrichment is what fills a payee the on-device parser left blank.
     final enriched = [for (final t in deduped) enrich(t)];
-    return markSupersededRedeliveries(enriched);
+    return markSelfTransfers(
+      markSupersededRedeliveries(enriched),
+      selfTransfers,
+    );
+  }
+
+  /// Stamp `selfTransfer` on both legs of every pair the user confirmed, so
+  /// neither the spend lens nor the income detector counts money that only
+  /// moved between the user's own accounts.
+  ///
+  /// A *rejected* pair is deliberately untouched: "no" means this really was a
+  /// payment, and two of the owner's five own-name debits are exactly that.
+  List<ParsedTxn> markSelfTransfers(
+    List<ParsedTxn> txns,
+    SelfTransferDecisions decisions,
+  ) {
+    final confirmed = decisions.confirmedSmsIds;
+    if (confirmed.isEmpty) return txns;
+    return [
+      for (final t in txns)
+        if (confirmed.contains(t.smsId))
+          t.copyWith(payeeType: PayeeType.selfTransfer)
+        else
+          t,
+    ];
   }
 
   /// The two passes in order: drop re-deliveries of one message, then flag

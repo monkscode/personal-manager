@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:expense_insight/data/self_transfer_decision_store.dart';
 import 'package:expense_insight/data/sms_database.dart';
 import 'package:expense_insight/data/sms_storage_schema.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -252,6 +253,43 @@ void main() {
     final row = (await upgraded.query('obligations')).single;
     expect(row['merchant'], 'LIC');
     expect(row['retired_at'], isNull);
+  });
+
+  test('an existing install gains the v6 self-transfer decision table', () async {
+    // The table has to arrive on an *upgrade*, not just a fresh install: the
+    // owner's device is already populated, and it is the only device whose
+    // four candidate pairs this feature exists to answer.
+    final dir = await Directory.systemTemp.createTemp('sms_v6_migration_test');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = p.join(dir.path, 'transactions.db');
+    final v2 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: (db, version) async {
+          await db.execute(SmsStorageSchema.createTransactionsTable);
+          await db.execute(_createV2ObligationsTable);
+          await db.execute(SmsStorageSchema.createMetaTable);
+          await db.execute(SmsStorageSchema.createKnownAccountsTable);
+        },
+      ),
+    );
+    await v2.close();
+
+    final upgraded = await SmsDatabase.openWithFactory(
+      factory: databaseFactoryFfi,
+      path: path,
+    );
+    addTearDown(upgraded.close);
+
+    final store = SelfTransferDecisionStore(upgraded);
+    await store.record(
+      debitSmsId: 'debit-hdfc',
+      creditSmsId: 'credit-axis',
+      confirmed: true,
+    );
+
+    expect((await store.all()).isConfirmed('debit-hdfc'), isTrue);
   });
 
   // ==========================================================================

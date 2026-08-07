@@ -10,7 +10,7 @@ void main() {
       expect(SmsDatabase.databaseName, 'transactions.db');
       // Pinned so a bump is always a deliberate act: it is what makes every
       // existing install re-open through `onUpgrade`.
-      expect(SmsDatabase.schemaVersion, 5);
+      expect(SmsDatabase.schemaVersion, 6);
     });
 
     test('creates transactions, obligations, and indexes', () async {

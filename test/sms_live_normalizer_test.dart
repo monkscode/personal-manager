@@ -1,3 +1,4 @@
+import 'package:expense_insight/data/self_transfer_decision_store.dart';
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/sms_live_normalizer.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -319,6 +320,81 @@ void main() {
       );
       expect(july.merchant, august.merchant);
       expect(july.merchant, isNotEmpty);
+    });
+  });
+
+  _confirmedSelfTransfers();
+}
+
+// ---------------------------------------------------------------------------
+// A confirmed self-transfer has to reach both lenses, and the only durable
+// place to say so is the user's stored decision. Marking is done here, at read
+// time, for the reason the file header already gives: a correction reaches rows
+// already on disk without a rescan or a migration.
+//
+// Both legs are marked, not just the debit. The credit is the same rupees
+// arriving on the user's other account, and an unmarked ₹50,000 inbound leg is
+// read by the income detector as money coming in.
+// ---------------------------------------------------------------------------
+void _confirmedSelfTransfers() {
+  final debit = txn(
+    smsId: 'debit-hdfc',
+    direction: TransactionDirection.debit,
+    amountPaise: 5000000,
+    accountLast4: '7001',
+    date: DateTime(2026, 1, 13, 14, 30),
+    merchant: 'payee name',
+    body: 'Sent [amount] From HDFC Bank A/C [account] To PAYEE NAME',
+  );
+  final credit = txn(
+    smsId: 'credit-axis',
+    direction: TransactionDirection.credit,
+    amountPaise: 5000000,
+    accountLast4: '7002',
+    date: DateTime(2026, 1, 13, 14, 49),
+    body: '[amount] credited A/c no. [account] UPI/P2A/[number]/PAYEE/HDFC',
+  );
+
+  group('a confirmed self-transfer is marked on both legs', () {
+    test('both rows come back as selfTransfer', () {
+      final out = const SmsLiveNormalizer().normalize(
+        [debit, credit],
+        selfTransfers: const SelfTransferDecisions({
+          'debit-hdfc': SelfTransferDecision(
+            creditSmsId: 'credit-axis',
+            confirmed: true,
+          ),
+        }),
+      );
+
+      final byId = {for (final t in out) t.smsId: t};
+      expect(byId['debit-hdfc']!.payeeType, PayeeType.selfTransfer);
+      expect(byId['credit-axis']!.payeeType, PayeeType.selfTransfer);
+    });
+
+    test('a rejected pair is left exactly as it was', () {
+      final out = const SmsLiveNormalizer().normalize(
+        [debit, credit],
+        selfTransfers: const SelfTransferDecisions({
+          'debit-hdfc': SelfTransferDecision(
+            creditSmsId: 'credit-axis',
+            confirmed: false,
+          ),
+        }),
+      );
+
+      final byId = {for (final t in out) t.smsId: t};
+      expect(byId['debit-hdfc']!.payeeType, isNot(PayeeType.selfTransfer));
+      expect(byId['credit-axis']!.payeeType, isNot(PayeeType.selfTransfer));
+    });
+
+    test('with no decisions at all nothing is marked', () {
+      final out = const SmsLiveNormalizer().normalize([debit, credit]);
+
+      expect(
+        out.every((t) => t.payeeType != PayeeType.selfTransfer),
+        isTrue,
+      );
     });
   });
 }

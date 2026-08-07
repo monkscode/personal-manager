@@ -437,6 +437,7 @@ class ParsedTxn {
     String? accountLast4,
     int? balancePaise,
     String? supersededBySmsId,
+    PayeeType? payeeType,
   }) {
     return ParsedTxn(
       smsId: smsId,
@@ -446,7 +447,7 @@ class ParsedTxn {
       type: type,
       amountPaise: amountPaise,
       txnDate: txnDate,
-      payeeType: payeeType,
+      payeeType: payeeType ?? this.payeeType,
       categoryKey: categoryKey ?? this.categoryKey,
       confidence: confidence,
       reviewStatus: reviewStatus ?? this.reviewStatus,

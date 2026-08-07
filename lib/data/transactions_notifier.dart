@@ -7,6 +7,7 @@ import 'forecast_risk_decision_store.dart';
 import 'forecast_risk_models.dart';
 import 'models.dart';
 import 'obligation_repository.dart';
+import 'self_transfer_decision_store.dart';
 import 'sms_analysis_snapshot.dart';
 import 'transaction_repository.dart';
 import '../services/sms_live_normalizer.dart';
@@ -46,18 +47,27 @@ class TransactionsNotifier extends AsyncNotifier<SmsAnalysisSnapshot> {
       now.month - kAnalysisLookbackMonths,
       1,
     );
+    final selfTransferStore = SelfTransferDecisionStore(db);
     final historyFuture = txRepo.allSince(lookbackStart);
     final obligationsFuture = obliRepo.allActive();
     final decisionsFuture = riskStore.all();
+    final selfTransfersFuture = selfTransferStore.all();
     final history = await historyFuture;
     final obligations = await obligationsFuture;
     final riskDecisions = await decisionsFuture;
+    final selfTransfers = await selfTransfersFuture;
 
     // Dedup re-delivered bank alerts and fill readable merchant/category for
     // rows the on-device parser left blank, before the pure reduction. This
     // gives recurring-detection a stable payee owner key (not the volatile DLT
     // sender) so monthly commitments lock and the forecast is populated.
-    final normalized = const SmsLiveNormalizer().normalize(history);
+    // The self-transfer decisions ride along here for the same reason the
+    // dedup does: they correct rows already on disk at read time, with no
+    // rescan and no migration.
+    final normalized = const SmsLiveNormalizer().normalize(
+      history,
+      selfTransfers: selfTransfers,
+    );
 
     final appState = ref.read(appControllerProvider);
     return SmsAnalysisSnapshot.reduce(

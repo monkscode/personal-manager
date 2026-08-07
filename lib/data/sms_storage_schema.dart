@@ -123,6 +123,21 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
 );
 ''';
 
+  /// The user's answers to "is this a transfer between your own accounts?",
+  /// keyed by the debit leg so re-answering replaces rather than stacks.
+  ///
+  /// `confirmed = 0` is a real answer, not an absent one: two of the owner's
+  /// own-name debits are genuine payments to someone who shares their name, and
+  /// without a stored "no" the detector would re-propose them after every scan.
+  static const createSelfTransferDecisionsTable = '''
+CREATE TABLE IF NOT EXISTS self_transfer_decisions (
+  debit_sms_id TEXT PRIMARY KEY,
+  credit_sms_id TEXT NOT NULL,
+  confirmed INTEGER NOT NULL,
+  decided_at INTEGER NOT NULL
+);
+''';
+
   static const indexStatements = [
     'CREATE INDEX IF NOT EXISTS idx_transactions_txn_date ON transactions(txn_date);',
     'CREATE INDEX IF NOT EXISTS idx_transactions_txn_local_date ON transactions(txn_local_date);',
@@ -167,6 +182,12 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
   /// forecast forever. Retiring stamps the row instead of deleting it, because
   /// the row carries the user's `review_status` and a scan that destroys that is
   /// TASK-02.
+  ///
+  /// **v6** adds `self_transfer_decisions`, the user's answers to "is this a
+  /// transfer between your own accounts?". The detector that proposes those
+  /// pairs cannot decide them: measured over the owner's 2,071 rows it finds
+  /// four, and one is a coincidence — a ₹44,604 card purchase and an unrelated
+  /// ₹44,604 reimbursement twelve minutes later.
   ///
   /// **v4** indexes the two unbounded `transactions` queries. Adding them to
   /// [indexStatements] alone would not have been enough: `onUpgrade` runs only
@@ -228,6 +249,7 @@ CREATE TABLE IF NOT EXISTS forecast_risk_decisions (
         sql: 'ALTER TABLE obligations ADD COLUMN retired_at INTEGER;',
       ),
     ],
+    6: [MigrationStep(createSelfTransferDecisionsTable)],
   };
 
   /// Runs every step registered for [version]. Missing versions fail loudly
