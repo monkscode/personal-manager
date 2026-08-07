@@ -3,6 +3,7 @@ import 'forecast_models.dart';
 import 'forecast_risk_models.dart';
 import 'models.dart';
 import 'obligation_models.dart';
+import 'self_transfer_decision_store.dart';
 import 'sms_models.dart';
 import '../services/card_cycle_estimator.dart';
 import '../services/cash_coverage_metrics.dart';
@@ -11,6 +12,7 @@ import '../services/reconciliation_matcher.dart';
 import '../services/recurring_debit_detector.dart';
 import '../services/reserve_planner.dart';
 import '../services/salary_income_detector.dart';
+import '../services/self_transfer_detector.dart';
 import '../services/seasonal_estimator.dart';
 
 /// Months of history the reduced snapshot reads once. Covers same-month
@@ -64,6 +66,7 @@ class SmsAnalysisSnapshot {
     this.anchor,
     this.anchorFreshness,
     this.primaryAccountLast4,
+    this.selfTransferCandidates = const [],
   }) : spendLensTxns = spendLensOf(
          allTxns.isNotEmpty ? allTxns : currentMonthTxns,
        ),
@@ -160,6 +163,15 @@ class SmsAnalysisSnapshot {
   /// required figure, which is a cash question, not a consumption one.
   final List<ParsedTxn> everydayCashTxns;
 
+  /// Debit/credit pairs that look like money moving between the user's own
+  /// accounts and that the user has **not answered yet**.
+  ///
+  /// Carried on the snapshot rather than detected by the review page so Home
+  /// can tell there is a question outstanding without a second read of deep
+  /// history. The page is otherwise only reached when a scan adds or queues a
+  /// row, which never happens on an already-scanned device.
+  final List<SelfTransferCandidate> selfTransferCandidates;
+
   final Map<String, YearOverYearCategory> yearOverYear;
 
   final CashCoverageLevel cashLevel;
@@ -191,6 +203,9 @@ class SmsAnalysisSnapshot {
     required List<ContribPlan> configuredPlans,
     required DateTime now,
     String? configuredSalaryRupees,
+    SelfTransferDecisions selfTransferDecisions = const SelfTransferDecisions(
+      {},
+    ),
   }) {
     // The working set every producer below reads from.
     //
@@ -337,6 +352,14 @@ class SmsAnalysisSnapshot {
       anchor: anchor,
       anchorFreshness: anchor?.freshnessAsOf(now),
       primaryAccountLast4: primaryAccountLast4,
+      // Detected over `active`, so a dismissed or superseded row is not
+      // proposed, and filtered to what the user has not answered — a stored
+      // "no" is as final as a stored "yes".
+      selfTransferCandidates: List.unmodifiable([
+        for (final candidate in const SelfTransferDetector().candidates(active))
+          if (!selfTransferDecisions.isDecided(candidate.debit.smsId))
+            candidate,
+      ]),
     );
   }
 

@@ -74,6 +74,7 @@ class TransactionsNotifier extends AsyncNotifier<SmsAnalysisSnapshot> {
       history: normalized,
       obligations: obligations,
       riskDecisions: riskDecisions,
+      selfTransferDecisions: selfTransfers,
       configuredPlans: configuredPlansFor(appState),
       configuredSalaryRupees: appState.salary,
       now: now,

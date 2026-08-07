@@ -916,8 +916,20 @@ Future<void> _refreshFromSms(BuildContext context, WidgetRef ref) async {
   if (shortfall != null) {
     messenger?.showSnackBar(SnackBar(content: Text(shortfall)));
   }
+  // An outstanding "is this your own account?" is also something to confirm.
+  // Without this the question is unreachable on a device whose inbox is
+  // already scanned: every later refresh adds nothing, returns below, and the
+  // review page — the only place the question is asked — never opens.
+  final pendingTransfers =
+      ref
+          .read(transactionsNotifierProvider)
+          .asData
+          ?.value
+          .selfTransferCandidates
+          .isNotEmpty ??
+      false;
   // Nothing new to confirm; the snapshot already refreshed inside scan().
-  if (result.autoAdded == 0 && result.queuedReview == 0) {
+  if (result.autoAdded == 0 && result.queuedReview == 0 && !pendingTransfers) {
     if (shortfall == null) {
       messenger?.showSnackBar(
         const SnackBar(

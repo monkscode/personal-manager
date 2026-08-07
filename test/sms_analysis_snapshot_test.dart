@@ -3,6 +3,7 @@ import 'package:expense_insight/data/forecast_models.dart';
 import 'package:expense_insight/data/forecast_risk_models.dart';
 import 'package:expense_insight/data/obligation_models.dart';
 import 'package:expense_insight/data/obligation_repository.dart';
+import 'package:expense_insight/data/self_transfer_decision_store.dart';
 import 'package:expense_insight/data/sms_analysis_snapshot.dart';
 import 'package:expense_insight/data/sms_database.dart';
 import 'package:expense_insight/data/sms_models.dart';
@@ -66,6 +67,7 @@ List<ParsedTxn> monthlySip({required int count, int day = 10}) => [
 ];
 
 void main() {
+  _selfTransferCandidates();
   _task21Horizon();
   _task41NoticeLeak();
   _specASpendLens();
@@ -1078,6 +1080,65 @@ void _specACardIdentity() {
       );
       expect(line.amountPaise, 3800000);
       expect(line.label, contains('7110'));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The review page cannot be the only thing that detects transfers. It is
+// reached only when a scan adds or queues something, so on an already-scanned
+// device a refresh reports "you are up to date" and the question is never
+// asked. The reduction already holds the normalized history, so detecting here
+// costs no extra read and gives Home something cheap to test.
+// ---------------------------------------------------------------------------
+void _selfTransferCandidates() {
+  final debit = txn(
+    amountPaise: 5000000,
+    date: DateTime(2026, 8, 3),
+    direction: TransactionDirection.debit,
+    accountLast4: '7001',
+    merchant: 'payee name',
+    smsId: 'debit-hdfc',
+  );
+  final credit = txn(
+    amountPaise: 5000000,
+    date: DateTime(2026, 8, 3),
+    direction: TransactionDirection.credit,
+    accountLast4: '7002',
+    merchant: null,
+    smsId: 'credit-axis',
+  );
+
+  group('SmsAnalysisSnapshot exposes undecided self-transfer candidates', () {
+    test('a matched pair the user has not answered is offered', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: [debit, credit],
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: DateTime(2026, 8, 15),
+      );
+
+      expect(snapshot.selfTransferCandidates, hasLength(1));
+      expect(snapshot.selfTransferCandidates.single.debit.smsId, 'debit-hdfc');
+    });
+
+    test('a pair the user already answered is not offered again', () {
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: [debit, credit],
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: DateTime(2026, 8, 15),
+        selfTransferDecisions: const SelfTransferDecisions({
+          'debit-hdfc': SelfTransferDecision(
+            creditSmsId: 'credit-axis',
+            confirmed: false,
+          ),
+        }),
+      );
+
+      expect(snapshot.selfTransferCandidates, isEmpty);
     });
   });
 }

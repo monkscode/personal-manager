@@ -3,12 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme.dart';
 import '../../data/self_transfer_decision_store.dart';
-import '../../data/sms_analysis_snapshot.dart';
 import '../../data/sms_models.dart';
 import '../../data/transaction_repository.dart';
 import '../../data/transactions_notifier.dart';
 import '../../services/self_transfer_detector.dart';
-import '../../services/sms_live_normalizer.dart';
 import 'self_transfer_review_screen.dart';
 import 'sms_review_screen.dart';
 
@@ -48,7 +46,12 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
     }
     final review = await repo.queryByReviewStatus(ReviewStatus.needsReview);
     final auto = await repo.recentlyAutoAdded();
-    final transfers = await _loadTransferCandidates(repo);
+    // Candidates come off the cached snapshot, which already detected them over
+    // the normalized history. Re-reading deep history here would be a second
+    // pass over the same rows for the same answer.
+    final transfers =
+        (await ref.read(transactionsNotifierProvider.future))
+            .selfTransferCandidates;
     if (!mounted) return;
     setState(() {
       _review = review;
@@ -56,29 +59,6 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
       _transferCandidates = transfers;
       _loading = false;
     });
-  }
-
-  /// Pairs the user has not answered yet.
-  ///
-  /// Detection runs over the same lookback the snapshot uses, not over the rows
-  /// this scan happened to touch: a transfer's two legs can arrive in different
-  /// scans, and a pair with only one leg present is invisible.
-  Future<List<SelfTransferCandidate>> _loadTransferCandidates(
-    TransactionRepository repo,
-  ) async {
-    final db = ref.read(smsDatabaseProvider);
-    if (db == null) return const [];
-    final now = ref.read(analysisClockProvider)();
-    final history = await repo.allSince(
-      DateTime(now.year, now.month - kAnalysisLookbackMonths, 1),
-    );
-    final decided = await SelfTransferDecisionStore(db).all();
-    return [
-      for (final candidate in const SelfTransferDetector().candidates(
-        const SmsLiveNormalizer().normalize(history),
-      ))
-        if (!decided.isDecided(candidate.debit.smsId)) candidate,
-    ];
   }
 
   Future<void> _decideTransfer(
