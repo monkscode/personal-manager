@@ -582,6 +582,56 @@ rule only cleans what something rewrites and their SMS have aged out of the inbo
 is the migration-versus-boundary difference showing up exactly where it should**, and if
 those five ever need cleaning it is an argument from five rows, not from TASK-45's 236.
 
+### Phase 9 — What a card is actually going to bill you for
+
+Opened 2026-08-07 from Spec A Part 2, which made a card's tail readable and in doing so
+split the shared `unknown` card bucket into one bucket per tail.
+
+| Task | Title | Severity | State |
+|---|---|---|---|
+| [TASK-47](TASK-47-card-bill-for-money-already-gone.md) | A card is billed for money that already left the bank (29 rows, ₹3,60,235) | Critical | **Done** |
+
+**Two of the buckets Part 2 opened are not credit cards**, and each got a line in "Needs
+your attention" claiming a bill that will never arrive: card 7102 at ₹3,56,000 (23 HDFC ATM
+cash-outs) and card 7113 at ₹4,235 (6 settled debit-card purchases). That is **₹3,60,235 of
+the ₹3,60,825 the section named**; only card 7117's ₹590 was real. Both spec invariants
+broke on the same 29 rows — 7113's six were already inside `isSpend`, so its line was a
+second claim on the same rupees, and 7102's ₹3,56,000 was in no total at all.
+
+**The estimator already had a guard, and the guard could not fire.** `t.type != TxnType.atm`
+matched **zero** rows out of 2,071, because every card row was typed `pos` — HDFC words a
+withdrawal as *"Withdrawn … From HDFC Bank Card …"* and never says ATM, so `_type` fell
+through to `instrument == card -> pos`. **A guard in the right place consulting a field that
+never disagrees with itself is not a guard**, and every test passed for as long as it sat
+there. The fix is both halves: `MoneyLens.reportsBankBalance` keys the estimator on the
+reported balance (a credit-card alert reports the available *limit*, a bank debit-card alert
+reports the available *balance*), and `_atmWord` widens so the parser types the cash-out as
+cash. After the device refresh the dead guard matches 23 rows — the two halves now guard the
+same rows from opposite sides, and neither is removable.
+
+**The rejected alternative is the lesson.** Keeping only buckets that carry credit-card
+evidence looked right at one date and, with the data unchanged one month on, also dropped
+genuine cards 7114 and 7105 — each carried exactly one evidence row and the 13-month lookback
+slides past it. **A card's identity must not depend on the calendar**, so the prediction is
+pinned at *two clocks* and that is part of the gate.
+
+**Device-verified 2026-08-07.** `adb install -r` wrote nothing; only pull-to-refresh did — the
+Phase 6 correction holding for the second task running. The scan changed **exactly 23 rows and
+nothing else** (`type = atm` 34 → 57), and downstream `CashCoverageLevel` moved `none` →
+`caveat` with the trailing-90-day ATM total ₹0 → ₹1,00,000, while card lines held at ₹590 and
+commitments at 2. **The simulation was right on every outcome and wrong on the magnitude** —
+it predicted a 15.7% cash-drain ratio against an observed 17.9%, having used a larger
+denominator than the shipped predicate produces. Say which numbers were observed.
+
+Two things closed quietly: 17 `science city-ii` rows (an ATM location stored as a payee) are
+now typed `atm`, so `RecurringDebitDetector` skips them and the phantom-commitment risk is
+gone; and Home is unchanged, as it must be, because those rows were already out of spend via
+`kCashWithdrawalMarkers`.
+
+**The honest successor is that ₹3,56,000 of cash still has no owner.** The parser fix makes
+the coverage metric *see* it but does not itemise it — reconciliation reads the current month
+only and the last withdrawal was 2026-07-17, so ATM items stayed 0 → 0.
+
 ---
 
 ## Context every agent needs
