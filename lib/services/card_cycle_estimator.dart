@@ -84,7 +84,15 @@ class CardCycleEstimator {
               // HDFC Credit Card" is stored as a card debit with `type: pos` —
               // indistinguishable from a purchase by instrument alone. Counting
               // it here added the bill to the spend the bill is for.
-              !MoneyLens.isCardSettlement(t),
+              !MoneyLens.isCardSettlement(t) &&
+              // A debit that already left a bank account cannot be on any
+              // statement. The `type != atm` test above cannot reach these:
+              // *every* card row on the owner's device is typed `pos`,
+              // including HDFC's ATM cash-outs, because the body names the
+              // debit card. So the guard sits in the right place and consults
+              // a field that never disagrees with itself — reading the body is
+              // what `MoneyLens` already does, for this exact reason.
+              !MoneyLens.reportsBankBalance(t),
         )
         .fold<int>(0, (sum, t) => sum + t.amountPaise);
     final cardRefunds = cardTxns

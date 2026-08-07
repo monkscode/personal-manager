@@ -30,10 +30,23 @@ class MoneyLens {
   /// point of the split. A card refund counts *negatively* on the day it
   /// arrives — see [signedSpendPaise], which is how a caller reads the amount.
   ///
-  /// Card cash advances are knowingly left out of both lenses and left to the
-  /// existing ATM path: `ReconciliationMatcher` still routes them to
-  /// `atmWithdrawals` and `CashCoverageMetrics` still counts them. The
-  /// disagreement is recorded rather than resolved here.
+  /// Cash taken out on a card is left out of both lenses and was documented
+  /// here as being left to the existing ATM path — `ReconciliationMatcher`
+  /// routing it to `atmWithdrawals`, `CashCoverageMetrics` counting it.
+  ///
+  /// That is not what happens, and the claim is corrected rather than repeated.
+  /// Both of those paths test `type == TxnType.atm`, and no card row on the
+  /// owner's device carries that type: all 23 HDFC ATM cash-outs are stored as
+  /// `pos`, because the body names the debit card. Measured over the whole
+  /// export, `type == atm && instrument == card` matches **zero** rows. So
+  /// ₹3,56,000 of withdrawn cash is in no lens, no ATM item and no cash-coverage
+  /// ratio — `CashCoverageMetrics` reports ₹0 and level `none` — and is owned by
+  /// nothing at all.
+  ///
+  /// [reportsBankBalance] stops the card estimator adding a *second* wrong
+  /// answer on top by billing that cash to a card. It deliberately does not
+  /// resolve the ownership gap, which needs the type mis-tagging fixed at the
+  /// parser and has a far wider blast radius.
   static bool isSpend(ParsedTxn txn) {
     if (txn.isFutureDebitNotice) return false;
     if (txn.type == TxnType.transfer || txn.type == TxnType.atm) return false;
@@ -111,6 +124,34 @@ class MoneyLens {
     if (merchant == null) return false;
     return _settlementMerchant.hasMatch(_norm(merchant));
   }
+
+  /// Whether this alert reports a running **bank balance**, which means the
+  /// money has already left the account and no card will bill for it.
+  ///
+  /// This is the other half of the distinction [kCreditCardPurchaseMarkers]
+  /// already names: a credit-card alert reports the available *limit*, a bank
+  /// debit-card alert reports the available *balance*. Both arrive as
+  /// `instrument: card` whenever the body says "Bank Card", so the wording is
+  /// the only thing separating a purchase a statement will bill for from one
+  /// the bank has already settled.
+  ///
+  /// Keyed on the balance and **not** on the cash-withdrawal wording, which
+  /// would have been the obvious alternative. A credit-card *cash advance* is a
+  /// withdrawal that does appear on the statement, so excluding on "withdrawn"
+  /// would drop a real bill; a cash advance reports the limit, never a balance,
+  /// so this signal cannot make that mistake. On the owner's device the choice
+  /// is not a trade-off — all 23 ATM rows report a balance too — but the two
+  /// rules are not equally safe on a body neither of us has seen yet.
+  ///
+  /// Word-anchored: a substring test for `bal` also matches `GLOBAL`, and
+  /// `Bil. Avl Lmt` is a real credit-card body fragment.
+  static bool reportsBankBalance(ParsedTxn txn) =>
+      _bankBalance.hasMatch(txn.rawBodyRedacted);
+
+  static final RegExp _bankBalance = RegExp(
+    r'\bbal\b|\bavailable balance\b',
+    caseSensitive: false,
+  );
 
   /// A payment made *towards* a card — the debit-side counterpart of
   /// [isCardBillPayment]'s "payment received towards your card". Bounded gaps
