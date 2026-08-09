@@ -1,6 +1,22 @@
 import '../data/sms_models.dart';
 import 'card_cycle_estimator.dart';
 
+/// The key a merchant is remembered by, or null when the row names no merchant.
+///
+/// One definition, used by the finder that proposes a front and by the lens
+/// that consults one, so the two cannot drift apart on what a key is. Lowercase
+/// and whitespace-collapsed only — no stemming, no prefix folding, nothing
+/// clever. `amazon` is a proper prefix of `amazon pay credit c` and `cred store`
+/// is a sibling of `cred club`, so any cleverness here erases real spending: the
+/// unsupervised version of that idea was measured and wiped out 11 innocent
+/// rows.
+String? merchantFrontKey(ParsedTxn txn) {
+  final merchant = txn.merchant;
+  if (merchant == null) return null;
+  final key = merchant.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+  return key.isEmpty ? null : key;
+}
+
 /// The two questions the app asks about a stored debit, kept apart because the
 /// answers differ.
 ///
