@@ -610,14 +610,25 @@ class ReconciliationMatcher {
   /// so the amount can look like a different card's statement than the one that
   /// was actually paid.
   ///
-  /// Only without that — no pair, or an acknowledgement naming no card, or
-  /// naming one no cycle estimate knows — is the issuer genuinely hidden, which
-  /// is the normal shape of a payment made through CRED or Cheq: a plain
-  /// savings-account debit carrying the *savings* account number. Then the
-  /// cycle is guessed, by due-window (same statement month) and then by amount
-  /// (spec §7 card-bill payment rule). Two cards a payment could equally have
-  /// settled are **not** guessed between — an ambiguous attribution goes to
-  /// review.
+  /// **Once an acknowledgement has named a card, the guess never runs.** If
+  /// exactly one cycle estimate carries that card the answer is that cycle;
+  /// anything else — no estimate for it, or two cycles of it — goes to review.
+  /// Falling back to the guess there would let the payment be attributed to a
+  /// *different* card than the issuer named, which is worse than admitting the
+  /// cycle is unknown: with one card due this month and an acknowledgement for
+  /// a card the app has no cycle for, the guess hands the payment to the wrong
+  /// one with no review flag at all. Both branches are unreachable through
+  /// `SmsAnalysisSnapshot`, which groups estimates by `accountLast4` and feeds
+  /// the pairer the same rows, so the acknowledgement's own card always has
+  /// exactly one estimate; they are reachable by any other caller.
+  ///
+  /// Only with no pair at all, or an acknowledgement naming no card, is the
+  /// issuer genuinely hidden — the normal shape of a payment made through CRED
+  /// or Cheq: a plain savings-account debit carrying the *savings* account
+  /// number. Then the cycle is guessed, by due-window (same statement month)
+  /// and then by amount (spec §7 card-bill payment rule). Two cards a payment
+  /// could equally have settled are **not** guessed between — an ambiguous
+  /// attribution goes to review.
   ///
   /// **That guess is unreachable in the app as it ships** (checked 2026-08-09):
   /// a [CardCycleEstimate] only carries a `dueDate` when it was built from a
@@ -638,13 +649,10 @@ class ReconciliationMatcher {
         for (final estimate in cards)
           if (estimate.cardLast4 == acknowledgedCard) estimate,
       ];
-      // Exactly one, or fall through: two estimates for one card is a cycle
-      // question the acknowledgement does not answer, and inventing a
-      // precedence between them would be the guessing this branch exists to
-      // stop.
       if (named.length == 1) {
         return _CardCycleAttribution(named.single.cardCycleKey);
       }
+      return const _CardCycleAttribution.none(ambiguous: true);
     }
 
     final inWindow = [

@@ -1,4 +1,5 @@
 import 'package:expense_insight/data/app_controller.dart';
+import 'package:expense_insight/data/card_settlement_front_store.dart';
 import 'package:expense_insight/data/forecast_models.dart';
 import 'package:expense_insight/data/forecast_risk_models.dart';
 import 'package:expense_insight/data/obligation_models.dart';
@@ -1144,6 +1145,46 @@ void _selfTransferCandidates() {
       );
 
       expect(snapshot.selfTransferCandidates, isEmpty);
+    });
+
+    test('settlement pairing in snapshot reduce only pairs card settlement debits', () {
+      final everydayDebit = txn(
+        amountPaise: 228200,
+        date: DateTime(2026, 8, 1),
+        direction: TransactionDirection.debit,
+        merchant: 'Everyday Store',
+        smsId: 'everyday-debit',
+        rawBodyRedacted: 'Sent [amount] to Everyday Store',
+      );
+      final settlementDebit = txn(
+        amountPaise: 228200,
+        date: DateTime(2026, 8, 1),
+        direction: TransactionDirection.debit,
+        merchant: 'CRED Club',
+        smsId: 'settlement-debit',
+        rawBodyRedacted: 'Payment of [amount] towards your HDFC Credit Card debited from A/c [account]',
+      );
+      final ack = txn(
+        amountPaise: 230700,
+        date: DateTime(2026, 8, 1),
+        direction: TransactionDirection.credit,
+        instrument: PaymentInstrument.card,
+        accountLast4: '4321',
+        smsId: 'ack-1',
+        rawBodyRedacted: 'Payment of [amount] has been received towards your Credit Card [account]',
+      );
+
+      final snapshot = SmsAnalysisSnapshot.reduce(
+        history: [everydayDebit, settlementDebit, ack],
+        obligations: const [],
+        riskDecisions: const [],
+        configuredPlans: const [],
+        now: DateTime(2026, 8, 15),
+        settlementFronts: const CardSettlementFronts({'cred club': true}),
+      );
+
+      expect(snapshot.settlementPairsByDebitSmsId.containsKey('everyday-debit'), isFalse);
+      expect(snapshot.settlementPairsByDebitSmsId.containsKey('settlement-debit'), isTrue);
     });
   });
 }

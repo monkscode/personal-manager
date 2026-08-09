@@ -131,9 +131,11 @@ class MoneyLens {
   /// through CRED arrives as `instrument: bank`. One event, two shapes.
   ///
   /// The amount is not consulted because it cannot be: reward points mean the
-  /// bank debit is routinely smaller than the bill. Over the owner's device 19
-  /// of 31 pairs carry a discount, up to Rs.44. A Rs.90 debit against a Rs.100
-  /// bill takes this exact path.
+  /// bank debit is routinely smaller than the bill. Over the owner's device 42
+  /// of 73 pairs carry a discount, up to Rs.242 (re-measured 2026-08-09; this
+  /// said "19 of 31, up to Rs.44" from a source that did not reproduce — see
+  /// `CardSettlementPair.pointsPaise`). A Rs.90 debit against a Rs.100 bill
+  /// takes this exact path.
   ///
   /// **[confirmedFronts] replaces a hardcoded merchant list**, which was wrong
   /// in both directions: `\bcred\b | \bbilldesk\b | \bcc payment\b |

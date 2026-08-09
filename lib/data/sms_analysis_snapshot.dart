@@ -255,8 +255,34 @@ class SmsAnalysisSnapshot {
           txn,
     ];
     final confirmedFronts = settlementFronts.confirmed;
+    // Only settlement debits compete for an acknowledgement here. Every
+    // consumer of the resulting map reads it behind the same
+    // `isCardSettlement` test (the activity row, and the forecast's card
+    // attribution), so an ordinary debit could only ever take an
+    // acknowledgement away from the settlement that earned it.
+    //
+    // Measured on the owner's corpus 2026-08-09: no row changes. 52 settlement
+    // debits paired before and after, none gained, none lost, none moved to a
+    // different acknowledgement. It is a guard against a collision this data
+    // does not contain — and a real saving, since pairing is debits x
+    // acknowledgements and the debit side drops from 1,026 to 58.
+    final settlementDebits = [
+      for (final txn in active)
+        if (txn.direction == TransactionDirection.debit &&
+            txn.instrument == PaymentInstrument.bank &&
+            MoneyLens.isCardSettlement(txn, confirmedFronts))
+          txn,
+    ];
+    final settlementPairInputs = [
+      ...settlementDebits,
+      for (final txn in active)
+        if (txn.direction != TransactionDirection.debit ||
+            txn.instrument != PaymentInstrument.bank)
+          txn,
+    ];
     final settlementPairs = {
-      for (final pair in const CardSettlementPairer().pairs(active))
+      for (final pair in
+          const CardSettlementPairer().pairs(settlementPairInputs))
         pair.debit.smsId: pair,
     };
     final targetMonth = DateTime(now.year, now.month);

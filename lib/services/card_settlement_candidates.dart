@@ -69,10 +69,10 @@ class CardSettlementCandidate {
 /// the largest single card payment on the device — "pairs with nothing," so a
 /// pairing-only design would leave 25% of all card-bill money counted as
 /// shopping. `test/card_settlement_corpus_test.dart` disproves it: round 1
-/// (`CardSettlementFronts.empty`) returns 12 candidates, every single one via
+/// (`CardSettlementFronts.empty`) returns 13 candidates, every single one via
 /// `paired`, and its asserted set includes all four `cheq` spellings —
 /// `cheq`'s own Rs.1,90,417 debit pairs directly with an ICICI Bank
-/// acknowledgement. On this corpus adjacency contributed zero of the 12;
+/// acknowledgement. On this corpus adjacency contributed zero of the 13;
 /// pairing alone reached everything, including the row this paragraph said it
 /// couldn't. Kept retracted-but-visible rather than quietly deleted, the way
 /// `CardSettlementPairer`'s window correction is (see that file's module
@@ -108,7 +108,38 @@ class CardSettlementCandidateFinder {
     final out = <CardSettlementCandidate>[];
     final proposed = <String>{};
 
-    for (final pair in const CardSettlementPairer().pairs(active)) {
+    // Only debits that could still *become* a candidate get to compete for an
+    // acknowledgement. The pairer claims greedily on both sides, so a debit
+    // this loop would discard anyway — already answered, or carrying no
+    // merchant to answer about — could otherwise take an acknowledgement out
+    // of the pool and hide a merchant nobody has been asked about yet.
+    //
+    // Measured on the owner's corpus 2026-08-09, this is a cost, not a win:
+    // round 1 goes 12 -> 13 and the post-answers queue goes 3 -> 5, and both
+    // merchants it adds average about Rs.120 a transaction against Rs.12,881
+    // for the confirmed fronts. It discovered no genuine front here; it bought
+    // two more questions. Kept because the *rule* is right — discovery must not
+    // depend on which debit happened to claim an acknowledgement first — and
+    // because a question costs one tap while a missed front costs a whole
+    // merchant's money. Revisit with `test/card_settlement_corpus_test.dart` if
+    // the queue grows again.
+    final candidateDebits = [
+      for (final txn in active)
+        if (txn.direction == TransactionDirection.debit &&
+            txn.instrument == PaymentInstrument.bank) ...[
+          if (merchantFrontKey(txn) case final key?)
+            if (!decisions.isDecided(key)) txn,
+        ],
+    ];
+    final pairingInputs = [
+      ...candidateDebits,
+      for (final txn in active)
+        if (txn.direction != TransactionDirection.debit ||
+            txn.instrument != PaymentInstrument.bank)
+          txn,
+    ];
+
+    for (final pair in const CardSettlementPairer().pairs(pairingInputs)) {
       final key = merchantFrontKey(pair.debit);
       if (key == null) continue;
       if (decisions.isDecided(key) || !proposed.add(key)) continue;

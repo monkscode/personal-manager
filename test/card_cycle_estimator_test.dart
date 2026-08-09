@@ -12,6 +12,7 @@ ParsedTxn cardTxn({
   String smsId = 'sms',
   String rawBodyRedacted = 'redacted',
   String categoryKey = 'shopping',
+  String merchant = 'Amazon',
 }) => ParsedTxn(
   smsId: smsId,
   sender: 'VM-HDFCBK',
@@ -21,7 +22,7 @@ ParsedTxn cardTxn({
   amountPaise: amountPaise,
   txnDate: date,
   accountLast4: cardLast4,
-  merchant: 'Amazon',
+  merchant: merchant,
   payeeType: PayeeType.merchant,
   categoryKey: categoryKey,
   confidence: 0.9,
@@ -67,6 +68,30 @@ void main() {
       expect(estimate.cycleSpendSeenPaise, 400000);
       expect(estimate.observedPurchasesPaise, 500000);
       expect(estimate.cardRefundsPaise, 100000);
+    });
+
+    test('a confirmed merchant settlement debit does not count as a card purchase', () {
+      final estimate = estimator.estimate(
+        [
+          cardTxn(
+            amountPaise: 500000,
+            date: DateTime(2026, 8, 10),
+            smsId: 'p1',
+          ),
+          cardTxn(
+            amountPaise: 200000,
+            date: DateTime(2026, 8, 12),
+            smsId: 'p2',
+            merchant: 'Swiggy',
+          ),
+        ],
+        cycle: cycle,
+        statementMonth: DateTime(2026, 8),
+        confirmedFronts: const {'amazon'},
+      );
+
+      expect(estimate.observedPurchasesPaise, 200000);
+      expect(estimate.cycleSpendSeenPaise, 200000);
     });
 
     // A bill payment and a merchant refund are both card credits, but only a

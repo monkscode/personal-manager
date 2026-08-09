@@ -322,4 +322,33 @@ void main() {
 
     expect(finder.find([txn], CardSettlementFronts.empty), isEmpty);
   });
+
+  test('an eligible debit pairs with an ack when an ineligible decided debit has a smaller gap', () {
+    final decidedDebit = _debit(
+      amountPaise: 228300,
+      date: DateTime(2026, 8, 1),
+      merchant: 'CRED Club',
+      smsId: 'decided',
+    );
+    final eligibleDebit = _debit(
+      amountPaise: 228200,
+      date: DateTime(2026, 8, 1),
+      merchant: 'Cheq',
+      smsId: 'eligible',
+    );
+    final ack = _ack(
+      amountPaise: 230700,
+      date: DateTime(2026, 8, 1),
+      cardLast4: '4321',
+    );
+
+    final found = finder.find(
+      [decidedDebit, eligibleDebit, ack],
+      const CardSettlementFronts({'cred club': true}),
+    );
+
+    expect(found, hasLength(1));
+    expect(found.single.merchantNorm, 'cheq');
+    expect(found.single.ack?.accountLast4, '4321');
+  });
 }

@@ -10,8 +10,19 @@ class CardSettlementPair {
   final ParsedTxn ack;
 
   /// What the bill exceeded the bank debit by — reward points spent at the
-  /// payment app. Measured over the owner's device: 19 of 31 pairs carry one,
-  /// min Rs.1, median Rs.4, max Rs.44, totalling 0.170% of what was billed.
+  /// payment app.
+  ///
+  /// Re-measured 2026-08-09 over the 73 same-day pairs this file's window
+  /// actually returns: **42 carry a points difference**, min Rs.1, median
+  /// Rs.9.50, max Rs.242, totalling 0.170% of what was billed. The other 31
+  /// pair at an exact Rs.0 gap.
+  ///
+  /// This used to read "19 of 31 pairs, median Rs.4, max Rs.44", which came
+  /// from the same lost scratchpad script as the pairing table below. It could
+  /// not have been right about this population whatever the source: 31 is the
+  /// count of *exact-gap* pairs, and an exact-gap pair carries no points by
+  /// definition, so "19 of 31 carry points" contradicts itself. Only the min
+  /// and the 0.170% survived re-measurement.
   int get pointsPaise => ack.amountPaise - debit.amountPaise;
 
   /// The card the bill belonged to. The bank debit never carries this — its
@@ -156,6 +167,7 @@ class CardSettlementPairer {
     for (final ack in acks) {
       final duplicate = kept.any(
         (seen) =>
+            seen.accountLast4 != null &&
             seen.accountLast4 == ack.accountLast4 &&
             seen.amountPaise == ack.amountPaise &&
             _dayGap(seen.txnDate, ack.txnDate) <= _ackDedupeWindowDays,

@@ -174,6 +174,20 @@ void main() {
     expect(pairs.single.debit.smsId, 'debit-b');
   });
 
+  test('equal gap is broken deterministically on debit smsId', () {
+    final debitA = _cred(228200, DateTime(2026, 8, 1), smsId: 'debit-a');
+    final debitB = _cred(228200, DateTime(2026, 8, 1), smsId: 'debit-b');
+    final ack = _ack(230700, DateTime(2026, 8, 1), '4321');
+
+    final pairs1 = pairer.pairs([debitA, debitB, ack]);
+    final pairs2 = pairer.pairs([debitB, debitA, ack]);
+
+    expect(pairs1, hasLength(1));
+    expect(pairs2, hasLength(1));
+    expect(pairs1.single.debit.smsId, 'debit-a');
+    expect(pairs2.single.debit.smsId, 'debit-a');
+  });
+
   test('a card refund is not an acknowledgement', () {
     // A merchant refund credits the card too, and must keep netting against
     // spend rather than closing a bill.

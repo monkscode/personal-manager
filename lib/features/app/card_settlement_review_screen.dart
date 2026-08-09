@@ -20,7 +20,7 @@ import '../../services/card_settlement_candidates.dart';
 ///
 /// The design spec estimated thirteen answers for seven years of the owner's
 /// history, four of them "no". Measured against the real corpus, round 1
-/// alone proposes 12, not 8, and three further merchants remain open even
+/// alone proposes 13, not 8, and five further merchants remain open even
 /// after the owner's real answers are applied — see
 /// `test/card_settlement_corpus_test.dart` and
 /// `.superpowers/sdd/2026-08-09-card-settlement-pairing/task-8-report.md`

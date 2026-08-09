@@ -61,9 +61,18 @@
 // raw pair is only ever a *candidate*, never an auto-exclusion, and the
 // money-side tests below prove the set that actually ships is exactly right.
 // The practical effect is a bigger review queue than the spec advertised --
-// those 3 merchants are still unanswered on the real device today, which the
+// 5 merchants are still unanswered on the real device today, which the
 // second half of the first test below measures by count and by exclusion
 // from the known-answered set, not by naming them.
+//
+// That 5 was 3 until the candidate finder stopped letting already-decided
+// merchants compete for acknowledgements (see `CardSettlementCandidateFinder`).
+// Freeing those acknowledgements discovered no new genuine front on this
+// corpus: both merchants it added average about Rs.120 a transaction, against
+// Rs.12,881 for the confirmed fronts, so both look like the coincidental
+// same-day collision fact 10 warns about rather than a missed card bill.
+// Measured, not assumed -- and recorded here because a queue that grows
+// without finding anything is the cost side of that change.
 //
 // A drifting count should be re-measured, never relaxed -- but re-measuring
 // this file's pairer/candidate numbers means repeating the three checks
@@ -160,13 +169,14 @@ void main() {
       final rows = await _corpus(exportPath);
       const finder = CardSettlementCandidateFinder();
 
-      // See the module docstring: this is 12, not the spec's 8 -- `cheq` and
-      // `creditcard payment` now pair directly instead of needing adjacency,
-      // and 3 further merchants pair that the spec never mentions at all.
-      // Two of those three are not named literally here (see the docstring);
-      // asserted by count and superset instead of exact-set equality.
+      // See the module docstring: this is 13, not the spec's 8 -- `cheq` and
+      // `creditcard payment` pair directly instead of needing adjacency, and
+      // further merchants pair that the spec never mentions at all. Ten are
+      // named below; the remaining three are not (one names a person, one is
+      // unredacted terminal data, and this repository is public), so the size
+      // is asserted by count and superset rather than exact-set equality.
       final round1 = finder.find(rows, CardSettlementFronts.empty);
-      expect(round1, hasLength(12));
+      expect(round1, hasLength(13));
       expect(
         round1.map((c) => c.merchantNorm).toSet(),
         containsAll({
@@ -203,7 +213,7 @@ void main() {
         for (final m in declined) m: false,
       });
       final stillUnanswered = finder.find(rows, groundTruth);
-      expect(stillUnanswered, hasLength(3));
+      expect(stillUnanswered, hasLength(5));
       expect(
         stillUnanswered.map((c) => c.merchantNorm),
         contains('milkbasket'),

@@ -1255,19 +1255,62 @@ void main() {
       expect(item.needsAttributionReview, isTrue);
     });
 
-    test('an acknowledgement naming a card no cycle knows leaves the guess '
-        'alone', () {
+    test('an acknowledgement naming a card no cycle knows goes to review '
+        'rather than to the only card due', () {
+      // One card, due this month, amount matching: the guess would hand the
+      // payment straight to it. But the issuer said the bill was for a card
+      // this app has no cycle for, and contradicting the acknowledgement is
+      // worse than admitting the cycle is unknown.
       final pay = payment(amountPaise: 3000000, day: 15, smsId: 'pay-w');
       final items = build(
-        cards: [
-          card(last4: '4321', statementPaise: 3000000),
-          card(last4: '9876', statementPaise: 3000000),
-        ],
+        cards: [card(last4: '4321', statementPaise: 3000000)],
         actuals: [pay],
         settlementPairs: settlement(pay, ackCardLast4: '5555'),
       );
 
       final item = items.singleWhere((i) => i.id == 'cardpay:pay-w');
+      expect(item.cardCycleKey, isNull);
+      expect(item.needsAttributionReview, isTrue);
+    });
+
+    test('two estimates sharing an acknowledged last4 go to review rather '
+        'than let the guess pick a third card', () {
+      // The amounts are the point. Neither cycle of the acknowledged card
+      // matches the payment and the *third* card does, so the fallback guess
+      // has exactly one plausible answer and would return it — attributing the
+      // payment to a card the issuer never acknowledged. Give all three the
+      // same statement amount instead and the guess returns ambiguous on its
+      // own, which is the same verdict for the wrong reason and proves nothing.
+      final pay = payment(amountPaise: 3000000, day: 15, smsId: 'pay-ambig');
+      CardCycleEstimate cycleOf(
+        String last4,
+        String key,
+        int statementPaise,
+        int dueDay,
+      ) => CardCycleEstimate(
+        cardLast4: last4,
+        cardCycleKey: key,
+        observedPurchasesPaise: statementPaise,
+        cardRefundsPaise: 0,
+        cycleSpendSeenPaise: statementPaise,
+        statementEventAmountPaise: statementPaise,
+        paymentStatus: ReconciliationPaymentStatus.unpaid,
+        dueDate: DateTime(2026, 8, dueDay),
+        needsCycleSetup: false,
+        confidence: 0.9,
+      );
+
+      final items = build(
+        cards: [
+          cycleOf('4321', 'card:4321:cycle-a', 9900000, 20),
+          cycleOf('4321', 'card:4321:cycle-b', 9900000, 25),
+          cycleOf('9999', 'card:9999:cycle-c', 3000000, 15),
+        ],
+        actuals: [pay],
+        settlementPairs: settlement(pay, ackCardLast4: '4321'),
+      );
+
+      final item = items.singleWhere((i) => i.id == 'cardpay:pay-ambig');
       expect(item.cardCycleKey, isNull);
       expect(item.needsAttributionReview, isTrue);
     });

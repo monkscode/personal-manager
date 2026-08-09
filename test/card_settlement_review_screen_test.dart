@@ -115,8 +115,8 @@ void main() {
     await tester.pumpWidget(_host([_paired], (_, _) {}));
 
     expect(find.textContaining('CRED Club'), findsWidgets);
-    expect(find.textContaining('4321'), findsWidgets);
-    expect(find.textContaining('25'), findsWidgets);
+    expect(find.textContaining('Card 4321'), findsWidgets);
+    expect(find.textContaining('₹25 of it came from points'), findsWidgets);
   });
 
   testWidgets(

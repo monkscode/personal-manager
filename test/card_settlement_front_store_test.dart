@@ -19,9 +19,10 @@ void main() {
   setUpAll(sqfliteFfiInit);
 
   late CardSettlementFrontStore store;
+  late Database db;
 
   setUp(() async {
-    final db = await SmsDatabase.openWithFactory(
+    db = await SmsDatabase.openWithFactory(
       factory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
     );
@@ -94,6 +95,14 @@ void main() {
 
     expect(fronts.isDecided('cred store'), isTrue);
     expect(fronts.isConfirmed('cred store'), isFalse);
+    expect(
+      await db.query(
+        'card_settlement_fronts',
+        where: 'merchant_norm = ?',
+        whereArgs: ['cred store'],
+      ),
+      hasLength(1),
+    );
   });
 
   test('empty is a usable zero value', () {
