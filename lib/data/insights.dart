@@ -63,6 +63,8 @@ class TxRow {
     this.isCredit = false,
     this.subtitle = '',
     this.isCardSettlement = false,
+    this.settlementCardLast4,
+    this.settlementPointsPaise,
   });
   final String name;
   final String category;
@@ -90,6 +92,15 @@ class TxRow {
   /// the row stays on screen; it is not consumption, so it is in no spend
   /// total. Both facts have to be visible at once or the total looks wrong.
   final bool isCardSettlement;
+
+  /// The card a settlement row paid off, when the payment paired with that
+  /// card's acknowledgement. Null when the pair is unknown — a bank debit
+  /// carries no card number of its own, and none is invented.
+  final String? settlementCardLast4;
+
+  /// What the bill exceeded this debit by: reward points spent at the payment
+  /// app. Null when unpaired, zero when the bill was paid in full in cash.
+  final int? settlementPointsPaise;
 }
 
 class TxGroupView {

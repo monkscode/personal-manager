@@ -8,6 +8,7 @@ import 'self_transfer_decision_store.dart';
 import 'sms_models.dart';
 import '../services/card_cycle_estimator.dart';
 import '../services/card_settlement_candidates.dart';
+import '../services/card_settlement_pairer.dart';
 import '../services/cash_coverage_metrics.dart';
 import '../services/money_lens.dart';
 import '../services/reconciliation_matcher.dart';
@@ -71,6 +72,7 @@ class SmsAnalysisSnapshot {
     this.selfTransferCandidates = const [],
     this.settlementCandidates = const [],
     this.confirmedSettlementFronts = const <String>{},
+    this.settlementPairsByDebitSmsId = const {},
   }) : spendLensTxns = spendLensOf(
          allTxns.isNotEmpty ? allTxns : currentMonthTxns,
          confirmedSettlementFronts,
@@ -189,6 +191,11 @@ class SmsAnalysisSnapshot {
   /// row when it builds the activity list.
   final Set<String> confirmedSettlementFronts;
 
+  /// The card acknowledgement each settlement debit paired with, by the debit's
+  /// `sms_id`. Lets the activity row name the card and the reward points a
+  /// bank debit alone cannot carry.
+  final Map<String, CardSettlementPair> settlementPairsByDebitSmsId;
+
   final Map<String, YearOverYearCategory> yearOverYear;
 
   final CashCoverageLevel cashLevel;
@@ -248,6 +255,10 @@ class SmsAnalysisSnapshot {
           txn,
     ];
     final confirmedFronts = settlementFronts.confirmed;
+    final settlementPairs = {
+      for (final pair in const CardSettlementPairer().pairs(active))
+        pair.debit.smsId: pair,
+    };
     final targetMonth = DateTime(now.year, now.month);
     // Kept so the omission can be named. Only the target month's are carried:
     // the coverage lines that consume them are month-scoped.
@@ -386,6 +397,7 @@ class SmsAnalysisSnapshot {
         const CardSettlementCandidateFinder().find(active, settlementFronts),
       ),
       confirmedSettlementFronts: confirmedFronts,
+      settlementPairsByDebitSmsId: Map.unmodifiable(settlementPairs),
     );
   }
 
