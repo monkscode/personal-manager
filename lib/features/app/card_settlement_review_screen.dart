@@ -18,8 +18,17 @@ import '../../services/card_settlement_candidates.dart';
 /// `amazon` is a proper prefix of `amazon pay credit c`. No rule separates
 /// these, which is why the question reaches the user.
 ///
-/// Thirteen answers cover seven years of the owner's history, and four of them
-/// are "no". Those four are the reason this screen exists.
+/// The design spec estimated thirteen answers for seven years of the owner's
+/// history, four of them "no". Measured against the real corpus, round 1
+/// alone proposes 12, not 8, and three further merchants remain open even
+/// after the owner's real answers are applied — see
+/// `test/card_settlement_corpus_test.dart` and
+/// `.superpowers/sdd/2026-08-09-card-settlement-pairing/task-8-report.md`
+/// (gitignored, owner-local) for the corpus measurement this correction is
+/// based on. The number of questions moved; the point the original sentence
+/// existed to make has not — every "no" the owner gives is what stops that
+/// merchant being asked about again and is the reason this screen exists at
+/// all, not a hardcoded list.
 class CardSettlementReviewScreen extends StatelessWidget {
   const CardSettlementReviewScreen({
     super.key,

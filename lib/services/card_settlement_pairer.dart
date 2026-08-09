@@ -29,20 +29,39 @@ class CardSettlementPair {
 /// that this merchant is a card-bill payment front at all. That last one is
 /// what found Cheq Digital, Rs.5,35,438 the app counted as ordinary shopping.
 ///
-/// **The window is fixed by measurement, not by taste.** Over the owner's 1,026
-/// bank debits:
+/// **The window was set by a measurement that does not reproduce.** The
+/// original design spec claimed, over the owner's 1,026 bank debits:
 ///
 ///     window     gap cap    paired  correct  wrong  precision
-///     same day   exact          11       11      0     100.0%
 ///     same day   <= Rs.500      37       37      0     100.0%   <- this
 ///     +-2 days   <= Rs.500      40       38      2      95.0%
 ///     +-3 days   <= Rs.10,000   48       23     25      47.9%
 ///
-/// Widening either dimension starts erasing real purchases — at +-2 days it
-/// swallows Corner Store Rs.65 and a private payee Rs.30. A wrong
-/// exclusion silently deletes money from the user's spend total, so the setting
-/// with no false positives is the only defensible one. Do not widen without
-/// re-running that measurement.
+/// Re-measured 2026-08-09 against the identical corpus (same 1,026 bank
+/// debits, same 2,071 rows — confirmed unchanged against a snapshot from the
+/// day before, so this is not the corpus growing) by
+/// `test/card_settlement_corpus_test.dart`: same day / <= Rs.500 actually
+/// returns **73 pairs, not 37**, and the disagreement is not explained by
+/// matching order (a by-hand reproduction of a first-debit-wins alternative
+/// also returns 73) or by anything that changed after the spec was written.
+/// **Precision on the 73 is UNMEASURED** — nobody has hand-labelled all of
+/// them, so no precision figure may be stated for this cap; the "100.0%" above
+/// is the spec's original, disproven claim, kept only so this correction is
+/// legible against what it corrects. The spec's same-day/exact row (claimed
+/// 11) does not reproduce either — 31 measured — and is dropped from the
+/// table above rather than repeated. The +-2 day and +-3 day rows have not
+/// been re-verified by this measurement and should be treated with the same
+/// suspicion until someone does — including the spec's illustrative claim
+/// that +-2 days swallows Corner Store Rs.65 and a private payee Rs.30,
+/// which this task did not check either way.
+///
+/// This does not mean Rs.500 or same-day is the wrong setting — only that the
+/// number used to justify it was wrong. A wrong exclusion silently deletes
+/// money from the user's spend total, so widening the window needs a fresh
+/// precision measurement (hand-labelling a sample of the 73, at minimum), and
+/// so would narrowing it. Do not change either without one. Investigation
+/// evidence: `.superpowers/sdd/2026-08-09-card-settlement-pairing/task-8-report.md`
+/// (gitignored, owner-local).
 ///
 /// **Matching is global, not first-debit-wins.** Every legal (debit,
 /// acknowledgement) combination — same local day, gap within the cap — is a
