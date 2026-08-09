@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:expense_insight/data/card_settlement_front_store.dart';
 import 'package:expense_insight/data/self_transfer_decision_store.dart';
 import 'package:expense_insight/data/sms_database.dart';
 import 'package:expense_insight/data/sms_storage_schema.dart';
@@ -290,6 +291,44 @@ void main() {
     );
 
     expect((await store.all()).isConfirmed('debit-hdfc'), isTrue);
+  });
+
+  test('an existing install gains the v7 card settlement front table', () async {
+    // The table has to arrive on an *upgrade*, not just a fresh install. The
+    // owner's device is already populated, and it is the only device carrying
+    // the 21 leaked card payments this feature exists to settle.
+    final dir = await Directory.systemTemp.createTemp('sms_v7_migration_test');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = p.join(dir.path, 'transactions.db');
+    final v2 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: (db, version) async {
+          await db.execute(SmsStorageSchema.createTransactionsTable);
+          await db.execute(_createV2ObligationsTable);
+          await db.execute(SmsStorageSchema.createMetaTable);
+          await db.execute(SmsStorageSchema.createKnownAccountsTable);
+        },
+      ),
+    );
+    await v2.close();
+
+    final upgraded = await SmsDatabase.openWithFactory(
+      factory: databaseFactoryFfi,
+      path: path,
+    );
+    addTearDown(upgraded.close);
+
+    final store = CardSettlementFrontStore(upgraded);
+    await store.record(
+      merchantNorm: 'cheq digital privat',
+      confirmed: true,
+      exampleDebitSmsId: 'debit-cheq',
+      exampleAckSmsId: 'ack-cheq',
+    );
+
+    expect((await store.all()).isConfirmed('cheq digital privat'), isTrue);
   });
 
   // ==========================================================================
