@@ -59,6 +59,27 @@ final _paired = CardSettlementCandidate(
   ),
 );
 
+final _pairedNoCard = CardSettlementCandidate(
+  merchantNorm: 'cred club',
+  displayMerchant: 'CRED Club',
+  source: CardSettlementCandidateSource.paired,
+  debit: _txn(
+    smsId: 'debit-3',
+    amountPaise: 228200,
+    date: DateTime(2026, 8, 1),
+    direction: TransactionDirection.debit,
+    instrument: PaymentInstrument.bank,
+    merchant: 'CRED Club',
+  ),
+  ack: _txn(
+    smsId: 'ack-2',
+    amountPaise: 230700,
+    date: DateTime(2026, 8, 1),
+    direction: TransactionDirection.credit,
+    instrument: PaymentInstrument.card,
+  ),
+);
+
 final _adjacent = CardSettlementCandidate(
   merchantNorm: 'cheq',
   displayMerchant: 'Cheq',
@@ -97,6 +118,16 @@ void main() {
     expect(find.textContaining('4321'), findsWidgets);
     expect(find.textContaining('25'), findsWidgets);
   });
+
+  testWidgets(
+    'a paired candidate whose ack names no card still shows the acknowledgement',
+    (tester) async {
+      await tester.pumpWidget(_host([_pairedNoCard], (_, _) {}));
+
+      expect(find.textContaining('₹2,307'), findsWidgets);
+      expect(find.textContaining('null'), findsNothing);
+    },
+  );
 
   testWidgets('an adjacent candidate names the front it resembles', (
     tester,

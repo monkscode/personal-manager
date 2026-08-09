@@ -12,9 +12,13 @@ import 'card_settlement_review_screen.dart';
 import 'self_transfer_review_screen.dart';
 import 'sms_review_screen.dart';
 
-/// The post-scan destination: a two-tab page hosting the review queue
-/// ([SmsReviewScreen]) and the recently-auto-added audit
-/// ([RecentlyAutoAddedView]). Reads the just-persisted rows from the database
+/// The post-scan destination: a two-to-four-tab page. Review ([SmsReviewScreen])
+/// and Auto-added ([RecentlyAutoAddedView]) are permanent. Transfers
+/// ([SelfTransferReviewScreen]) and Card bills ([CardSettlementReviewScreen])
+/// are conditional, appearing only when this scan produced something to ask —
+/// candidates of either kind are rare, so a tab that is empty on every scan
+/// would be noise the user has to check and dismiss each time instead of a
+/// question worth answering. Reads the just-persisted rows from the database
 /// and writes review decisions back, reloading the snapshot on confirm.
 class ScanReviewPage extends ConsumerStatefulWidget {
   const ScanReviewPage({super.key});

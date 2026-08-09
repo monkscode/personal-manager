@@ -184,13 +184,20 @@ class _CandidateCard extends StatelessWidget {
 
   /// The evidence behind the question, in the user's own numbers.
   ///
-  /// A paired candidate can state both halves of the event, because the card
-  /// acknowledged it. An adjacent one cannot — it has only a resemblance to a
-  /// merchant already confirmed — so it says exactly that and no more.
+  /// Branches on [CardSettlementCandidate.source], not on whether a card
+  /// number is present. `cardLast4` is `ack?.accountLast4`, and the parser
+  /// admits a transaction on any 2 of its 5 signals, so a genuinely *paired*
+  /// candidate can carry an acknowledgement that never named a card. Branching
+  /// on `cardLast4 == null` put those candidates through the adjacent path
+  /// instead — discarding the acknowledgement, the strongest evidence this
+  /// screen has, and rendering the literal string "null" where `adjacentTo`
+  /// would have gone, since a paired candidate has none. A paired candidate
+  /// always has a real acknowledgement worth showing, even on the rare case
+  /// it cannot say which card; only an adjacent candidate has nothing but a
+  /// resemblance to a merchant already confirmed.
   String _evidence(CardSettlementCandidate candidate) {
     final amount = inr(candidate.debit.amountPaise / 100);
-    final card = candidate.cardLast4;
-    if (card == null) {
+    if (candidate.source == CardSettlementCandidateSource.adjacent) {
       return 'You sent $amount to ${candidate.displayMerchant}. You already '
           'pay card bills through "${candidate.adjacentTo}" — is this the '
           'same app?';
@@ -200,7 +207,11 @@ class _CandidateCard extends StatelessWidget {
     final tail = points > 0
         ? ' ${inr(points / 100)} of it came from points.'
         : '';
-    return 'You sent $amount to ${candidate.displayMerchant}. Card $card '
-        'confirmed $acknowledged the same day.$tail';
+    final card = candidate.cardLast4;
+    return card == null
+        ? 'You sent $amount to ${candidate.displayMerchant}. A card confirmed '
+              '$acknowledged the same day.$tail'
+        : 'You sent $amount to ${candidate.displayMerchant}. Card $card '
+              'confirmed $acknowledged the same day.$tail';
   }
 }
