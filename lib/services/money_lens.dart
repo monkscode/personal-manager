@@ -63,11 +63,11 @@ class MoneyLens {
   /// answer on top by billing that cash to a card. It deliberately does not
   /// resolve the ownership gap, which needs the type mis-tagging fixed at the
   /// parser and has a far wider blast radius.
-  static bool isSpend(ParsedTxn txn) {
+  static bool isSpend(ParsedTxn txn, Set<String> confirmedFronts) {
     if (txn.isFutureDebitNotice) return false;
     if (txn.type == TxnType.transfer || txn.type == TxnType.atm) return false;
     if (txn.payeeType == PayeeType.selfTransfer) return false;
-    if (isCardSettlement(txn)) return false;
+    if (isCardSettlement(txn, confirmedFronts)) return false;
     final body = txn.rawBodyRedacted.toLowerCase();
     if (_matchesAny(body, kCashWithdrawalMarkers)) return false;
     if (_matchesAny(body, kInvestmentMarkers)) return false;
@@ -107,13 +107,13 @@ class MoneyLens {
   /// debit paying off a card bill is a real cash outflow, but it is not
   /// consumption in the month it is paid, and counting it inflated the baseline
   /// by an entire statement.
-  static bool isEverydayCashSpend(ParsedTxn txn) {
+  static bool isEverydayCashSpend(ParsedTxn txn, Set<String> confirmedFronts) {
     if (txn.direction != TransactionDirection.debit) return false;
     if (txn.type == TxnType.transfer || txn.type == TxnType.atm) return false;
     if (txn.payeeType == PayeeType.selfTransfer) return false;
     if (txn.instrument == PaymentInstrument.card) return false;
     if (txn.isFutureDebitNotice) return false;
-    if (isCardSettlement(txn)) return false;
+    if (isCardSettlement(txn, confirmedFronts)) return false;
     final body = txn.rawBodyRedacted.toLowerCase();
     return !_matchesAny(body, kCashWithdrawalMarkers) &&
         !_matchesAny(body, kInvestmentMarkers) &&
@@ -123,24 +123,34 @@ class MoneyLens {
 
   /// Whether this debit settles a credit-card bill, on either rail.
   ///
-  /// **Keyed on the body, never on the instrument.** `_cardMarker` fires on the
-  /// bare phrase `credit card`, so *"Payment of Rs.45,000 towards your HDFC
-  /// Credit Card debited from A/c XX1234"* is stored as `instrument: card`,
-  /// `direction: debit`, `type: pos` — indistinguishable from a purchase by
-  /// instrument alone. A CRED or BillDesk payment for the same bill arrives as
-  /// `instrument: bank`. One event, two shapes, so the wording decides.
+  /// **Keyed on the body or on the user's own answer, never on the amount and
+  /// never on the instrument.** `_cardMarker` fires on the bare phrase
+  /// `credit card`, so *"Payment of Rs.45,000 towards your HDFC Credit Card
+  /// debited from A/c XX1234"* is stored as `instrument: card`, `type: pos` —
+  /// indistinguishable from a purchase by instrument alone. The same bill paid
+  /// through CRED arrives as `instrument: bank`. One event, two shapes.
   ///
-  /// The merchant heuristic matches **whole words**. `_norm` is lowercase plus
-  /// whitespace collapse, so a substring test for `cred` also matched
-  /// `SACRED HEART SCHOOL`, `INCREDIBLE INDIA` and `CREDAI`. That used to
-  /// misroute a reconciliation item; here it would silently remove real money
-  /// from the user's spend total.
-  static bool isCardSettlement(ParsedTxn txn) {
+  /// The amount is not consulted because it cannot be: reward points mean the
+  /// bank debit is routinely smaller than the bill. Over the owner's device 19
+  /// of 31 pairs carry a discount, up to Rs.44. A Rs.90 debit against a Rs.100
+  /// bill takes this exact path.
+  ///
+  /// **[confirmedFronts] replaces a hardcoded merchant list**, which was wrong
+  /// in both directions: `\bcred\b | \bbilldesk\b | \bcc payment\b |
+  /// \bcard bill\b` missed Rs.5,44,676 of card payments across 21 rows — Cheq
+  /// Digital alone was Rs.5,35,438, a payment app nobody had thought to add —
+  /// while matching `CRED Store` and erasing Rs.599 of real shopping. There is
+  /// no list of names that stays right, so the app stopped keeping one:
+  /// `CardSettlementCandidateFinder` proposes a merchant and the user confirms
+  /// it once.
+  ///
+  /// There is deliberately no default for [confirmedFronts]. An empty default
+  /// would let a new call site compile while silently losing every exclusion.
+  static bool isCardSettlement(ParsedTxn txn, Set<String> confirmedFronts) {
     if (txn.direction != TransactionDirection.debit) return false;
     if (_paymentTowardsCard.hasMatch(txn.rawBodyRedacted)) return true;
-    final merchant = txn.merchant;
-    if (merchant == null) return false;
-    return _settlementMerchant.hasMatch(_norm(merchant));
+    final key = merchantFrontKey(txn);
+    return key != null && confirmedFronts.contains(key);
   }
 
   /// Whether this alert reports a running **bank balance**, which means the
@@ -179,16 +189,6 @@ class MoneyLens {
     r'\b(?:payment|paid)\b[\s\S]{0,60}?\btowards\b[\s\S]{0,40}?\bcard\b',
     caseSensitive: false,
   );
-
-  /// Card-bill fronts and the phrases banks use when the payee is the bill
-  /// itself. Word-anchored on both sides; see [isCardSettlement].
-  static final RegExp _settlementMerchant = RegExp(
-    r'\bcred\b|\bbilldesk\b|\bcc payment\b|\bcard bill\b',
-    caseSensitive: false,
-  );
-
-  static String _norm(String value) =>
-      value.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
 
   static bool _matchesAny(String body, List<String> markers) =>
       markers.any(body.contains);

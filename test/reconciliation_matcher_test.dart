@@ -131,6 +131,14 @@ RecurringCommitment commitment({
 const _matcher = ReconciliationMatcher();
 const _engine = ForecastReconciliationEngine();
 
+// 'cred' is the fixture-wide stand-in for a confirmed settlement front: every
+// `payment(...)`/`actual(merchant: 'CRED', ...)` fixture in this file exists
+// to exercise the card-payment lane, and under exact-key matching a default
+// of {'cred'} cannot accidentally catch any other merchant here (the one test
+// that checks the opposite uses 'SACRED HEART SCHOOL', which does not
+// normalise to 'cred').
+const _defaultConfirmedFronts = {'cred'};
+
 List<ReconciliationItem> build({
   List<ParsedTxn> actuals = const [],
   List<ObligationRecord> obligations = const [],
@@ -140,6 +148,7 @@ List<ReconciliationItem> build({
   List<CardCycleEstimate> cards = const [],
   DateTime? targetMonth,
   BalanceAnchor? anchor,
+  Set<String> confirmedFronts = _defaultConfirmedFronts,
 }) => _matcher.buildItems(
   actuals: actuals,
   obligations: obligations,
@@ -149,6 +158,7 @@ List<ReconciliationItem> build({
   cards: cards,
   anchor: anchor ?? _anchor,
   targetMonth: targetMonth ?? _target,
+  confirmedFronts: confirmedFronts,
 );
 
 BalanceAnchor anchorFor(DateTime month) => BalanceAnchor(
@@ -1482,6 +1492,7 @@ void main() {
           ),
           statementMonth: DateTime(2026, 8),
           statementTotalPaise: 1500000,
+          confirmedFronts: const <String>{},
         );
         final items = build(
           cards: [estimate],

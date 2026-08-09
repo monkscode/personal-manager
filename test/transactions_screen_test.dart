@@ -71,8 +71,12 @@ ParsedTxn _txn(String id, String merchant, int paise, DateTime date) =>
       scanBatchId: 'b',
     );
 
-SmsAnalysisSnapshot _snapshot(List<ParsedTxn> txns) => SmsAnalysisSnapshot(
+SmsAnalysisSnapshot _snapshot(
+  List<ParsedTxn> txns, {
+  Set<String> confirmedSettlementFronts = const <String>{},
+}) => SmsAnalysisSnapshot(
   targetMonth: DateTime(2026, 8),
+  confirmedSettlementFronts: confirmedSettlementFronts,
   hasData: true,
   commitments: const [],
   reviewCandidates: const [],
@@ -160,13 +164,17 @@ void main() {
   ) async {
     // Removing a rupee from the spend total must not remove it from the list —
     // an omission the user cannot see is the silent exclusion the spec forbids.
+    //
+    // The hardcoded merchant list that used to make 'CRED' a settlement is
+    // gone; the exclusion now needs the user's own confirmed answer, passed
+    // here as `confirmedSettlementFronts`.
     final settlement = _txn('bill', 'CRED', 4500000, DateTime(2026, 8, 20));
     final i = Insights.compute(
       _state,
-      snapshot: _snapshot([
-        settlement,
-        _txn('food', 'Swiggy', 42000, DateTime(2026, 8, 20)),
-      ]),
+      snapshot: _snapshot(
+        [settlement, _txn('food', 'Swiggy', 42000, DateTime(2026, 8, 20))],
+        confirmedSettlementFronts: const {'cred'},
+      ),
       now: _now,
     );
 

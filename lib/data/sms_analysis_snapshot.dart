@@ -1,4 +1,5 @@
 import 'card_models.dart';
+import 'card_settlement_front_store.dart';
 import 'forecast_models.dart';
 import 'forecast_risk_models.dart';
 import 'models.dart';
@@ -6,6 +7,7 @@ import 'obligation_models.dart';
 import 'self_transfer_decision_store.dart';
 import 'sms_models.dart';
 import '../services/card_cycle_estimator.dart';
+import '../services/card_settlement_candidates.dart';
 import '../services/cash_coverage_metrics.dart';
 import '../services/money_lens.dart';
 import '../services/reconciliation_matcher.dart';
@@ -67,24 +69,30 @@ class SmsAnalysisSnapshot {
     this.anchorFreshness,
     this.primaryAccountLast4,
     this.selfTransferCandidates = const [],
+    this.settlementCandidates = const [],
+    this.confirmedSettlementFronts = const <String>{},
   }) : spendLensTxns = spendLensOf(
          allTxns.isNotEmpty ? allTxns : currentMonthTxns,
+         confirmedSettlementFronts,
        ),
        everydayCashTxns = List.unmodifiable([
          // Same set `real_insights` calls `history`: [allTxns] when it was
          // filled, and the target month alone when it was not. Deriving over a
          // different set is how a lens quietly reports ₹0.
          for (final txn in allTxns.isNotEmpty ? allTxns : currentMonthTxns)
-           if (MoneyLens.isEverydayCashSpend(txn)) txn,
+           if (MoneyLens.isEverydayCashSpend(txn, confirmedSettlementFronts))
+             txn,
        ]);
 
   /// The spend lens over an already-filtered working set. The one definition,
   /// so [reduce] and the constructor cannot drift apart.
-  static List<ParsedTxn> spendLensOf(List<ParsedTxn> txns) =>
-      List.unmodifiable([
-        for (final txn in txns)
-          if (MoneyLens.isSpend(txn)) txn,
-      ]);
+  static List<ParsedTxn> spendLensOf(
+    List<ParsedTxn> txns,
+    Set<String> confirmedFronts,
+  ) => List.unmodifiable([
+    for (final txn in txns)
+      if (MoneyLens.isSpend(txn, confirmedFronts)) txn,
+  ]);
 
   /// An empty snapshot with no SMS-derived data.
   factory SmsAnalysisSnapshot.empty(DateTime now) => SmsAnalysisSnapshot(
@@ -172,6 +180,15 @@ class SmsAnalysisSnapshot {
   /// row, which never happens on an already-scanned device.
   final List<SelfTransferCandidate> selfTransferCandidates;
 
+  /// Merchants the user has not yet answered "is this a card bill payment?"
+  /// for. Empty once every front on this device is decided.
+  final List<CardSettlementCandidate> settlementCandidates;
+
+  /// The merchants the user confirmed are card-bill payment fronts. Carried on
+  /// the snapshot because `real_insights` re-derives the settlement flag per
+  /// row when it builds the activity list.
+  final Set<String> confirmedSettlementFronts;
+
   final Map<String, YearOverYearCategory> yearOverYear;
 
   final CashCoverageLevel cashLevel;
@@ -206,6 +223,7 @@ class SmsAnalysisSnapshot {
     SelfTransferDecisions selfTransferDecisions = const SelfTransferDecisions(
       {},
     ),
+    CardSettlementFronts settlementFronts = CardSettlementFronts.empty,
   }) {
     // The working set every producer below reads from.
     //
@@ -229,6 +247,7 @@ class SmsAnalysisSnapshot {
             txn.supersededBySmsId == null)
           txn,
     ];
+    final confirmedFronts = settlementFronts.confirmed;
     final targetMonth = DateTime(now.year, now.month);
     // Kept so the omission can be named. Only the target month's are carried:
     // the coverage lines that consume them are month-scoped.
@@ -291,7 +310,7 @@ class SmsAnalysisSnapshot {
     ];
     final seasonal = horizonSeasonal.first;
 
-    final cards = _cardEstimates(active, targetMonth);
+    final cards = _cardEstimates(active, targetMonth, confirmedFronts);
 
     final currentMonthTxns = [
       for (final txn in active)
@@ -314,6 +333,7 @@ class SmsAnalysisSnapshot {
       cards: cards,
       anchor: matcherAnchor,
       targetMonth: targetMonth,
+      confirmedFronts: confirmedFronts,
     );
 
     const cash = CashCoverageMetrics();
@@ -342,7 +362,9 @@ class SmsAnalysisSnapshot {
       currentMonthTxns: List.unmodifiable(currentMonthTxns),
       allTxns: List.unmodifiable(allTxns),
       supersededRedeliveries: List.unmodifiable(supersededRedeliveries),
-      yearOverYear: Map.unmodifiable(_yearOverYear(spendLensOf(active), now)),
+      yearOverYear: Map.unmodifiable(
+        _yearOverYear(spendLensOf(active, confirmedFronts), now),
+      ),
       cashLevel: cash.level(window),
       cashDrainRatio: cash.cashDrainRatio(window),
       currentMonthAtmPaise: cash.currentMonthToDateAtmPaise(active, now),
@@ -360,6 +382,10 @@ class SmsAnalysisSnapshot {
           if (!selfTransferDecisions.isDecided(candidate.debit.smsId))
             candidate,
       ]),
+      settlementCandidates: List.unmodifiable(
+        const CardSettlementCandidateFinder().find(active, settlementFronts),
+      ),
+      confirmedSettlementFronts: confirmedFronts,
     );
   }
 
@@ -417,6 +443,7 @@ class SmsAnalysisSnapshot {
   static List<CardCycleEstimate> _cardEstimates(
     List<ParsedTxn> active,
     DateTime targetMonth,
+    Set<String> confirmedFronts,
   ) {
     final byCard = <String, List<ParsedTxn>>{};
     for (final txn in active) {
@@ -426,7 +453,12 @@ class SmsAnalysisSnapshot {
     const estimator = CardCycleEstimator();
     return [
       for (final entry in byCard.entries)
-        _estimateSinceLastPayment(estimator, entry.value, targetMonth),
+        _estimateSinceLastPayment(
+          estimator,
+          entry.value,
+          targetMonth,
+          confirmedFronts,
+        ),
     ];
   }
 
@@ -446,6 +478,7 @@ class SmsAnalysisSnapshot {
     CardCycleEstimator estimator,
     List<ParsedTxn> cardTxns,
     DateTime targetMonth,
+    Set<String> confirmedFronts,
   ) {
     final windowStart = lastCardBillPaymentDate(cardTxns);
     return estimator.estimate(
@@ -464,6 +497,7 @@ class SmsAnalysisSnapshot {
       cardLast4Fallback: cardTxns
           .map((t) => t.accountLast4)
           .firstWhere((last4) => last4 != null, orElse: () => null),
+      confirmedFronts: confirmedFronts,
     );
   }
 

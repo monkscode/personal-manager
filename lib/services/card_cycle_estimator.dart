@@ -83,6 +83,7 @@ class CardCycleEstimator {
     int? amountPaidPaise,
     DateTime? windowStart,
     String? cardLast4Fallback,
+    required Set<String> confirmedFronts,
   }) {
     final observedPurchases = cardTxns
         .where(
@@ -94,7 +95,7 @@ class CardCycleEstimator {
               // HDFC Credit Card" is stored as a card debit with `type: pos` —
               // indistinguishable from a purchase by instrument alone. Counting
               // it here added the bill to the spend the bill is for.
-              !MoneyLens.isCardSettlement(t) &&
+              !MoneyLens.isCardSettlement(t, confirmedFronts) &&
               // A debit that already left a bank account cannot be on any
               // statement. The `type != atm` test above cannot reach these:
               // *every* card row on the owner's device is typed `pos`,

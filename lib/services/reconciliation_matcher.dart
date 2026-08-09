@@ -47,6 +47,7 @@ class ReconciliationMatcher {
     required List<CardCycleEstimate> cards,
     required BalanceAnchor anchor,
     required DateTime targetMonth,
+    required Set<String> confirmedFronts,
   }) {
     final bands = _amountBands(obligations, commitments);
     final owners = <_JoinOwner>[];
@@ -86,7 +87,7 @@ class ReconciliationMatcher {
         // obligation, not whether the body says "transfer".
         transfers.add(txn);
         debits.add(txn);
-      } else if (MoneyLens.isCardSettlement(txn)) {
+      } else if (MoneyLens.isCardSettlement(txn, confirmedFronts)) {
         // Ahead of the `instrument == card` drop below on purpose: a bank
         // writing its settlement debit as "towards your HDFC Credit Card" is
         // stored as a card row, and the old bank-only test let it fall through

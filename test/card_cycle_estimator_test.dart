@@ -61,6 +61,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.cycleSpendSeenPaise, 400000);
@@ -89,6 +90,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.cardRefundsPaise, 0);
@@ -112,6 +114,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.cardRefundsPaise, 0);
@@ -134,6 +137,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.cardRefundsPaise, 100000);
@@ -148,6 +152,7 @@ void main() {
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
         statementTotalPaise: 1000000,
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.observedPurchasesPaise, 0);
@@ -161,6 +166,7 @@ void main() {
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
         statementTotalPaise: 1000000,
+        confirmedFronts: const <String>{},
       );
 
       // residual = statement − observed purchases + observed card refunds
@@ -186,6 +192,7 @@ void main() {
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
         statementTotalPaise: 600000,
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.statementResidualPaise, 200000); // 600k − 500k + 100k
@@ -203,6 +210,7 @@ void main() {
         statementMonth: DateTime(2026, 8),
         statementTotalPaise: 1000000,
         amountPaidPaise: 400000,
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.paymentStatus, ReconciliationPaymentStatus.partial);
@@ -217,6 +225,7 @@ void main() {
         statementMonth: DateTime(2026, 8),
         statementTotalPaise: 1000000,
         amountPaidPaise: 1000000,
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.paymentStatus, ReconciliationPaymentStatus.paid);
@@ -230,6 +239,7 @@ void main() {
         [cardTxn(amountPaise: 300000, date: DateTime(2026, 8, 10))],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.dueDate, DateTime(2026, 8, 20));
@@ -240,6 +250,7 @@ void main() {
     test('unknown cycle emits a set-card-cycle coverage need without a due date', () {
       final estimate = estimator.estimate(
         [cardTxn(amountPaise: 300000, date: DateTime(2026, 8, 10))],
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.needsCycleSetup, isTrue);
@@ -260,6 +271,7 @@ void main() {
           confidence: 0.9,
         ),
         statementMonth: DateTime(2026, 2),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.dueDate, DateTime(2026, 2, 28));
@@ -278,6 +290,7 @@ void main() {
           confidence: 0.9,
         ),
         statementMonth: DateTime(2026, 2),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.dueDate, DateTime(2026, 2, 28));
@@ -291,6 +304,7 @@ void main() {
         cycle: cycle,
         statementMonth: DateTime(2026, 7),
         statementTotalPaise: 500000,
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.paymentStatus, ReconciliationPaymentStatus.unpaid);
@@ -304,6 +318,7 @@ void main() {
         statementMonth: DateTime(2026, 7),
         statementTotalPaise: 500000,
         amountPaidPaise: 600000,
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.paymentStatus, ReconciliationPaymentStatus.paid);
@@ -346,6 +361,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.observedPurchasesPaise, 0);
@@ -366,6 +382,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.observedPurchasesPaise, 0);
@@ -383,6 +400,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.observedPurchasesPaise, 59000);
@@ -415,6 +433,7 @@ void main() {
         ],
         cycle: cycle,
         statementMonth: DateTime(2026, 8),
+        confirmedFronts: const <String>{},
       );
 
       expect(estimate.observedPurchasesPaise, 59000);

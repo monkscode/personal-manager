@@ -573,7 +573,10 @@ Insights _forecastInsights(
     // The subtitle deliberately does not name the card. A CRED or BillDesk
     // bank debit carries no card number at all — which is why the cycle has to
     // be attributed by amount and window — so there is nothing to render.
-    final isCardSettlement = MoneyLens.isCardSettlement(t);
+    final isCardSettlement = MoneyLens.isCardSettlement(
+      t,
+      snapshot.confirmedSettlementFronts,
+    );
     return TxRow(
       subtitle: isCardSettlement ? 'Settles a card bill · not spend' : '',
       isCardSettlement: isCardSettlement,

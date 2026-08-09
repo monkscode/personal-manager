@@ -1024,7 +1024,7 @@ void _specACardIdentity() {
         'debited from A/c XX1234 on 21-08-26.',
         DateTime(2026, 8, 21),
       );
-      expect(MoneyLens.isCardSettlement(settlement), isTrue);
+      expect(MoneyLens.isCardSettlement(settlement, const <String>{}), isTrue);
       expect(settlement.instrument, PaymentInstrument.card);
       expect(settlement.direction, TransactionDirection.debit);
 
