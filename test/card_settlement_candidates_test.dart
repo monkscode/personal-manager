@@ -185,6 +185,26 @@ void main() {
     );
   });
 
+  test('a sibling of a confirmed front is not adjacent to it', () {
+    // `cred store` and `cred club` share "cred " and then diverge -- neither
+    // is a prefix of the other, so adjacency must not fire here. This is the
+    // Rs.599 of real CRED Store shopping the old `\bcred\b` rule erased. What
+    // does reach `cred store` on the device is the bare `cred` front, covered
+    // by the test above.
+    final found = finder.find(
+      [
+        _debit(
+          amountPaise: 59900,
+          date: DateTime(2025, 3, 22),
+          merchant: 'CRED Store',
+        ),
+      ],
+      const CardSettlementFronts({'cred club': true}),
+    );
+
+    expect(found, isEmpty);
+  });
+
   test('a short merchant is never adjacent to anything', () {
     // Without a floor, a two-character payee is a prefix of half the corpus.
     final found = finder.find(
