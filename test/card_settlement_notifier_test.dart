@@ -45,7 +45,7 @@ void main() {
       path: inMemoryDatabasePath,
     );
     addTearDown(db.close);
-    await TransactionRepository(db).ingestParsedTxn(credDebit, isFirstScan: true);
+    await TransactionRepository(db).ingestParsedTxn(credDebit, isFirstScan: false);
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     container = ProviderContainer(
@@ -86,4 +86,33 @@ void main() {
     expect((await CardSettlementFrontStore(db).all()).isConfirmed('cred club'),
         isTrue);
   });
+
+  test(
+    'a recorded rejection loads from the database and keeps its money',
+    () async {
+      // confirmed = 0 is a real answer, not an absent one. The difference is
+      // load-bearing: a merchant that paired once by coincidence must never be
+      // asked about again, nor ever excluded. A rejection is stored as durably
+      // as a confirmation and stops the merchant being re-proposed, while
+      // leaving the money in spend lens.
+      await container
+          .read(transactionsNotifierProvider.notifier)
+          .recordSettlementFront(
+            merchantNorm: 'cred club',
+            confirmed: false,
+            exampleDebitSmsId: 'cred-debit',
+          );
+
+      final snapshot = await container.read(transactionsNotifierProvider.future);
+
+      expect(snapshot.confirmedSettlementFronts, isNot(contains('cred club')));
+      expect(
+        snapshot.spendLensTxns.map((t) => t.smsId),
+        contains('cred-debit'),
+      );
+      final fronts = await CardSettlementFrontStore(db).all();
+      expect(fronts.isDecided('cred club'), isTrue);
+      expect(fronts.isConfirmed('cred club'), isFalse);
+    },
+  );
 }
