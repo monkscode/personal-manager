@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'app_controller.dart';
 import 'app_state.dart';
+import 'card_settlement_front_store.dart';
 import 'forecast_risk_decision_store.dart';
 import 'forecast_risk_models.dart';
 import 'models.dart';
@@ -48,14 +49,17 @@ class TransactionsNotifier extends AsyncNotifier<SmsAnalysisSnapshot> {
       1,
     );
     final selfTransferStore = SelfTransferDecisionStore(db);
+    final settlementFrontStore = CardSettlementFrontStore(db);
     final historyFuture = txRepo.allSince(lookbackStart);
     final obligationsFuture = obliRepo.allActive();
     final decisionsFuture = riskStore.all();
     final selfTransfersFuture = selfTransferStore.all();
+    final settlementFrontsFuture = settlementFrontStore.all();
     final history = await historyFuture;
     final obligations = await obligationsFuture;
     final riskDecisions = await decisionsFuture;
     final selfTransfers = await selfTransfersFuture;
+    final settlementFronts = await settlementFrontsFuture;
 
     // Dedup re-delivered bank alerts and fill readable merchant/category for
     // rows the on-device parser left blank, before the pure reduction. This
@@ -75,6 +79,7 @@ class TransactionsNotifier extends AsyncNotifier<SmsAnalysisSnapshot> {
       obligations: obligations,
       riskDecisions: riskDecisions,
       selfTransferDecisions: selfTransfers,
+      settlementFronts: settlementFronts,
       configuredPlans: configuredPlansFor(appState),
       configuredSalaryRupees: appState.salary,
       now: now,
@@ -118,6 +123,34 @@ class TransactionsNotifier extends AsyncNotifier<SmsAnalysisSnapshot> {
     await ForecastRiskDecisionStore(
       db,
     ).upsert(decision, now: ref.read(analysisClockProvider)());
+    await reload();
+  }
+
+  /// Records the user's answer to "is this merchant how you pay a card bill?"
+  /// and reloads the snapshot.
+  ///
+  /// Reload is what makes the answer land: the lens re-derives from the
+  /// redacted body and the confirmed set at read time, so rows already on disk
+  /// are corrected on the next build with no rescan and no migration. It is
+  /// also how the next truncated spelling surfaces — confirming
+  /// `cheq digital privat` makes `cheq` a candidate on this very rebuild.
+  Future<void> recordSettlementFront({
+    required String merchantNorm,
+    required bool confirmed,
+    required String exampleDebitSmsId,
+    String? exampleAckSmsId,
+  }) async {
+    final db = ref.read(smsDatabaseProvider);
+    if (db == null) {
+      throw StateError('Card settlement database is unavailable.');
+    }
+    await CardSettlementFrontStore(db).record(
+      merchantNorm: merchantNorm,
+      confirmed: confirmed,
+      exampleDebitSmsId: exampleDebitSmsId,
+      exampleAckSmsId: exampleAckSmsId,
+      now: ref.read(analysisClockProvider)(),
+    );
     await reload();
   }
 

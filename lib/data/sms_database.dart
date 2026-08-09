@@ -7,7 +7,7 @@ class SmsDatabase {
   const SmsDatabase._();
 
   static const databaseName = 'transactions.db';
-  static const schemaVersion = 6;
+  static const schemaVersion = 7;
 
   static Future<Database> open() async {
     final path = p.join(await getDatabasesPath(), databaseName);
@@ -62,6 +62,7 @@ class SmsDatabase {
       await db.execute(SmsStorageSchema.createKnownAccountsTable);
       await db.execute(SmsStorageSchema.createForecastRiskDecisionsTable);
       await db.execute(SmsStorageSchema.createSelfTransferDecisionsTable);
+      await db.execute(SmsStorageSchema.createCardSettlementFrontsTable);
       for (final statement in SmsStorageSchema.indexStatements) {
         await db.execute(statement);
       }

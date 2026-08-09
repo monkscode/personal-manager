@@ -6,13 +6,19 @@ import '../../data/self_transfer_decision_store.dart';
 import '../../data/sms_models.dart';
 import '../../data/transaction_repository.dart';
 import '../../data/transactions_notifier.dart';
+import '../../services/card_settlement_candidates.dart';
 import '../../services/self_transfer_detector.dart';
+import 'card_settlement_review_screen.dart';
 import 'self_transfer_review_screen.dart';
 import 'sms_review_screen.dart';
 
-/// The post-scan destination: a two-tab page hosting the review queue
-/// ([SmsReviewScreen]) and the recently-auto-added audit
-/// ([RecentlyAutoAddedView]). Reads the just-persisted rows from the database
+/// The post-scan destination: a two-to-four-tab page. Review ([SmsReviewScreen])
+/// and Auto-added ([RecentlyAutoAddedView]) are permanent. Transfers
+/// ([SelfTransferReviewScreen]) and Card bills ([CardSettlementReviewScreen])
+/// are conditional, appearing only when this scan produced something to ask —
+/// candidates of either kind are rare, so a tab that is empty on every scan
+/// would be noise the user has to check and dismiss each time instead of a
+/// question worth answering. Reads the just-persisted rows from the database
 /// and writes review decisions back, reloading the snapshot on confirm.
 class ScanReviewPage extends ConsumerStatefulWidget {
   const ScanReviewPage({super.key});
@@ -25,6 +31,7 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
   List<ParsedTxn> _review = const [];
   List<ParsedTxn> _autoAdded = const [];
   List<SelfTransferCandidate> _transferCandidates = const [];
+  List<CardSettlementCandidate> _settlementCandidates = const [];
   bool _loading = true;
 
   @override
@@ -49,14 +56,15 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
     // Candidates come off the cached snapshot, which already detected them over
     // the normalized history. Re-reading deep history here would be a second
     // pass over the same rows for the same answer.
-    final transfers =
-        (await ref.read(transactionsNotifierProvider.future))
-            .selfTransferCandidates;
+    final snapshot = await ref.read(transactionsNotifierProvider.future);
+    final transfers = snapshot.selfTransferCandidates;
+    final settlements = snapshot.settlementCandidates;
     if (!mounted) return;
     setState(() {
       _review = review;
       _autoAdded = auto;
       _transferCandidates = transfers;
+      _settlementCandidates = settlements;
       _loading = false;
     });
   }
@@ -73,6 +81,21 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
       confirmed: confirmed,
     );
     await ref.read(transactionsNotifierProvider.notifier).reload();
+    await _load();
+  }
+
+  Future<void> _decideSettlement(
+    CardSettlementCandidate candidate,
+    bool confirmed,
+  ) async {
+    await ref
+        .read(transactionsNotifierProvider.notifier)
+        .recordSettlementFront(
+          merchantNorm: candidate.merchantNorm,
+          confirmed: confirmed,
+          exampleDebitSmsId: candidate.debit.smsId,
+          exampleAckSmsId: candidate.ack?.smsId,
+        );
     await _load();
   }
 
@@ -115,8 +138,10 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
     // are rare — four in six years of the owner's messages — so a permanently
     // empty third tab would be noise on every scan.
     final hasTransfers = _transferCandidates.isNotEmpty;
+    final hasSettlements = _settlementCandidates.isNotEmpty;
+    final tabCount = 2 + (hasTransfers ? 1 : 0) + (hasSettlements ? 1 : 0);
     return DefaultTabController(
-      length: hasTransfers ? 3 : 2,
+      length: tabCount,
       child: Scaffold(
         backgroundColor: p.bg,
         appBar: AppBar(
@@ -134,6 +159,7 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
               const Tab(text: 'Review'),
               const Tab(text: 'Auto-added'),
               if (hasTransfers) const Tab(text: 'Transfers'),
+              if (hasSettlements) const Tab(text: 'Card bills'),
             ],
           ),
         ),
@@ -154,6 +180,11 @@ class _ScanReviewPageState extends ConsumerState<ScanReviewPage> {
                     SelfTransferReviewScreen(
                       candidates: _transferCandidates,
                       onDecide: _decideTransfer,
+                    ),
+                  if (hasSettlements)
+                    CardSettlementReviewScreen(
+                      candidates: _settlementCandidates,
+                      onDecide: _decideSettlement,
                     ),
                 ],
               ),

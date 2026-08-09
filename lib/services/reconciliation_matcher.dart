@@ -5,6 +5,7 @@ import '../data/card_models.dart';
 import '../data/forecast_models.dart';
 import '../data/obligation_models.dart';
 import '../data/sms_models.dart';
+import 'card_settlement_pairer.dart';
 import 'money_lens.dart';
 import 'recurring_debit_detector.dart';
 import 'salary_income_detector.dart';
@@ -47,6 +48,8 @@ class ReconciliationMatcher {
     required List<CardCycleEstimate> cards,
     required BalanceAnchor anchor,
     required DateTime targetMonth,
+    required Set<String> confirmedFronts,
+    required Map<String, CardSettlementPair> settlementPairs,
   }) {
     final bands = _amountBands(obligations, commitments);
     final owners = <_JoinOwner>[];
@@ -86,7 +89,7 @@ class ReconciliationMatcher {
         // obligation, not whether the body says "transfer".
         transfers.add(txn);
         debits.add(txn);
-      } else if (MoneyLens.isCardSettlement(txn)) {
+      } else if (MoneyLens.isCardSettlement(txn, confirmedFronts)) {
         // Ahead of the `instrument == card` drop below on purpose: a bank
         // writing its settlement debit as "towards your HDFC Credit Card" is
         // stored as a card row, and the old bank-only test let it fall through
@@ -105,7 +108,7 @@ class ReconciliationMatcher {
 
     final items = <ReconciliationItem>[];
     items.addAll(owners.map((o) => o.toItem()));
-    items.addAll(_cardItems(cards, cardPayments));
+    items.addAll(_cardItems(cards, cardPayments, settlementPairs));
     final salaryItem = _salaryItem(salary, targetMonth);
     if (salaryItem != null) items.add(salaryItem);
     final discretionary = _discretionaryActuals(debits, folded, targetMonth);
@@ -527,6 +530,7 @@ class ReconciliationMatcher {
   List<ReconciliationItem> _cardItems(
     List<CardCycleEstimate> cards,
     List<ParsedTxn> cardPayments,
+    Map<String, CardSettlementPair> settlementPairs,
   ) {
     final items = <ReconciliationItem>[];
     for (var i = 0; i < cards.length; i++) {
@@ -575,7 +579,7 @@ class ReconciliationMatcher {
 
     for (var i = 0; i < cardPayments.length; i++) {
       final payment = cardPayments[i];
-      final attribution = _cardCycleFor(payment, cards);
+      final attribution = _cardCycleFor(payment, cards, settlementPairs);
       items.add(
         ReconciliationItem(
           id: 'cardpay:${payment.smsId}',
@@ -596,14 +600,61 @@ class ReconciliationMatcher {
     return items;
   }
 
-  /// Card-bill payments (CRED/BillDesk) hide the issuer, so the cycle is matched
-  /// by due-window (same statement month) and then by amount (spec §7 card-bill
-  /// payment rule). Two cards a payment could equally have settled are **not**
-  /// guessed between — an ambiguous attribution goes to review.
+  /// Which card cycle a bill payment settled.
+  ///
+  /// **The card's own acknowledgement answers this outright** when the payment
+  /// paired with one. [CardSettlementPair.cardLast4] is the issuer confirming
+  /// the bill was credited to that card, on that day, for those rupees — ground
+  /// truth, not inference. It outranks everything below, including a matching
+  /// amount: reward points routinely make the bank debit smaller than the bill,
+  /// so the amount can look like a different card's statement than the one that
+  /// was actually paid.
+  ///
+  /// **Once an acknowledgement has named a card, the guess never runs.** If
+  /// exactly one cycle estimate carries that card the answer is that cycle;
+  /// anything else — no estimate for it, or two cycles of it — goes to review.
+  /// Falling back to the guess there would let the payment be attributed to a
+  /// *different* card than the issuer named, which is worse than admitting the
+  /// cycle is unknown: with one card due this month and an acknowledgement for
+  /// a card the app has no cycle for, the guess hands the payment to the wrong
+  /// one with no review flag at all. Both branches are unreachable through
+  /// `SmsAnalysisSnapshot`, which groups estimates by `accountLast4` and feeds
+  /// the pairer the same rows, so the acknowledgement's own card always has
+  /// exactly one estimate; they are reachable by any other caller.
+  ///
+  /// Only with no pair at all, or an acknowledgement naming no card, is the
+  /// issuer genuinely hidden — the normal shape of a payment made through CRED
+  /// or Cheq: a plain savings-account debit carrying the *savings* account
+  /// number. Then the cycle is guessed, by due-window (same statement month)
+  /// and then by amount (spec §7 card-bill payment rule). Two cards a payment
+  /// could equally have settled are **not** guessed between — an ambiguous
+  /// attribution goes to review.
+  ///
+  /// **That guess is unreachable in the app as it ships** (checked 2026-08-09):
+  /// a [CardCycleEstimate] only carries a `dueDate` when it was built from a
+  /// configured [CardCycle], and nothing in `lib/` constructs one — the class
+  /// has no call site outside its own declaration. So `inWindow` is always
+  /// empty, and before the acknowledgement path above existed, every card-bill
+  /// payment shipped with a null cycle and no review flag. The guess is kept
+  /// because it is the correct behaviour the day cycle configuration lands, and
+  /// it is covered by tests that supply a `dueDate` directly.
   _CardCycleAttribution _cardCycleFor(
     ParsedTxn payment,
     List<CardCycleEstimate> cards,
+    Map<String, CardSettlementPair> settlementPairs,
   ) {
+    final acknowledgedCard = settlementPairs[payment.smsId]?.cardLast4;
+    if (acknowledgedCard != null) {
+      final named = [
+        for (final estimate in cards)
+          if (estimate.cardLast4 == acknowledgedCard) estimate,
+      ];
+      if (named.length == 1) {
+        return _CardCycleAttribution(named.single.cardCycleKey);
+      }
+      return const _CardCycleAttribution.none(ambiguous: true);
+    }
+
     final inWindow = [
       for (final estimate in cards)
         if (estimate.dueDate != null &&

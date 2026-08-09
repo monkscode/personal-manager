@@ -138,6 +138,46 @@ CREATE TABLE IF NOT EXISTS self_transfer_decisions (
 );
 ''';
 
+  /// The user's answers to "is this merchant how you pay a card bill?", keyed
+  /// by the normalised merchant so one answer covers every payment to that
+  /// front — including any that carry no card acknowledgement to pair
+  /// against. That is the actual reason this table is keyed on the merchant
+  /// and not on `sms_id`: the design does not depend on how many of a
+  /// merchant's payments happen to pair, only on there being one name to
+  /// answer for.
+  ///
+  /// This docstring used to put a number on the ones pairing cannot reach:
+  /// "8 of `cheq digital privat`'s 11 payments, Rs.3,17,559." That number came
+  /// from the design spec and does not survive re-measurement — the same
+  /// corpus check that found the spec's overall pairing count wrong (37
+  /// claimed, 73 actual; see `card_settlement_pairer.dart`'s module
+  /// docstring) also changes how many of any one merchant's payments still
+  /// need the merchant-keyed fallback, because more of them now pair
+  /// directly. Re-measured 2026-08-09 against the same
+  /// `.private/transactions.db` export, by the same method
+  /// (`CardSettlementPairer().pairs()` against `TransactionRepository.allSince`):
+  /// only 2 of `cheq digital privat`'s 11 payments have no ack pairing
+  /// (Rs.19,086), and across all 58 rows a confirmed front settles, only 6
+  /// have no ack pairing at all (Rs.38,036.98). See
+  /// `.superpowers/sdd/2026-08-09-card-settlement-pairing/final-fix-report.md`
+  /// (gitignored, owner-local) for the query.
+  ///
+  /// `confirmed = 0` is a real answer. `shree arbuda statio` — a stationery
+  /// shop — paired with an acknowledgement once, by coincidence; without a
+  /// stored "no" it is re-proposed after every scan.
+  ///
+  /// `example_ack_sms_id` is nullable because a merchant proposed by string
+  /// adjacency to an already-confirmed front has no acknowledgement behind it.
+  static const createCardSettlementFrontsTable = '''
+CREATE TABLE IF NOT EXISTS card_settlement_fronts (
+  merchant_norm TEXT PRIMARY KEY,
+  confirmed INTEGER NOT NULL,
+  example_debit_sms_id TEXT NOT NULL,
+  example_ack_sms_id TEXT,
+  decided_at INTEGER NOT NULL
+);
+''';
+
   static const indexStatements = [
     'CREATE INDEX IF NOT EXISTS idx_transactions_txn_date ON transactions(txn_date);',
     'CREATE INDEX IF NOT EXISTS idx_transactions_txn_local_date ON transactions(txn_local_date);',
@@ -188,6 +228,11 @@ CREATE TABLE IF NOT EXISTS self_transfer_decisions (
   /// pairs cannot decide them: measured over the owner's 2,071 rows it finds
   /// four, and one is a coincidence — a ₹44,604 card purchase and an unrelated
   /// ₹44,604 reimbursement twelve minutes later.
+  ///
+  /// **v7** adds `card_settlement_fronts`, the user's answers to "is this
+  /// merchant how you pay a card bill?". The hardcoded merchant list it
+  /// replaces missed Rs.5,44,676 of card payments across 21 rows — Cheq Digital
+  /// alone was Rs.5,35,438 — while erasing Rs.599 of real CRED Store shopping.
   ///
   /// **v4** indexes the two unbounded `transactions` queries. Adding them to
   /// [indexStatements] alone would not have been enough: `onUpgrade` runs only
@@ -250,6 +295,7 @@ CREATE TABLE IF NOT EXISTS self_transfer_decisions (
       ),
     ],
     6: [MigrationStep(createSelfTransferDecisionsTable)],
+    7: [MigrationStep(createCardSettlementFrontsTable)],
   };
 
   /// Runs every step registered for [version]. Missing versions fail loudly

@@ -282,7 +282,7 @@ void main() {
       );
 
       expect(row.isFutureDebitNotice, isTrue);
-      expect(MoneyLens.isSpend(row), isFalse);
+      expect(MoneyLens.isSpend(row, const <String>{}), isFalse);
     });
 
     test('GUARD: a real card purchase is untouched', () {
@@ -293,7 +293,7 @@ void main() {
       );
 
       expect(row.isFutureDebitNotice, isFalse);
-      expect(MoneyLens.isSpend(row), isTrue);
+      expect(MoneyLens.isSpend(row, const <String>{}), isTrue);
     });
 
     test('GUARD: the bill-payment acknowledgement is still not spend', () {
@@ -310,7 +310,7 @@ void main() {
       );
 
       expect(row.isFutureDebitNotice, isFalse);
-      expect(MoneyLens.isSpend(row), isFalse);
+      expect(MoneyLens.isSpend(row, const <String>{}), isFalse);
     });
   });
 }

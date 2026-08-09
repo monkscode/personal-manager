@@ -570,13 +570,31 @@ Insights _forecastInsights(
     final isCredit = t.direction == TransactionDirection.credit;
     final sign = isCredit ? '+' : '-';
     final color = _categoryColor(d.categoryKey);
-    // The subtitle deliberately does not name the card. A CRED or BillDesk
-    // bank debit carries no card number at all — which is why the cycle has to
-    // be attributed by amount and window — so there is nothing to render.
-    final isCardSettlement = MoneyLens.isCardSettlement(t);
+    // The subtitle names the card only when the payment paired with that
+    // card's own acknowledgement. A CRED or Cheq bank debit carries no card
+    // number — its `accountLast4` is the *savings* account — so without a pair
+    // there is nothing to render and nothing is guessed.
+    final isCardSettlement = MoneyLens.isCardSettlement(
+      t,
+      snapshot.confirmedSettlementFronts,
+    );
+    final pair = isCardSettlement
+        ? snapshot.settlementPairsByDebitSmsId[t.smsId]
+        : null;
+    final points = pair?.pointsPaise ?? 0;
+    final subtitle = !isCardSettlement
+        ? ''
+        : pair == null || pair.cardLast4 == null
+        ? 'Settles a card bill · not spend'
+        : points > 0
+        ? 'Settles card ${pair.cardLast4} · ${inr(points / 100.0)} from '
+              'points · not spend'
+        : 'Settles card ${pair.cardLast4} · not spend';
     return TxRow(
-      subtitle: isCardSettlement ? 'Settles a card bill · not spend' : '',
+      subtitle: subtitle,
       isCardSettlement: isCardSettlement,
+      settlementCardLast4: pair?.cardLast4,
+      settlementPointsPaise: pair == null ? null : points,
       name: d.name,
       category: d.categoryLabel,
       categoryKey: d.categoryKey,

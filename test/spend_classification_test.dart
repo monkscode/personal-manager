@@ -1,5 +1,6 @@
 import 'package:expense_insight/core/format.dart';
 import 'package:expense_insight/data/app_state.dart';
+import 'package:expense_insight/data/card_settlement_front_store.dart';
 import 'package:expense_insight/data/real_insights.dart';
 import 'package:expense_insight/data/sms_analysis_snapshot.dart';
 import 'package:expense_insight/data/sms_models.dart';
@@ -215,14 +216,18 @@ const _kSettlementBody =
     'Payment of [amount] towards your HDFC Credit Card debited from A/c '
     '[account]';
 
-SmsAnalysisSnapshot _reduced(List<ParsedTxn> history, DateTime now) =>
-    SmsAnalysisSnapshot.reduce(
-      history: history,
-      obligations: const [],
-      riskDecisions: const [],
-      configuredPlans: const [],
-      now: now,
-    );
+SmsAnalysisSnapshot _reduced(
+  List<ParsedTxn> history,
+  DateTime now, {
+  CardSettlementFronts settlementFronts = CardSettlementFronts.empty,
+}) => SmsAnalysisSnapshot.reduce(
+  history: history,
+  obligations: const [],
+  riskDecisions: const [],
+  configuredPlans: const [],
+  now: now,
+  settlementFronts: settlementFronts,
+);
 
 ParsedTxn _cardPurchase({
   required int amountPaise,
@@ -286,13 +291,13 @@ void _cardSettlementClassification() {
       expect(txn.instrument, PaymentInstrument.card);
       expect(txn.direction, TransactionDirection.debit);
 
-      expect(MoneyLens.isCardSettlement(txn), isTrue);
-      expect(MoneyLens.isSpend(txn), isFalse);
-      expect(MoneyLens.isEverydayCashSpend(txn), isFalse);
+      expect(MoneyLens.isCardSettlement(txn, const <String>{}), isTrue);
+      expect(MoneyLens.isSpend(txn, const <String>{}), isFalse);
+      expect(MoneyLens.isEverydayCashSpend(txn, const <String>{}), isFalse);
     });
   });
 
-  group('MoneyLens.isCardSettlement matches whole words only', () {
+  group('MoneyLens.isCardSettlement matches an exact key, not a substring', () {
     ParsedTxn debitTo(String merchant) => _txn(
       amountPaise: 250000,
       merchant: merchant,
@@ -301,26 +306,41 @@ void _cardSettlementClassification() {
     );
 
     test('an ordinary merchant whose name contains "cred" is still spend', () {
-      // `_norm` is lowercase plus whitespace collapse, so a substring test
-      // matched SACRED HEART SCHOOL. Under this change that would delete real
-      // money from the user's spend total.
+      // The old `\bcred\b` regex was word-anchored but still a substring test
+      // over the merchant, so it happened not to fire on SACRED HEART SCHOOL,
+      // INCREDIBLE INDIA or CREDAI. That hazard is gone by construction now:
+      // `isCardSettlement` never runs a pattern over the merchant at all, it
+      // only checks whether the merchant's exact normalised key is in the
+      // set the user confirmed. Passing `{'cred'}` here — not an empty set —
+      // is what still proves that: a confirmed front of exactly "cred" must
+      // not swallow a merchant whose name merely contains those letters.
       for (final name in const [
         'SACRED HEART SCHOOL',
         'INCREDIBLE INDIA',
         'CREDAI',
       ]) {
         final txn = debitTo(name);
-        expect(MoneyLens.isCardSettlement(txn), isFalse, reason: name);
-        expect(MoneyLens.isSpend(txn), isTrue, reason: name);
-        expect(MoneyLens.isEverydayCashSpend(txn), isTrue, reason: name);
+        expect(
+          MoneyLens.isCardSettlement(txn, {'cred'}),
+          isFalse,
+          reason: name,
+        );
+        expect(MoneyLens.isSpend(txn, {'cred'}), isTrue, reason: name);
+        expect(
+          MoneyLens.isEverydayCashSpend(txn, {'cred'}),
+          isTrue,
+          reason: name,
+        );
       }
     });
 
     test('a debit to CRED is a settlement on both lenses', () {
+      // 'CRED' normalises to the key 'cred', the same confirmed front used
+      // above, so this stays the positive control for that test.
       final txn = debitTo('CRED');
-      expect(MoneyLens.isCardSettlement(txn), isTrue);
-      expect(MoneyLens.isSpend(txn), isFalse);
-      expect(MoneyLens.isEverydayCashSpend(txn), isFalse);
+      expect(MoneyLens.isCardSettlement(txn, {'cred'}), isTrue);
+      expect(MoneyLens.isSpend(txn, {'cred'}), isFalse);
+      expect(MoneyLens.isEverydayCashSpend(txn, {'cred'}), isFalse);
     });
   });
 
@@ -344,13 +364,22 @@ void _cardSettlementClassification() {
       // `isCardSettlement` names the *debit* that leaves the bank. This is the
       // card's acknowledgement of the same event, and counting both is the
       // double count.
-      expect(MoneyLens.isCardSettlement(paymentReceived), isFalse);
-      expect(MoneyLens.isSpend(paymentReceived), isFalse);
-      expect(MoneyLens.isEverydayCashSpend(paymentReceived), isFalse);
+      expect(
+        MoneyLens.isCardSettlement(paymentReceived, const <String>{}),
+        isFalse,
+      );
+      expect(MoneyLens.isSpend(paymentReceived, const <String>{}), isFalse);
+      expect(
+        MoneyLens.isEverydayCashSpend(paymentReceived, const <String>{}),
+        isFalse,
+      );
     });
 
     test('and it is not a refund to the cycle estimator either', () {
-      final estimate = const CardCycleEstimator().estimate([paymentReceived]);
+      final estimate = const CardCycleEstimator().estimate(
+        [paymentReceived],
+        confirmedFronts: const <String>{},
+      );
       expect(estimate.cardRefundsPaise, 0);
     });
 
@@ -373,9 +402,11 @@ void _cardSettlementClassification() {
     test('a payment announced as "credited to your card" is still a payment',
         () {
       expect(isCardBillPayment(paymentCredited), isTrue);
-      expect(MoneyLens.isSpend(paymentCredited), isFalse);
+      expect(MoneyLens.isSpend(paymentCredited, const <String>{}), isFalse);
       expect(
-        const CardCycleEstimator().estimate([paymentCredited]).cardRefundsPaise,
+        const CardCycleEstimator()
+            .estimate([paymentCredited], confirmedFronts: const <String>{})
+            .cardRefundsPaise,
         0,
       );
     });
@@ -403,7 +434,11 @@ void _cardSettlementClassification() {
 
       for (final txn in [refund, cashback]) {
         expect(isCardBillPayment(txn), isFalse, reason: txn.smsId);
-        expect(MoneyLens.isSpend(txn), isTrue, reason: txn.smsId);
+        expect(
+          MoneyLens.isSpend(txn, const <String>{}),
+          isTrue,
+          reason: txn.smsId,
+        );
         expect(MoneyLens.signedSpendPaise(txn), -txn.amountPaise);
       }
     });
@@ -435,9 +470,12 @@ void _cardSettlementClassification() {
         ),
       ];
 
-      final estimate = const CardCycleEstimator().estimate(cardTxns);
+      final estimate = const CardCycleEstimator().estimate(
+        cardTxns,
+        confirmedFronts: const <String>{},
+      );
       final lensSum = cardTxns
-          .where(MoneyLens.isSpend)
+          .where((t) => MoneyLens.isSpend(t, const <String>{}))
           .fold<int>(0, (sum, t) => sum + MoneyLens.signedSpendPaise(t));
 
       expect(
@@ -473,14 +511,17 @@ void _cardSettlementClassification() {
 
       // The fixture proves itself: this row really is the shape the estimator
       // used to read as a purchase.
-      expect(MoneyLens.isCardSettlement(cardTxns[1]), isTrue);
+      expect(MoneyLens.isCardSettlement(cardTxns[1], const <String>{}), isTrue);
       expect(cardTxns[1].instrument, PaymentInstrument.card);
       expect(cardTxns[1].direction, TransactionDirection.debit);
       expect(cardTxns[1].type, isNot(TxnType.atm));
 
-      final estimate = const CardCycleEstimator().estimate(cardTxns);
+      final estimate = const CardCycleEstimator().estimate(
+        cardTxns,
+        confirmedFronts: const <String>{},
+      );
       final lensSum = cardTxns
-          .where(MoneyLens.isSpend)
+          .where((t) => MoneyLens.isSpend(t, const <String>{}))
           .fold<int>(0, (sum, t) => sum + MoneyLens.signedSpendPaise(t));
 
       expect(
@@ -604,23 +645,33 @@ void _refundNetting() {
     test('a refund after the bill was paid leaves that month negative', () {
       // Correct, and shown rather than floored: the money came back in a month
       // nothing was consumed, and flooring at zero drops the difference.
+      //
+      // The "settlement" row below used to be excluded by the hardcoded
+      // `\bcred\b` merchant regex. That list is gone, so the exclusion now
+      // requires the user's own confirmed answer -- passed here as
+      // `settlementFronts` -- or the row would count as ₹1000 of spend and
+      // this test would no longer be about refund netting at all.
       final i = computeRealInsights(
         _state,
-        snapshot: _reduced([
-          purchase,
-          _txn(
-            amountPaise: 100000,
-            merchant: 'CRED',
-            date: DateTime(2026, 9, 20),
-            smsId: 'settlement',
-            body: 'Rs.1000 debited from HDFC Bank ac',
-          ),
-          _cardRefund(
-            amountPaise: 40000,
-            date: DateTime(2026, 9, 25),
-            smsId: 'refund',
-          ),
-        ], DateTime(2026, 9, 30)),
+        snapshot: _reduced(
+          [
+            purchase,
+            _txn(
+              amountPaise: 100000,
+              merchant: 'CRED',
+              date: DateTime(2026, 9, 20),
+              smsId: 'settlement',
+              body: 'Rs.1000 debited from HDFC Bank ac',
+            ),
+            _cardRefund(
+              amountPaise: 40000,
+              date: DateTime(2026, 9, 25),
+              smsId: 'refund',
+            ),
+          ],
+          DateTime(2026, 9, 30),
+          settlementFronts: const CardSettlementFronts({'cred': true}),
+        ),
         nowOverride: DateTime(2026, 9, 30),
       );
 
@@ -633,42 +684,49 @@ void _planningBaseline() {
   group('Spec A — the planning baseline drops the settlement only', () {
     test('a card bill leaves everyday spending; ATM and SIP stay excluded', () {
       final july = DateTime(2026, 7, 10);
+      // The CRED row again needs the user's confirmed answer, not a merchant
+      // regex, to stay out of the baseline -- see the note in
+      // `_refundNetting` above.
       final i = computeRealInsights(
         _state,
-        snapshot: _reduced([
-          _txn(
-            amountPaise: 250000,
-            merchant: 'swiggy',
-            categoryKey: 'food',
-            date: july,
-            smsId: 'swiggy',
-            body: 'Rs.2500 debited from HDFC Bank ac',
-          ),
-          _txn(
-            amountPaise: 4500000,
-            merchant: 'CRED',
-            date: july,
-            smsId: 'settlement',
-            body: 'Rs.45000 debited from HDFC Bank ac',
-          ),
-          _txn(
-            amountPaise: 2000000,
-            merchant: 'main street atm',
-            date: july,
-            smsId: 'atm',
-            body: 'Rs.20000 withdrawn from HDFC Bank Card [account] at ATM',
-          ),
-          _txn(
-            amountPaise: 1000000,
-            type: TxnType.other,
-            merchant: 'groww invest tech',
-            date: july,
-            smsId: 'sip',
-            body:
-                'UPDATE: Rs.10000 debited from HDFC Bank ac. Info: ACH D- '
-                'GROWW INVEST TECH PR',
-          ),
-        ], DateTime(2026, 8, 15)),
+        snapshot: _reduced(
+          [
+            _txn(
+              amountPaise: 250000,
+              merchant: 'swiggy',
+              categoryKey: 'food',
+              date: july,
+              smsId: 'swiggy',
+              body: 'Rs.2500 debited from HDFC Bank ac',
+            ),
+            _txn(
+              amountPaise: 4500000,
+              merchant: 'CRED',
+              date: july,
+              smsId: 'settlement',
+              body: 'Rs.45000 debited from HDFC Bank ac',
+            ),
+            _txn(
+              amountPaise: 2000000,
+              merchant: 'main street atm',
+              date: july,
+              smsId: 'atm',
+              body: 'Rs.20000 withdrawn from HDFC Bank Card [account] at ATM',
+            ),
+            _txn(
+              amountPaise: 1000000,
+              type: TxnType.other,
+              merchant: 'groww invest tech',
+              date: july,
+              smsId: 'sip',
+              body:
+                  'UPDATE: Rs.10000 debited from HDFC Bank ac. Info: ACH D- '
+                  'GROWW INVEST TECH PR',
+            ),
+          ],
+          DateTime(2026, 8, 15),
+          settlementFronts: const CardSettlementFronts({'cred': true}),
+        ),
         nowOverride: DateTime(2026, 8, 15),
       );
 
@@ -732,8 +790,8 @@ void _recurringDepositClassification() {
             'at RD/[number]/PAYEE NAME. Avl Bal- [amount].',
       );
 
-      expect(MoneyLens.isSpend(rd), isFalse);
-      expect(MoneyLens.isEverydayCashSpend(rd), isFalse);
+      expect(MoneyLens.isSpend(rd, const <String>{}), isFalse);
+      expect(MoneyLens.isEverydayCashSpend(rd, const <String>{}), isFalse);
     });
 
     test('the older Info: MOB-RD form counts on neither lens', () {
@@ -745,8 +803,8 @@ void _recurringDepositClassification() {
             'Avbl Bal: [amount]. Info: MOB-RD/[number]/PAYEE NAME.',
       );
 
-      expect(MoneyLens.isSpend(mobRd), isFalse);
-      expect(MoneyLens.isEverydayCashSpend(mobRd), isFalse);
+      expect(MoneyLens.isSpend(mobRd, const <String>{}), isFalse);
+      expect(MoneyLens.isEverydayCashSpend(mobRd, const <String>{}), isFalse);
     });
 
     test('the marker does not fire on the word card', () {
@@ -757,8 +815,8 @@ void _recurringDepositClassification() {
             '05-08-26:22:03:27.Not U?',
       );
 
-      expect(MoneyLens.isSpend(purchase), isTrue);
-      expect(MoneyLens.isEverydayCashSpend(purchase), isTrue);
+      expect(MoneyLens.isSpend(purchase, const <String>{}), isTrue);
+      expect(MoneyLens.isEverydayCashSpend(purchase, const <String>{}), isTrue);
     });
   });
 }
