@@ -140,9 +140,27 @@ CREATE TABLE IF NOT EXISTS self_transfer_decisions (
 
   /// The user's answers to "is this merchant how you pay a card bill?", keyed
   /// by the normalised merchant so one answer covers every payment to that
-  /// front — including the ones that carry no card acknowledgement to pair
-  /// against. On the owner's device that is 8 of `cheq digital privat`'s 11
-  /// payments, Rs.3,17,559 that pairing alone cannot reach.
+  /// front — including any that carry no card acknowledgement to pair
+  /// against. That is the actual reason this table is keyed on the merchant
+  /// and not on `sms_id`: the design does not depend on how many of a
+  /// merchant's payments happen to pair, only on there being one name to
+  /// answer for.
+  ///
+  /// This docstring used to put a number on the ones pairing cannot reach:
+  /// "8 of `cheq digital privat`'s 11 payments, Rs.3,17,559." That number came
+  /// from the design spec and does not survive re-measurement — the same
+  /// corpus check that found the spec's overall pairing count wrong (37
+  /// claimed, 73 actual; see `card_settlement_pairer.dart`'s module
+  /// docstring) also changes how many of any one merchant's payments still
+  /// need the merchant-keyed fallback, because more of them now pair
+  /// directly. Re-measured 2026-08-09 against the same
+  /// `.private/transactions.db` export, by the same method
+  /// (`CardSettlementPairer().pairs()` against `TransactionRepository.allSince`):
+  /// only 2 of `cheq digital privat`'s 11 payments have no ack pairing
+  /// (Rs.19,086), and across all 58 rows a confirmed front settles, only 6
+  /// have no ack pairing at all (Rs.38,036.98). See
+  /// `.superpowers/sdd/2026-08-09-card-settlement-pairing/final-fix-report.md`
+  /// (gitignored, owner-local) for the query.
   ///
   /// `confirmed = 0` is a real answer. `shree arbuda statio` — a stationery
   /// shop — paired with an acknowledgement once, by coincidence; without a

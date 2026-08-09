@@ -2,11 +2,14 @@
 // front is the user saying so, and that answer has to outlive the next scan.
 //
 // Keyed on the merchant, not on an sms_id — which is the whole point. One
-// answer for `cheq digital privat` settles all 11 of its payments, including
-// the 8 that carry no card acknowledgement to pair against (spec fact 9,
-// Rs.3,17,559). A rejection is stored just as durably: `shree arbuda statio`
-// paired once by coincidence, and without a stored "no" it would be re-proposed
-// after every scan and could never be safely acted on.
+// answer for `cheq digital privat` settles all 11 of its payments, whether or
+// not each one happens to carry a card acknowledgement to pair against. The
+// design spec's fact 9 put a number on the ones pairing cannot reach ("8...
+// Rs.3,17,559"); re-measured 2026-08-09 it is 2 of the 11, Rs.19,086 -- see
+// lib/data/sms_storage_schema.dart's createCardSettlementFrontsTable
+// docstring for the figures. A rejection is stored just as durably: `shree
+// arbuda statio` paired once by coincidence, and without a stored "no" it
+// would be re-proposed after every scan and could never be safely acted on.
 import 'package:expense_insight/data/card_settlement_front_store.dart';
 import 'package:expense_insight/data/sms_database.dart';
 import 'package:flutter_test/flutter_test.dart';

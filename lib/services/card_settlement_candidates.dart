@@ -58,13 +58,26 @@ class CardSettlementCandidate {
 /// heard of carrying Rs.5,35,438.
 ///
 /// *Adjacent* — the merchant is a prefix of a confirmed front, or is prefixed
-/// by one. Weak evidence, and it exists for one measured reason: the bank
-/// truncates the same payee at four different lengths (`cheq`,
+/// by one. Weak evidence, kept for a design reason: the bank really does
+/// truncate the same payee at four different lengths (`cheq`,
 /// `cheq digital privat`, `cheq digital private limi`,
-/// `cheq digital private limited`) and **the truncations do not all pair**.
-/// `cheq` — Rs.1,90,417, the largest single card payment on the device — pairs
-/// with nothing, and a pairing-only design leaves 25% of all card-bill money
-/// counted as shopping.
+/// `cheq digital private limited`), and a spelling that genuinely never pairs
+/// on its own could only ever be reached by resemblance to one that does.
+///
+/// **This paragraph used to claim more than that, and the claim was wrong.**
+/// It said "the truncations do not all pair" and that `cheq` — Rs.1,90,417,
+/// the largest single card payment on the device — "pairs with nothing," so a
+/// pairing-only design would leave 25% of all card-bill money counted as
+/// shopping. `test/card_settlement_corpus_test.dart` disproves it: round 1
+/// (`CardSettlementFronts.empty`) returns 12 candidates, every single one via
+/// `paired`, and its asserted set includes all four `cheq` spellings —
+/// `cheq`'s own Rs.1,90,417 debit pairs directly with an ICICI Bank
+/// acknowledgement. On this corpus adjacency contributed zero of the 12;
+/// pairing alone reached everything, including the row this paragraph said it
+/// couldn't. Kept retracted-but-visible rather than quietly deleted, the way
+/// `CardSettlementPairer`'s window correction is (see that file's module
+/// docstring) — the design reason above still holds on its own logic, it
+/// currently just has no measured example proving it was ever needed.
 ///
 /// Adjacency is emphatically **not** the auto-prefix rule that was measured and
 /// rejected. Letting pairing learn names unsupervised reached 20 of 21 leaked

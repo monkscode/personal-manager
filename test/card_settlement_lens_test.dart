@@ -51,8 +51,13 @@ void main() {
   });
 
   test('a confirmed front settles with no acknowledgement anywhere', () {
-    // Rs.3,17,559 of the leak has no card-side ack to pair with. Only a
-    // remembered merchant reaches it.
+    // Some of what a confirmed front settles has no card-side ack to pair
+    // with at all -- re-measured 2026-08-09 at 6 of the 58 settled rows,
+    // Rs.38,036.98 (see sms_storage_schema.dart's
+    // createCardSettlementFrontsTable docstring; the spec's original
+    // Rs.3,17,559 does not survive the corpus re-measurement documented in
+    // card_settlement_pairer.dart). Only a remembered merchant reaches rows
+    // like these.
     final txn = _bankDebit(amountPaise: 19041680, merchant: 'Cheq');
 
     expect(MoneyLens.isSpend(txn, {'cheq'}), isFalse);

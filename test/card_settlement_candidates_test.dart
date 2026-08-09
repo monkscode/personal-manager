@@ -2,10 +2,19 @@
 //
 // Source 1 is a debit that paired with a card acknowledgement -- strong
 // evidence, and how Cheq Digital was found at all. Source 2 is string
-// adjacency to an already-confirmed front, and exists for exactly one reason:
-// the bank truncates the same payee at four different lengths, and the
-// untruncated spellings do not all pair. `cheq` -- Rs.1,90,417, the single
-// largest card payment on the device -- never pairs with anything.
+// adjacency to an already-confirmed front, kept for a design reason: the bank
+// truncates the same payee at four different lengths, and a spelling that
+// genuinely never pairs on its own could only be reached by resemblance to
+// one that does.
+//
+// That design reason currently has no measured example behind it. This file
+// used to claim `cheq` -- Rs.1,90,417, the single largest card payment on the
+// device -- "never pairs with anything." False on the real corpus:
+// test/card_settlement_corpus_test.dart proves `cheq`'s own debit pairs
+// directly with a card acknowledgement, and all four `cheq` spellings arrive
+// via Source 1 (paired), not Source 2. See
+// lib/services/card_settlement_candidates.dart's module docstring for the
+// full correction.
 //
 // Source 2 is NOT a prefix-matching rule. Letting pairing learn merchant names
 // unsupervised was measured and rejected: it erased 11 innocent rows, because
@@ -121,8 +130,13 @@ void main() {
   });
 
   test('a truncated spelling of a confirmed front is proposed', () {
-    // `cheq` never pairs with anything, and it is Rs.1,90,417 -- the largest
-    // single card payment on the device. Only adjacency reaches it.
+    // Rs.1,90,417 is the largest single card payment on the device. This call
+    // passes no acknowledgement alongside the debit, so pairing has nothing
+    // to match against here and adjacency is the only way this synthetic
+    // scenario reaches it. On the real corpus `cheq` does pair -- see
+    // lib/services/card_settlement_candidates.dart's module docstring -- so
+    // this test proves the adjacency mechanism works, not that `cheq` never
+    // pairs in real data.
     final found = finder.find(
       [
         _debit(

@@ -4,11 +4,18 @@
 // left the bank. Pairing them is what lets the app say which card a CRED or
 // Cheq payment settled, and how much of the bill was paid with reward points.
 //
-// The window is same-day with a Rs.500 cap because that is the only setting
-// measured at 100% precision over the owner's 1,026 bank debits (37 pairs, 0
-// false positives). At +-2 days it drops to 95%, and the two rows it wrongly
-// swallows are ordinary payees: Corner Store Rs.65 and a private payee
-// Rs.30.
+// The window is same-day with a Rs.500 cap. The design spec originally
+// claimed this was the only setting measured at 100% precision over the
+// owner's 1,026 bank debits (37 pairs, 0 false positives), and that +-2 days
+// drops to 95% by wrongly swallowing two ordinary payees: Corner Store Rs.65
+// and a private payee Rs.30. That measurement does not reproduce -- the
+// same-day/Rs.500 setting actually returns 73 pairs on the identical corpus,
+// not 37, and precision on the 73 is UNMEASURED (nobody has hand-labelled
+// them). The +-2 day row, including the Corner Store and private-payee
+// examples, was not re-checked either way. See `CardSettlementPairer`'s
+// module docstring (`lib/services/card_settlement_pairer.dart`) for the full
+// correction and the evidence trail. No precision percentage may be quoted
+// for either window until a fresh measurement produces one.
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/card_settlement_pairer.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,7 +100,11 @@ void main() {
 
   test('a debit a day away from the acknowledgement does not pair', () {
     // Corner Store Rs.65 on 9 Nov 2024 sits one day from a Rs.115
-    // acknowledgement. At +-2 days it would be erased as a card payment.
+    // acknowledgement. The design spec claimed a +-2 day window would wrongly
+    // erase it as a card payment -- unverified by this branch's corpus
+    // re-measurement (see CardSettlementPairer's module docstring). This test
+    // only needs the same-day window to reject it, which does not depend on
+    // that +-2 day claim being true.
     final pairs = pairer.pairs([
       _txn(
         amountPaise: 6500,

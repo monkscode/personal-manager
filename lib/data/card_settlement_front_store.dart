@@ -5,8 +5,17 @@ import 'package:sqflite/sqflite.dart';
 ///
 /// Keyed by merchant and not by `sms_id` — the one deliberate departure from
 /// [SelfTransferDecisionStore], and the reason this design works. One answer
-/// for `cheq digital privat` settles all 11 of its payments, including the 8
-/// with no card acknowledgement to pair against.
+/// for `cheq digital privat` settles all 11 of its payments, whether or not
+/// any individual payment happens to pair with a card acknowledgement —
+/// that is the point of keying on the merchant rather than the payment.
+///
+/// This docstring used to put a number on the ones pairing cannot reach ("the
+/// 8 with no card acknowledgement to pair against"). Re-measured 2026-08-09
+/// against `.private/transactions.db`, it is 2 of the 11, not 8 — see
+/// `sms_storage_schema.dart`'s `createCardSettlementFrontsTable` docstring for
+/// the figures and `card_settlement_pairer.dart`'s module docstring for why
+/// the spec's pairing counts do not reproduce. The design does not depend on
+/// which number is right.
 ///
 /// [isDecided] is what stops a merchant being proposed twice; [isConfirmed] is
 /// what stops the money being counted as spend. A rejected merchant is decided
