@@ -300,14 +300,15 @@ void main() {
         expect(snapshot.hasData, isTrue);
         expect(snapshot.commitments, hasLength(1));
 
-        // Four indexed reads: transactions history + active obligations + risk
-        // decisions + self-transfer decisions. The count is pinned so the load
-        // stays a fixed number of reads and never becomes one-per-row.
-        expect(counting.queryCalls, 4);
+        // Five indexed reads: transactions history + active obligations + risk
+        // decisions + self-transfer decisions + card settlement fronts. The
+        // count is pinned so the load stays a fixed number of reads and never
+        // becomes one-per-row.
+        expect(counting.queryCalls, 5);
 
         // Re-reading the cached snapshot performs no further DB work.
         container.read(transactionsNotifierProvider);
-        expect(counting.queryCalls, 4);
+        expect(counting.queryCalls, 5);
       },
     );
 
@@ -388,8 +389,10 @@ void main() {
         fundedPaise: 500000,
       );
 
-      // Reload performs the same four reads again
-      expect(counting.queryCalls, initialCalls + 4);
+      // Reload performs the same five reads again: transactions history +
+      // active obligations + risk decisions + self-transfer decisions + card
+      // settlement fronts.
+      expect(counting.queryCalls, initialCalls + 5);
 
       final reloaded = await container.read(
         transactionsNotifierProvider.future,
@@ -460,8 +463,10 @@ void main() {
       );
       await notifier.saveRiskDecision(decision);
 
-      // Reload performs the same four reads again
-      expect(counting.queryCalls, initialCalls + 4);
+      // Reload performs the same five reads again: transactions history +
+      // active obligations + risk decisions + self-transfer decisions + card
+      // settlement fronts.
+      expect(counting.queryCalls, initialCalls + 5);
 
       final reloaded = await container.read(
         transactionsNotifierProvider.future,
