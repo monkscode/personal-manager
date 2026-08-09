@@ -11,7 +11,12 @@
 // case that has to render correctly: a debit that is a settlement by its own
 // wording (the self-evidencing body rule `MoneyLens.isCardSettlement` also
 // checks) but has no acknowledgement anywhere in history to pair with -- so
-// nothing may be invented for it.
+// nothing may be invented for it. `cred-debit-no-card-ack` closes the third
+// case, and it is not hypothetical: a genuine pair whose acknowledgement
+// itself carries no card number. Task 6 hit exactly this on the review screen
+// and shipped a literal "null" into a sentence the user reads -- collapsing
+// `pair == null || pair.cardLast4 == null` down to just `pair == null` stays
+// green everywhere else and only this fixture would catch it.
 //
 // `TxRow` carries no `smsId`, so rows are located by their unique rendered
 // amount label -- the same string `real_insights.dart` builds via `inr()` --
@@ -103,12 +108,36 @@ final _cheqDebit = _txn(
       'A/c XX4501',
 );
 
+// A genuine pair -- same local day as its acknowledgement, Rs.20 apart, well
+// inside the pairer's Rs.500 cap -- whose acknowledgement itself carries no
+// card number. The pair is known; the card is not, and none may be guessed.
+final _credDebitNoCardAck = _txn(
+  smsId: 'cred-debit-no-card-ack',
+  amountPaise: 150000,
+  date: DateTime(2026, 8, 10),
+  merchant: 'CRED Club',
+  accountLast4: '4501',
+  body: 'Sent [amount]\nFrom HDFC Bank A/C [account]\nTo CRED Club',
+);
+final _credAckNoCard = _txn(
+  smsId: 'cred-ack-no-card',
+  amountPaise: 152000,
+  date: DateTime(2026, 8, 10),
+  direction: TransactionDirection.credit,
+  instrument: PaymentInstrument.card,
+  // No accountLast4 -- the acknowledgement itself does not name the card.
+  body:
+      'DEAR HDFCBANK CARDMEMBER, PAYMENT OF [amount] RECEIVED TOWARDS '
+      'YOUR CREDIT CARD ENDING WITH [number]',
+);
+
 // The rendered amount label each fixture's activity row must carry --
 // `real_insights.dart`'s `txRowFor` builds it as `'$sign${inr(amountPaise /
 // 100.0)}'` -- used to find a row without `TxRow` needing to carry a `smsId`.
 final _amountLabelBySmsId = {
   _credDebit.smsId: '-${inr(_credDebit.amountPaise / 100.0)}',
   _cheqDebit.smsId: '-${inr(_cheqDebit.amountPaise / 100.0)}',
+  _credDebitNoCardAck.smsId: '-${inr(_credDebitNoCardAck.amountPaise / 100.0)}',
 };
 
 TxRow _activityRowFor(Insights insights, String smsId) {
@@ -136,7 +165,13 @@ void main() {
   final insights = computeRealInsights(
     _state,
     snapshot: SmsAnalysisSnapshot.reduce(
-      history: [_credDebit, _credAck, _cheqDebit],
+      history: [
+        _credDebit,
+        _credAck,
+        _cheqDebit,
+        _credDebitNoCardAck,
+        _credAckNoCard,
+      ],
       obligations: const [],
       riskDecisions: const [],
       configuredPlans: const [],
@@ -166,11 +201,32 @@ void main() {
     expect(row.subtitle, 'Settles a card bill · not spend');
   });
 
+  test(
+    'a paired settlement row whose acknowledgement carried no card number '
+    'still falls back',
+    () {
+      // The pair is real -- same day, Rs.20 apart, inside the cap -- but the
+      // acknowledgement itself never named a card. Nothing may be guessed, and
+      // nothing may render the absence as the literal string "null".
+      final row = _activityRowFor(insights, 'cred-debit-no-card-ack');
+
+      expect(row.isCardSettlement, isTrue);
+      expect(row.settlementCardLast4, isNull);
+      expect(row.subtitle, 'Settles a card bill · not spend');
+      expect(row.subtitle, isNot(contains('null')));
+    },
+  );
+
   test('a settled row stays visible and out of the month total', () {
     expect(_activityRowIds(insights), contains('cred-debit'));
-    // `Insights` exposes the month total as a formatted label, not raw paise
-    // -- `spentThisMonthLabel` is the field `real_insights.dart` actually
-    // derives `spentThisMonthPaise` into for callers.
+    // Two checks, not one: `spentThisMonthCount` is the exact int length of
+    // the spend set -- it proves the fold ran over an empty list, not just
+    // that it rounded to a display figure that reads as zero.
+    // `spentThisMonthLabel` is the formatted string the user actually sees --
+    // `real_insights.dart` derives it from the same paise total `inr()`
+    // rounds to the nearest rupee, so the label alone would still read "₹0"
+    // for anything in (-50, 50) paise. Both together prove the exact claim.
+    expect(insights.spentThisMonthCount, 0);
     expect(insights.spentThisMonthLabel, inr(0));
   });
 }
