@@ -345,6 +345,7 @@ class SmsAnalysisSnapshot {
       anchor: matcherAnchor,
       targetMonth: targetMonth,
       confirmedFronts: confirmedFronts,
+      settlementPairs: settlementPairs,
     );
 
     const cash = CashCoverageMetrics();

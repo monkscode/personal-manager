@@ -6,6 +6,7 @@ import 'package:expense_insight/data/obligation_models.dart';
 import 'package:expense_insight/data/sms_analysis_snapshot.dart';
 import 'package:expense_insight/data/sms_models.dart';
 import 'package:expense_insight/services/card_cycle_estimator.dart';
+import 'package:expense_insight/services/card_settlement_pairer.dart';
 import 'package:expense_insight/services/cash_coverage_metrics.dart';
 import 'package:expense_insight/services/forecast_adapter.dart';
 import 'package:expense_insight/services/forecast_reconciliation_engine.dart';
@@ -149,6 +150,7 @@ List<ReconciliationItem> build({
   DateTime? targetMonth,
   BalanceAnchor? anchor,
   Set<String> confirmedFronts = _defaultConfirmedFronts,
+  Map<String, CardSettlementPair> settlementPairs = const {},
 }) => _matcher.buildItems(
   actuals: actuals,
   obligations: obligations,
@@ -159,6 +161,7 @@ List<ReconciliationItem> build({
   anchor: anchor ?? _anchor,
   targetMonth: targetMonth ?? _target,
   confirmedFronts: confirmedFronts,
+  settlementPairs: settlementPairs,
 );
 
 BalanceAnchor anchorFor(DateTime month) => BalanceAnchor(
@@ -1041,10 +1044,15 @@ void main() {
   });
 
   group('every observed card payment reaches the ledger', () {
+    /// [cycleConfigured] false is the shape the app actually ships: nothing in
+    /// `lib/` constructs a [CardCycle], so no estimate ever carries a
+    /// `dueDate`. Every other test here supplies one, which only the guess
+    /// path needs.
     CardCycleEstimate card({
       required String last4,
       required int statementPaise,
       int dueDay = 20,
+      bool cycleConfigured = true,
     }) => CardCycleEstimate(
       cardLast4: last4,
       cardCycleKey: 'card:$last4:2026-08',
@@ -1054,8 +1062,8 @@ void main() {
       statementEventAmountPaise: statementPaise,
       statementTotalPaise: statementPaise,
       paymentStatus: ReconciliationPaymentStatus.unpaid,
-      dueDate: DateTime(2026, 8, dueDay),
-      needsCycleSetup: false,
+      dueDate: cycleConfigured ? DateTime(2026, 8, dueDay) : null,
+      needsCycleSetup: !cycleConfigured,
       confidence: 0.9,
     );
 
@@ -1141,6 +1149,127 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    /// The pair as `SmsAnalysisSnapshot` hands it over: the bank debit, and the
+    /// card's own acknowledgement of the same bill. Only [ack.accountLast4] is
+    /// read here, so the ack carries no more than it needs to.
+    Map<String, CardSettlementPair> settlement(
+      ParsedTxn debit, {
+      required String? ackCardLast4,
+    }) => {
+      debit.smsId: CardSettlementPair(
+        debit: debit,
+        ack: actual(
+          amountPaise: debit.amountPaise,
+          date: debit.txnDate,
+          direction: TransactionDirection.credit,
+          instrument: PaymentInstrument.card,
+          merchant: null,
+          categoryKey: 'card_payment',
+          accountLast4: ackCardLast4,
+          smsId: 'ack-${debit.smsId}',
+        ),
+      ),
+    };
+
+    test('the card that acknowledged the bill owns the payment, even when the '
+        'amounts cannot tell two cards apart', () {
+      final pay = payment(amountPaise: 3000000, day: 15, smsId: 'pay-x');
+      final items = build(
+        cards: [
+          card(last4: '4321', statementPaise: 3000000),
+          card(last4: '9876', statementPaise: 3000000),
+        ],
+        actuals: [pay],
+        settlementPairs: settlement(pay, ackCardLast4: '9876'),
+      );
+
+      final item = items.singleWhere((i) => i.id == 'cardpay:pay-x');
+      expect(item.cardCycleKey, 'card:9876:2026-08');
+      expect(item.needsAttributionReview, isFalse);
+    });
+
+    test('the acknowledgement outranks a matching amount', () {
+      // Reward points mean the bank debit is routinely smaller than the bill,
+      // so "the amount looks like card 4321's statement" is evidence the card
+      // itself can overrule — and here does.
+      final pay = payment(amountPaise: 2000000, day: 15, smsId: 'pay-y');
+      final items = build(
+        cards: [
+          card(last4: '4321', statementPaise: 2000000),
+          card(last4: '9876', statementPaise: 7500000),
+        ],
+        actuals: [pay],
+        settlementPairs: settlement(pay, ackCardLast4: '9876'),
+      );
+
+      final item = items.singleWhere((i) => i.id == 'cardpay:pay-y');
+      expect(item.cardCycleKey, 'card:9876:2026-08');
+      expect(item.needsAttributionReview, isFalse);
+    });
+
+    test('the acknowledgement names the cycle with no cycle configured at all',
+        () {
+      // The production shape. With no `dueDate` on any estimate the guess below
+      // cannot start, so before the acknowledgement was consulted every card
+      // bill payment reached the ledger with a null cycle.
+      final pay = payment(amountPaise: 3000000, day: 15, smsId: 'pay-v');
+      final items = build(
+        cards: [
+          card(
+            last4: '4321',
+            statementPaise: 3000000,
+            cycleConfigured: false,
+          ),
+          card(
+            last4: '9876',
+            statementPaise: 3000000,
+            cycleConfigured: false,
+          ),
+        ],
+        actuals: [pay],
+        settlementPairs: settlement(pay, ackCardLast4: '9876'),
+      );
+
+      final item = items.singleWhere((i) => i.id == 'cardpay:pay-v');
+      expect(item.cardCycleKey, 'card:9876:2026-08');
+      expect(item.needsAttributionReview, isFalse);
+    });
+
+    test('an acknowledgement naming no card leaves the guess alone', () {
+      // Real: the parser admits an acknowledgement on 2 of 5 signals, so a
+      // genuinely paired ack can carry a null accountLast4.
+      final pay = payment(amountPaise: 3000000, day: 15, smsId: 'pay-z');
+      final items = build(
+        cards: [
+          card(last4: '4321', statementPaise: 3000000),
+          card(last4: '9876', statementPaise: 3000000),
+        ],
+        actuals: [pay],
+        settlementPairs: settlement(pay, ackCardLast4: null),
+      );
+
+      final item = items.singleWhere((i) => i.id == 'cardpay:pay-z');
+      expect(item.cardCycleKey, isNull);
+      expect(item.needsAttributionReview, isTrue);
+    });
+
+    test('an acknowledgement naming a card no cycle knows leaves the guess '
+        'alone', () {
+      final pay = payment(amountPaise: 3000000, day: 15, smsId: 'pay-w');
+      final items = build(
+        cards: [
+          card(last4: '4321', statementPaise: 3000000),
+          card(last4: '9876', statementPaise: 3000000),
+        ],
+        actuals: [pay],
+        settlementPairs: settlement(pay, ackCardLast4: '5555'),
+      );
+
+      final item = items.singleWhere((i) => i.id == 'cardpay:pay-w');
+      expect(item.cardCycleKey, isNull);
+      expect(item.needsAttributionReview, isTrue);
     });
 
     test('a single payment in a cycle still settles its statement', () {
